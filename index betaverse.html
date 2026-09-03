@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Betaverse — OOH Site Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#12172B; --ink-2:#1B2140; --paper:#FAF8F1; --paper-2:#F1ECE0; --card:#FFFFFF;
+  --border:#E4DFCF; --border-2:#D8D2C4; --slate:#6B7280; --amber:#F5A623; --amber-dark:#C97F0E;
+  --green:#1B7A43; --green-bg:#E7F3EC; --red:#C0392B; --red-bg:#FBEAE8;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+body{margin:0; font-family:'IBM Plex Sans',sans-serif; background:var(--paper); color:var(--ink); padding-bottom:40px;}
+h1,h2,h3{font-family:'Oswald',sans-serif; margin:0;}
+.appbar{background:var(--ink); color:var(--paper); padding:16px 20px; display:flex; align-items:center; gap:10px;}
+.appbar .name{font-family:'Oswald'; font-size:18px; font-weight:700;}
+.appbar .name span{color:var(--amber);}
+.appbar .sub{font-size:11px; color:#9AA0B8;}
+.wrap{max-width:640px; margin:0 auto; padding:16px;}
+.card{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px; margin-bottom:16px; box-shadow:0 2px 10px rgba(18,23,43,.04);}
+.card h2{font-size:16px; text-transform:uppercase; letter-spacing:.03em;}
+.field{margin-top:14px;}
+.field label{display:block; font-size:12px; font-weight:700; color:var(--slate); text-transform:uppercase; letter-spacing:.03em; margin-bottom:6px;}
+.field input, .field select, .field textarea{width:100%; padding:12px; border:1.5px solid var(--border-2); border-radius:10px; font-size:15px; font-family:inherit; background:var(--paper); color:var(--ink);}
+.field input:focus, .field select:focus, .field textarea:focus{outline:none; border-color:var(--amber);}
+.btn{display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:14px 20px; border-radius:11px; border:none; font-weight:700; font-size:15px; cursor:pointer; transition:transform .12s cubic-bezier(.34,1.56,.64,1);}
+.btn:active{transform:scale(.96);}
+.btn-primary{background:linear-gradient(135deg,var(--amber),var(--amber-dark)); color:#fff; box-shadow:0 4px 14px rgba(245,166,35,.35);}
+.btn-dark{background:var(--ink); color:#fff;}
+.btn-outline{background:var(--card); color:var(--ink); border:1.5px solid var(--border-2);}
+.btn-block{width:100%;}
+.btn:disabled{opacity:.5; cursor:not-allowed;}
+.req-mark{color:var(--red);}
+.spin{display:inline-block; width:16px; height:16px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.toast{position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff; padding:12px 20px; border-radius:30px; font-size:13px; font-weight:600; z-index:500; display:none; max-width:90%; text-align:center;}
+.toast.err{background:var(--red);}
+.category-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px;}
+.category-card{border:1.5px solid var(--border-2); border-radius:12px; padding:16px 10px; text-align:center; cursor:pointer; background:var(--card); transition:transform .12s, border-color .15s;}
+.category-card.sel{border-color:var(--amber); background:var(--paper-2); transform:scale(1.02);}
+.category-card .icon{font-size:26px;}
+.category-card .label{font-size:12px; font-weight:700; margin-top:6px;}
+.menu-choice{border:1.5px solid var(--border-2); border-radius:14px; padding:20px; margin-bottom:14px; cursor:pointer; background:var(--card);}
+.menu-choice h3{font-size:17px;}
+.menu-choice p{font-size:13px; color:var(--slate); margin:6px 0 0;}
+.geo-status{padding:10px 12px; border-radius:10px; font-size:13px; font-weight:600;}
+.geo-status.pending{background:var(--red-bg); color:var(--red);}
+.geo-status.got{background:var(--green-bg); color:var(--green);}
+.photo-box{border:1.5px dashed var(--border-2); border-radius:12px; padding:16px; text-align:center;}
+.photo-box img{max-width:100%; max-height:220px; border-radius:8px; margin-top:10px; display:none;}
+.lock-note{font-size:12px; color:var(--red); margin-top:8px; font-weight:600;}
+.locked{opacity:.4; pointer-events:none;}
+.measure-canvas-wrap{position:relative; width:100%; margin-top:10px; touch-action:none;}
+.measure-canvas-wrap canvas{width:100%; border-radius:8px; display:block;}
+.measure-tag{position:absolute; background:var(--ink); color:#fff; font-size:10px; padding:2px 6px; border-radius:6px; pointer-events:none; transform:translate(-50%,-130%);}
+.measure-hint{font-size:12px; color:var(--slate); margin-top:8px; line-height:1.5;}
+.tab-toggle{display:flex; gap:8px; margin-top:14px;}
+.tab-toggle button{flex:1; padding:10px; border-radius:10px; border:1.5px solid var(--border-2); background:var(--card); font-weight:700; font-size:13px; cursor:pointer;}
+.tab-toggle button.active{background:var(--ink); color:#fff; border-color:var(--ink);}
+.result-box{background:var(--paper-2); border-radius:10px; padding:14px; margin-top:10px; font-size:13px; line-height:1.7;}
+.result-box b{display:block; font-size:22px; font-family:'Oswald'; color:var(--ink); margin-bottom:2px;}
+.id-badge{background:var(--ink); color:var(--amber); font-family:'IBM Plex Mono',monospace; font-weight:700; padding:10px 16px; border-radius:10px; text-align:center; font-size:18px; letter-spacing:.05em; margin-top:10px;}
+.detail-row{display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed var(--border-2); font-size:13px;}
+.detail-row span:first-child{color:var(--slate);}
+.detail-row span:last-child{font-weight:600;}
+.status-pill{display:inline-block; padding:4px 12px; border-radius:20px; font-size:11px; font-weight:700; text-transform:uppercase;}
+.status-pill.pending{background:#FFF4E5; color:var(--amber-dark);}
+.status-pill.verified{background:var(--green-bg); color:var(--green);}
+.gate-screen{max-width:380px; margin:60px auto; padding:0 20px; text-align:center;}
+.gate-screen .icon{font-size:44px;}
+</style>
+</head>
+<body>
+
+<div id="screen-gate" class="gate-screen">
+  <div class="icon">📐</div>
+  <h1 style="margin-top:10px;">BETAVERSE</h1>
+  <p style="color:var(--slate); font-size:13px; margin-top:6px;">Outdoor Ad Site Audit — enter the access code to continue</p>
+  <div class="field" style="margin-top:24px; text-align:left;">
+    <label>Access Code</label>
+    <input type="password" id="gateCode" placeholder="Enter code">
+  </div>
+  <button class="btn btn-primary btn-block" style="margin-top:14px;" onclick="checkGate()" id="gateBtn">Continue</button>
+  <div id="gateError" style="color:var(--red); font-size:13px; margin-top:10px; display:none;"></div>
+</div>
+
+<div id="screen-app" style="display:none;">
+  <div class="appbar">
+    <div>
+      <div class="name">BETA<span>VERSE</span></div>
+      <div class="sub">Outdoor Ad Site Audit · v1.0.0</div>
+    </div>
+  </div>
+  <div class="wrap" id="mainWrap"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SCRIPT_URL = "PASTE_YOUR_BETAVERSE_APPS_SCRIPT_URL_HERE";
+function configured(){ return SCRIPT_URL && SCRIPT_URL.indexOf('PASTE_YOUR') === -1; }
+function toast(msg, isErr){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast' + (isErr?' err':''); t.style.display='block';
+  clearTimeout(t._h); t._h = setTimeout(()=>t.style.display='none', 3200);
+}
+async function fetchWithTimeout(url, opts, ms){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), ms || 8000);
+  return fetch(url, Object.assign({}, opts, {signal:controller.signal})).finally(()=>clearTimeout(timer));
+}
+function deviceInfo(){
+  return {ua: navigator.userAgent, platform: navigator.platform||''};
+}
+function logClientError(message, stack, source){
+  try{
+    if(!configured()) return;
+    fetch(SCRIPT_URL, {method:'POST', body: JSON.stringify({
+      action:'logError', message:String(message||'').slice(0,500), stack:String(stack||'').slice(0,1500),
+      source:source||'window', url:location.href, device:JSON.stringify(deviceInfo()), phone: CHECKIN_PHONE||''
+    })}).catch(()=>{});
+  }catch(_e){}
+}
+window.addEventListener('error', e=>logClientError(e.message, e.error&&e.error.stack, 'window.onerror'));
+window.addEventListener('unhandledrejection', e=>logClientError('Unhandled rejection: '+(e.reason&&e.reason.message||e.reason), e.reason&&e.reason.stack, 'unhandledrejection'));
+
+/* ---- Access gate ---- */
+function checkGate(){
+  const code = document.getElementById('gateCode').value;
+  const btn = document.getElementById('gateBtn');
+  const err = document.getElementById('gateError');
+  err.style.display='none';
+  if(!code){ err.textContent='Enter the access code.'; err.style.display='block'; return; }
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span> Checking…';
+  const done = (ok)=>{
+    btn.disabled=false; btn.innerHTML='Continue';
+    if(ok){
+      try{ sessionStorage.setItem('betaverse_gate_ok','1'); }catch(_e){}
+      document.getElementById('screen-gate').style.display='none';
+      document.getElementById('screen-app').style.display='block';
+      renderMainMenu();
+    } else {
+      err.textContent='Incorrect code — please try again.'; err.style.display='block';
+    }
+  };
+  if(!configured()){ done(true); return; } // demo mode if backend not yet configured
+  fetchWithTimeout(`${SCRIPT_URL}?action=checkAccessCode&code=${encodeURIComponent(code)}`, {}, 8000)
+    .then(r=>r.json()).then(j=>done(j.success)).catch(()=>{ err.textContent='Could not verify — check your connection.'; err.style.display='block'; btn.disabled=false; btn.innerHTML='Continue'; });
+}
+(function(){
+  try{ if(sessionStorage.getItem('betaverse_gate_ok')==='1'){
+    document.getElementById('screen-gate').style.display='none';
+    document.getElementById('screen-app').style.display='block';
+  } }catch(_e){}
+})();
+
+/* ---- Downscale helper (same pattern as FieldAudit) ---- */
+function downscale(file, cb){
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const maxW = 1280;
+      const scale = Math.min(1, maxW/img.width);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width*scale; canvas.height = img.height*scale;
+      canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+      cb(canvas.toDataURL('image/jpeg',0.85));
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+function stampPhoto(base64, lines){
+  return new Promise((resolve)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width; canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img,0,0);
+      const fontSize = Math.max(14, Math.round(canvas.width/38));
+      ctx.font = `${fontSize}px sans-serif`;
+      const pad = fontSize*0.6;
+      const boxH = (lines.length*fontSize*1.35) + pad*2;
+      ctx.fillStyle = 'rgba(0,0,0,.55)';
+      ctx.fillRect(0, canvas.height-boxH, canvas.width, boxH);
+      ctx.fillStyle = '#fff';
+      lines.forEach((line,i)=>{ ctx.fillText(line, pad, canvas.height-boxH+pad+fontSize+(i*fontSize*1.35)); });
+      resolve(canvas.toDataURL('image/jpeg',0.85));
+    };
+    img.src = base64;
+  });
+}
+
+/* ---- Daily check-in state ---- */
+let CHECKIN_PHONE='', CHECKIN_NAME='', CHECKIN_DONE=false, CHECKIN_PHOTO_BASE64=null;
+function loadSavedIdentity(){
+  try{ return JSON.parse(localStorage.getItem('betaverse_identity')||'null'); }catch(_e){ return null; }
+}
+function saveIdentity(phone,name){
+  try{ localStorage.setItem('betaverse_identity', JSON.stringify({phone,name})); }catch(_e){}
+}
+
+/* ---- WebAuthn biometric (same pattern as FieldAudit) ---- */
+function b64uToBuf(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='='; const bin=atob(s); const buf=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i); return buf.buffer; }
+function bufToB64u(buf){ const bytes=new Uint8Array(buf); let bin=''; bytes.forEach(b=>bin+=String.fromCharCode(b)); return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+async function registerBiometricDevice(phone,name){
+  if(!window.PublicKeyCredential) return {ok:false, reason:'not_supported'};
+  try{
+    const cred = await navigator.credentials.create({publicKey:{
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      rp:{name:'Betaverse'}, user:{id: new TextEncoder().encode(phone), name:phone, displayName:name},
+      pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
+      authenticatorSelection:{authenticatorAttachment:'platform', userVerification:'required'}, timeout:60000
+    }});
+    return {ok:true, credentialId: bufToB64u(cred.rawId)};
+  }catch(e){ return {ok:false, reason:'cancelled'}; }
+}
+async function verifyBiometricDevice(credIds){
+  if(!window.PublicKeyCredential) return {ok:false, reason:'not_supported'};
+  try{
+    await navigator.credentials.get({publicKey:{
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: credIds.map(id=>({type:'public-key', id:b64uToBuf(id)})),
+      userVerification:'required', timeout:60000
+    }});
+    return {ok:true};
+  }catch(e){ return {ok:false, reason:'cancelled'}; }
+}
+
+/* ---- Front-camera capture (getUserMedia, reliable across devices) ---- */
+let _camStream=null, _camTargetCb=null;
+async function openCamera(facing, onCapture){
+  _camTargetCb = onCapture;
+  const overlay = document.createElement('div');
+  overlay.style.cssText='position:fixed;inset:0;background:#000;z-index:400;display:flex;flex-direction:column;';
+  overlay.innerHTML = `<video id="camVideo" autoplay playsinline muted style="flex:1;width:100%;object-fit:cover;${facing==='user'?'transform:scaleX(-1);':''}"></video>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px;background:#000;">
+      <button id="camCancel" style="background:none;border:none;color:#fff;font-size:14px;font-weight:600;width:70px;">✕ Cancel</button>
+      <button id="camShutter" style="width:70px;height:70px;border-radius:50%;background:#fff;border:4px solid rgba(255,255,255,.4);"></button>
+      <span style="width:70px;"></span>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('camCancel').onclick = ()=>{ closeCam(overlay); };
+  document.getElementById('camShutter').onclick = ()=>{ captureCam(overlay, facing); };
+  try{
+    _camStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:facing}, audio:false});
+    document.getElementById('camVideo').srcObject = _camStream;
+  }catch(e){
+    closeCam(overlay);
+    toast('Could not open camera — check permissions', true);
+  }
+}
+function closeCam(overlay){
+  if(_camStream){ _camStream.getTracks().forEach(t=>t.stop()); _camStream=null; }
+  overlay.remove();
+}
+function captureCam(overlay, facing){
+  const video = document.getElementById('camVideo');
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  if(facing==='user'){ ctx.translate(canvas.width,0); ctx.scale(-1,1); }
+  ctx.drawImage(video,0,0,canvas.width,canvas.height);
+  const dataUrl = canvas.toDataURL('image/jpeg',0.9);
+  closeCam(overlay);
+  fetch(dataUrl).then(r=>r.blob()).then(blob=>{
+    const file = new File([blob],'capture.jpg',{type:'image/jpeg'});
+    downscale(file, _camTargetCb);
+  });
+}
+
+/* ============================================================
+   MAIN MENU
+   ============================================================ */
+function renderMainMenu(){
+  const wrap = document.getElementById('mainWrap');
+  wrap.innerHTML = `
+    <div class="menu-choice" onclick="startPreAuditFlow()">
+      <h3>📐 New Site Measurement</h3>
+      <p>Measure a billboard, hoarding, wall painting, or wall ad site BEFORE the ad goes up — creates a new Submission ID.</p>
+    </div>
+    <div class="menu-choice" onclick="startVerifyFlow()">
+      <h3>✅ Verify Installation</h3>
+      <p>After the ad has been put up, confirm how much of the submitted site actually got the ad and the approved cost — linked to an existing Submission ID.</p>
+    </div>
+    <div class="menu-choice" onclick="startMySubmissionsFlow()">
+      <h3>📋 My Submissions</h3>
+      <p>Browse your own past site measurements — handy if you don't remember a Submission ID by heart.</p>
+    </div>
+  `;
+}
+
+/* ============================================================
+   MY SUBMISSIONS — browse own past submissions by phone, so an
+   auditor doesn't have to remember/write down every Submission ID
+   to come back and verify it later.
+   ============================================================ */
+function startMySubmissionsFlow(){
+  requireCheckin(renderMySubmissions);
+}
+async function renderMySubmissions(){
+  const wrap = document.getElementById('mainWrap');
+  wrap.innerHTML = `<div class="card"><h2>My Submissions</h2><div id="mySubsList" style="margin-top:12px;"><div class="spin" style="border-color:rgba(18,23,43,.2); border-top-color:var(--ink);"></div></div></div><button class="btn btn-outline btn-block" onclick="renderMainMenu()">← Back to menu</button>`;
+  const listEl = document.getElementById('mySubsList');
+  try{
+    if(!configured()) throw new Error('__NOCFG__');
+    const r = await fetchWithTimeout(`${SCRIPT_URL}?action=listMySubmissions&phone=${encodeURIComponent(CHECKIN_PHONE)}`, {}, 10000);
+    const j = await r.json();
+    const subs = j.submissions || [];
+    if(!subs.length){ listEl.innerHTML = `<p style="color:var(--slate); font-size:13px;">No submissions yet — your first "New Site Measurement" will show up here.</p>`; return; }
+    listEl.innerHTML = subs.map(s=>`
+      <div class="menu-choice" style="padding:14px;" onclick="jumpToVerify('${s.submissionId}')">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <b class="mono" style="font-size:13px;">${s.submissionId}</b>
+          <span class="status-pill ${s.status==='Verified'?'verified':'pending'}">${s.status}</span>
+        </div>
+        <p style="margin:6px 0 0;">${s.category} · ${s.area||'—'} sq ft · ₹${s.cost||0}</p>
+        <p style="margin:2px 0 0; font-size:12px;">${s.address||''}${s.city?', '+s.city:''} · ${s.date||''}</p>
+      </div>
+    `).join('');
+  }catch(e){
+    listEl.innerHTML = `<p style="color:var(--red); font-size:13px;">Could not load submissions — check your connection.</p>`;
+  }
+}
+function jumpToVerify(id){
+  document.getElementById('mainWrap').innerHTML = `<div class="card"><h2>Loading…</h2></div>`;
+  (async ()=>{
+    try{
+      const r = await fetchWithTimeout(`${SCRIPT_URL}?action=getSubmission&id=${encodeURIComponent(id)}`, {}, 10000);
+      const j = await r.json();
+      if(!j.success) throw new Error(j.message);
+      VERIFY = {submission:j.submission, geo:null, photo:null, measurement:null};
+      renderVerifyForm();
+    }catch(e){ toast('Could not open that submission', true); renderMySubmissions(); }
+  })();
+}
+
+/* ============================================================
+   DAILY CHECK-IN — required once per day before either flow, same
+   selfie + WebAuthn pattern as FieldAudit.
+   ============================================================ */
+let CHECKIN_ON_DONE = null;
+function requireCheckin(onDone){
+  CHECKIN_ON_DONE = onDone;
+  const wrap = document.getElementById('mainWrap');
+  const saved = loadSavedIdentity();
+  wrap.innerHTML = `<div class="card"><h2>Daily Check-in</h2><div id="checkinArea" style="margin-top:14px;"></div></div>`;
+  if(saved && saved.phone){
+    document.getElementById('checkinArea').innerHTML = `<div class="spin" style="border-color:rgba(18,23,43,.2); border-top-color:var(--ink);"></div>`;
+    const today = new Date().toISOString().slice(0,10);
+    if(!configured()){ CHECKIN_PHONE=saved.phone; CHECKIN_NAME=saved.name; CHECKIN_DONE=true; onDone(); return; }
+    fetchWithTimeout(`${SCRIPT_URL}?action=checkinStatus&phone=${encodeURIComponent(saved.phone)}&date=${today}`, {}, 8000)
+      .then(r=>r.json()).then(j=>{
+        if(j.checkedIn){ CHECKIN_PHONE=saved.phone; CHECKIN_NAME=saved.name; CHECKIN_DONE=true; onDone(); }
+        else renderCheckinCapture(saved.phone, saved.name);
+      }).catch(()=>renderCheckinCapture(saved.phone, saved.name));
+  } else {
+    renderCheckinCapture('','');
+  }
+}
+function renderCheckinCapture(phone, name){
+  const area = document.getElementById('checkinArea');
+  area.innerHTML = `
+    <div class="field"><label>Your Phone Number <span class="req-mark">*</span></label>
+      <input type="text" id="ck_phone" inputmode="numeric" maxlength="10" value="${phone}" placeholder="10-digit number">
+    </div>
+    <div class="field"><label>Your Name <span class="req-mark">*</span></label>
+      <input type="text" id="ck_name" value="${name}" placeholder="Full name">
+    </div>
+    <button class="btn btn-primary btn-block" style="margin-top:14px;" onclick="captureCheckinSelfie()">🤳 Take selfie to check in</button>
+    <img id="ck_preview" style="max-width:200px; border-radius:8px; margin-top:10px; display:none;">
+    <button class="btn btn-dark btn-block" style="margin-top:12px;" onclick="doCheckin()" id="ck_submitBtn" disabled>Submit check-in</button>
+  `;
+}
+function captureCheckinSelfie(){
+  openCamera('user', (dataUrl)=>{
+    CHECKIN_PHOTO_BASE64 = dataUrl;
+    const prev = document.getElementById('ck_preview');
+    prev.src = dataUrl; prev.style.display='block';
+    document.getElementById('ck_submitBtn').disabled = false;
+  });
+}
+async function doCheckin(){
+  const phone = document.getElementById('ck_phone').value.trim();
+  const name = document.getElementById('ck_name').value.trim();
+  if(!phone || phone.length!==10){ toast('Enter a valid 10-digit phone number', true); return; }
+  if(!name){ toast('Enter your name', true); return; }
+  if(!CHECKIN_PHOTO_BASE64){ toast('Take a selfie first', true); return; }
+  const btn = document.getElementById('ck_submitBtn');
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span> Verifying fingerprint/Face…';
+  let bioResult, wasNew=false;
+  try{
+    if(!configured()) throw new Error('__NOCFG__');
+    const credRes = await fetchWithTimeout(`${SCRIPT_URL}?action=getBiometricCredentials&phone=${encodeURIComponent(phone)}`, {}, 8000);
+    const credJson = await credRes.json();
+    if(credJson.enrolled && credJson.credentialIds && credJson.credentialIds.length){
+      bioResult = await verifyBiometricDevice(credJson.credentialIds);
+      if(!bioResult.ok){ toast('Fingerprint/Face verification failed', true); btn.disabled=false; btn.textContent='Submit check-in'; return; }
+    } else {
+      wasNew = true;
+      bioResult = await registerBiometricDevice(phone, name);
+      if(!bioResult.ok){ toast('Fingerprint/Face setup was cancelled', true); btn.disabled=false; btn.textContent='Submit check-in'; return; }
+    }
+  }catch(e){
+    if(e.message!=='__NOCFG__'){ toast('Could not check biometric status', true); btn.disabled=false; btn.textContent='Submit check-in'; return; }
+  }
+  btn.innerHTML='<span class="spin"></span> Submitting…';
+  const today = new Date().toISOString().slice(0,10);
+  const stamped = await stampPhoto(CHECKIN_PHOTO_BASE64, [`${today} · Daily Check-in`, name]);
+  try{
+    if(!configured()) throw new Error('__NOCFG__');
+    if(wasNew && bioResult.credentialId){
+      await fetch(SCRIPT_URL,{method:'POST', body:JSON.stringify({action:'enrollBiometric', phone, name, credentialId:bioResult.credentialId, facePhoto:stamped})}).catch(()=>{});
+    }
+    await fetch(SCRIPT_URL,{method:'POST', body:JSON.stringify({action:'submitCheckin', date:today, phone, name, photo:stamped})});
+  }catch(e){}
+  saveIdentity(phone, name);
+  CHECKIN_PHONE=phone; CHECKIN_NAME=name; CHECKIN_DONE=true;
+  toast('Checked in ✅');
+  if(CHECKIN_ON_DONE) CHECKIN_ON_DONE();
+}
+
+/* ============================================================
+   MEASUREMENT TOOL — reference-object calibration + manual fallback.
+   Photo shows the target AND a known-size reference object together;
+   tapping 2 points on the reference (its known length) then 2 points
+   on the target gives a pixel→real-world ratio, so the area comes
+   from an actual measurement in the photo, not a guess.
+   ============================================================ */
+const REFERENCE_OBJECTS = [
+  {label:'A4 sheet — long edge (29.7 cm)', cm:29.7},
+  {label:'A4 sheet — short edge (21 cm)', cm:21},
+  {label:'₹100 note — long edge (15.8 cm)', cm:15.8},
+  {label:'1 metre tape/rod', cm:100},
+  {label:'Custom length…', cm:null}
+];
+let MEASURE_STATE = null;
+function renderMeasureTool(containerId, photoDataUrl, onDone){
+  MEASURE_STATE = {photo:photoDataUrl, points:[], stage:'ref', refCm:null, pxPerCm:null, widthCm:null, heightCm:null, onDone};
+  const c = document.getElementById(containerId);
+  c.innerHTML = `
+    <div class="tab-toggle">
+      <button class="active" id="tabCalibrate" onclick="switchMeasureTab('calibrate')">📷 Measure from Photo</button>
+      <button id="tabManual" onclick="switchMeasureTab('manual')">✏️ Enter Manually</button>
+    </div>
+    <div id="measureCalibrateView"></div>
+    <div id="measureManualView" style="display:none;"></div>
+  `;
+  renderCalibrateView();
+  renderManualView();
+}
+function switchMeasureTab(tab){
+  document.getElementById('tabCalibrate').classList.toggle('active', tab==='calibrate');
+  document.getElementById('tabManual').classList.toggle('active', tab==='manual');
+  document.getElementById('measureCalibrateView').style.display = tab==='calibrate' ? 'block' : 'none';
+  document.getElementById('measureManualView').style.display = tab==='manual' ? 'block' : 'none';
+}
+function renderManualView(){
+  document.getElementById('measureManualView').innerHTML = `
+    <div class="field"><label>Width (feet)</label><input type="number" step="0.1" id="manualWidth" oninput="updateManualArea()"></div>
+    <div class="field"><label>Height (feet)</label><input type="number" step="0.1" id="manualHeight" oninput="updateManualArea()"></div>
+    <div class="result-box"><b id="manualAreaResult">0 sq ft</b>Total measured area</div>
+    <button class="btn btn-dark btn-block" style="margin-top:12px;" onclick="confirmManualMeasurement()">Use this measurement</button>
+  `;
+}
+function updateManualArea(){
+  const w = Number(document.getElementById('manualWidth').value)||0;
+  const h = Number(document.getElementById('manualHeight').value)||0;
+  document.getElementById('manualAreaResult').textContent = (w*h).toFixed(1) + ' sq ft';
+}
+function confirmManualMeasurement(){
+  const w = Number(document.getElementById('manualWidth').value)||0;
+  const h = Number(document.getElementById('manualHeight').value)||0;
+  if(!w || !h){ toast('Enter both width and height', true); return; }
+  MEASURE_STATE.onDone({area:(w*h).toFixed(1), method:'Manual entry', width:w, height:h});
+}
+function renderCalibrateView(){
+  const refOptions = REFERENCE_OBJECTS.map((r,i)=>`<option value="${i}">${r.label}</option>`).join('');
+  document.getElementById('measureCalibrateView').innerHTML = `
+    <div class="field"><label>What are you using as a size reference?</label>
+      <select id="refObjectSelect" onchange="onRefObjectChange()">${refOptions}</select>
+    </div>
+    <div class="field" id="customCmField" style="display:none;"><label>Reference length (cm)</label><input type="number" id="customCm" step="0.1"></div>
+    <div class="measure-hint" id="measureInstruction">Step 1 of 3 — Tap the TWO ENDS of your reference object in the photo below.</div>
+    <div class="measure-canvas-wrap" id="canvasWrap">
+      <canvas id="measureCanvas"></canvas>
+    </div>
+    <div style="display:flex; gap:8px; margin-top:10px;">
+      <button class="btn btn-outline" style="flex:1;" onclick="resetMeasurePoints()">↺ Restart points</button>
+    </div>
+    <div id="measureResultArea"></div>
+  `;
+  const img = new Image();
+  img.onload = ()=>{
+    const canvas = document.getElementById('measureCanvas');
+    canvas.width = img.width; canvas.height = img.height;
+    canvas.getContext('2d').drawImage(img,0,0);
+    canvas._img = img;
+    canvas.addEventListener('click', onCanvasTap);
+  };
+  img.src = MEASURE_STATE.photo;
+}
+function onRefObjectChange(){
+  const idx = Number(document.getElementById('refObjectSelect').value);
+  document.getElementById('customCmField').style.display = REFERENCE_OBJECTS[idx].cm===null ? 'block' : 'none';
+}
+function resetMeasurePoints(){
+  MEASURE_STATE.points = []; MEASURE_STATE.stage='ref';
+  const canvas = document.getElementById('measureCanvas');
+  canvas.getContext('2d').drawImage(canvas._img,0,0);
+  document.getElementById('measureInstruction').textContent = 'Step 1 of 3 — Tap the TWO ENDS of your reference object in the photo below.';
+  document.getElementById('measureResultArea').innerHTML = '';
+}
+function onCanvasTap(e){
+  const canvas = e.target;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width/rect.width, scaleY = canvas.height/rect.height;
+  const x = (e.clientX-rect.left)*scaleX, y = (e.clientY-rect.top)*scaleY;
+  MEASURE_STATE.points.push({x,y});
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = MEASURE_STATE.stage==='ref' ? '#F5A623' : '#1B7A43';
+  ctx.beginPath(); ctx.arc(x,y,10,0,7); ctx.fill();
+  const n = MEASURE_STATE.points.length;
+  if(MEASURE_STATE.stage==='ref' && n===2){
+    drawLine(ctx, MEASURE_STATE.points[0], MEASURE_STATE.points[1], '#F5A623');
+    const idx = Number(document.getElementById('refObjectSelect').value);
+    const refCm = REFERENCE_OBJECTS[idx].cm !== null ? REFERENCE_OBJECTS[idx].cm : Number(document.getElementById('customCm').value);
+    if(!refCm){ toast('Enter the custom reference length first', true); MEASURE_STATE.points=[]; return; }
+    const pxDist = Math.hypot(MEASURE_STATE.points[1].x-MEASURE_STATE.points[0].x, MEASURE_STATE.points[1].y-MEASURE_STATE.points[0].y);
+    MEASURE_STATE.refCm = refCm;
+    MEASURE_STATE.pxPerCm = pxDist/refCm;
+    MEASURE_STATE.points = [];
+    MEASURE_STATE.stage = 'width';
+    document.getElementById('measureInstruction').textContent = "Step 2 of 3 — Tap the TWO ENDS of the target's WIDTH.";
+  } else if(MEASURE_STATE.stage==='width' && n===2){
+    drawLine(ctx, MEASURE_STATE.points[0], MEASURE_STATE.points[1], '#1B7A43');
+    const pxDist = Math.hypot(MEASURE_STATE.points[1].x-MEASURE_STATE.points[0].x, MEASURE_STATE.points[1].y-MEASURE_STATE.points[0].y);
+    MEASURE_STATE.widthCm = pxDist/MEASURE_STATE.pxPerCm;
+    MEASURE_STATE.points = [];
+    MEASURE_STATE.stage = 'height';
+    document.getElementById('measureInstruction').textContent = "Step 3 of 3 — Tap the TWO ENDS of the target's HEIGHT.";
+  } else if(MEASURE_STATE.stage==='height' && n===2){
+    drawLine(ctx, MEASURE_STATE.points[0], MEASURE_STATE.points[1], '#1B7A43');
+    const pxDist = Math.hypot(MEASURE_STATE.points[1].x-MEASURE_STATE.points[0].x, MEASURE_STATE.points[1].y-MEASURE_STATE.points[0].y);
+    MEASURE_STATE.heightCm = pxDist/MEASURE_STATE.pxPerCm;
+    MEASURE_STATE.stage = 'done';
+    const widthFt = MEASURE_STATE.widthCm/30.48, heightFt = MEASURE_STATE.heightCm/30.48;
+    const areaSqFt = (widthFt*heightFt).toFixed(1);
+    document.getElementById('measureInstruction').textContent = '✅ Measurement complete.';
+    document.getElementById('measureResultArea').innerHTML = `
+      <div class="result-box"><b>${areaSqFt} sq ft</b>Width ${widthFt.toFixed(1)} ft × Height ${heightFt.toFixed(1)} ft — calculated from your reference object</div>
+      <button class="btn btn-dark btn-block" style="margin-top:12px;" onclick="confirmCalibratedMeasurement(${areaSqFt}, ${widthFt.toFixed(2)}, ${heightFt.toFixed(2)})">Use this measurement</button>
+    `;
+  }
+}
+function drawLine(ctx, p1, p2, color){
+  ctx.strokeStyle = color; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.stroke();
+}
+function confirmCalibratedMeasurement(area, width, height){
+  MEASURE_STATE.onDone({area, method:'Photo reference measurement', width, height});
+}
+
+/* ============================================================
+   PRE-INSTALLATION FLOW
+   ============================================================ */
+let PRE = {};
+function startPreAuditFlow(){
+  requireCheckin(renderPreAuditForm);
+}
+function renderPreAuditForm(){
+  PRE = {category:'', geo:null, photo:null, measurement:null};
+  const wrap = document.getElementById('mainWrap');
+  wrap.innerHTML = `
+    <div class="card">
+      <h2>1. Site Category <span class="req-mark">*</span></h2>
+      <div class="category-grid" id="categoryGrid">
+        ${['Billboard / Hoarding','Wall Painting','Hand-painted / Localized Wall Ad'].map(c=>`
+          <div class="category-card" onclick="selectCategory('${c}', this)"><div class="icon">${c.includes('Billboard')?'🛑':c.includes('Painting')?'🎨':'🏚️'}</div><div class="label">${c}</div></div>
+        `).join('')}
+      </div>
+    </div>
+    <div class="card">
+      <h2>2. Location <span class="req-mark">*</span></h2>
+      <div class="geo-status pending" id="preGeoStatus" style="margin-top:12px;">Not captured yet</div>
+      <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="capturePreLocation()" id="preGeoBtn">📍 Get Current Location</button>
+      <div class="field"><label>Address</label><textarea id="pre_address" rows="2" placeholder="Auto-filled, edit if needed"></textarea></div>
+      <div class="field"><label>City</label><input type="text" id="pre_city"></div>
+    </div>
+    <div class="card locked" id="prePhotoCard">
+      <h2>3. Site Photo &amp; Measurement <span class="req-mark">*</span></h2>
+      <div class="photo-box" style="margin-top:12px;" id="prePhotoBox">
+        <p style="font-size:12px; color:var(--slate); margin:0 0 10px;">Frame the target AND your reference object (A4 sheet, note, tape) together in one photo for accurate measurement.</p>
+        <button class="btn btn-outline btn-block" onclick="capturePreSitePhoto()">📷 Capture site photo</button>
+      </div>
+      <div id="preMeasureArea"></div>
+    </div>
+    <div class="card locked" id="preCostCard">
+      <h2>4. Cost &amp; Auditor</h2>
+      <div class="field"><label>Auditor Name</label><input type="text" id="pre_auditor" value="${CHECKIN_NAME}"></div>
+      <div class="field"><label>Cost (₹)</label><input type="number" id="pre_cost" step="0.01"></div>
+    </div>
+    <button class="btn btn-primary btn-block" style="margin-top:6px;" onclick="submitPreAudit()" id="preSubmitBtn">Submit Site Measurement</button>
+    <button class="btn btn-outline btn-block" style="margin-top:10px;" onclick="renderMainMenu()">← Back to menu</button>
+  `;
+}
+function selectCategory(cat, el){
+  PRE.category = cat;
+  document.querySelectorAll('#categoryGrid .category-card').forEach(c=>c.classList.remove('sel'));
+  el.classList.add('sel');
+}
+function capturePreLocation(){
+  if(!navigator.geolocation){ toast('Geolocation not supported', true); return; }
+  const btn = document.getElementById('preGeoBtn');
+  btn.disabled=true; btn.innerHTML='<span class="spin" style="border-color:rgba(18,23,43,.2); border-top-color:var(--ink);"></span> Locating…';
+  navigator.geolocation.getCurrentPosition(async (pos)=>{
+    const lat=pos.coords.latitude, lng=pos.coords.longitude;
+    PRE.geo = {lat, lng, link:`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`};
+    document.getElementById('preGeoStatus').className='geo-status got';
+    document.getElementById('preGeoStatus').textContent = `✅ ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    document.getElementById('prePhotoCard').classList.remove('locked');
+    document.getElementById('preCostCard').classList.remove('locked');
+    btn.disabled=false; btn.innerHTML='📍 Re-capture Location';
+    // Best-effort free reverse geocode (OpenStreetMap Nominatim)
+    try{
+      const r = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, {headers:{'Accept-Language':'en'}}, 8000);
+      const j = await r.json();
+      if(j.display_name) document.getElementById('pre_address').value = j.display_name;
+      if(j.address){ document.getElementById('pre_city').value = j.address.city||j.address.town||j.address.village||''; }
+    }catch(_e){}
+  }, ()=>{ toast('Could not get location', true); btn.disabled=false; btn.innerHTML='📍 Get Current Location'; }, {enableHighAccuracy:true, timeout:15000});
+}
+function capturePreSitePhoto(){
+  openCamera('environment', (dataUrl)=>{
+    PRE.photoRaw = dataUrl;
+    document.getElementById('preMeasureArea').innerHTML = `<div id="measureToolMount" style="margin-top:14px;"></div>`;
+    renderMeasureTool('measureToolMount', dataUrl, (result)=>{
+      PRE.measurement = result;
+      document.getElementById('preMeasureArea').innerHTML += `<div class="result-box" style="margin-top:12px;"><b>${result.area} sq ft</b>Measurement locked in (${result.method})</div>`;
+    });
+  });
+}
+async function submitPreAudit(){
+  if(!PRE.category){ toast('Select a site category', true); return; }
+  if(!PRE.geo){ toast('Capture the location first', true); return; }
+  if(!PRE.photoRaw || !PRE.measurement){ toast('Capture the site photo and complete the measurement', true); return; }
+  const btn = document.getElementById('preSubmitBtn');
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span> Submitting…';
+  const now = new Date();
+  const lines = [`${now.toISOString().slice(0,10)} ${now.toTimeString().slice(0,5)}`, `${PRE.geo.lat.toFixed(6)}, ${PRE.geo.lng.toFixed(6)}`, `Auditor: ${document.getElementById('pre_auditor').value}`];
+  const stamped = await stampPhoto(PRE.photoRaw, lines);
+  const payload = {
+    action:'submitPreAudit', category:PRE.category,
+    date: now.toISOString().slice(0,10), time: now.toTimeString().slice(0,5),
+    auditorName: document.getElementById('pre_auditor').value, phone: CHECKIN_PHONE,
+    address: document.getElementById('pre_address').value, city: document.getElementById('pre_city').value,
+    lat:PRE.geo.lat, lng:PRE.geo.lng, mapsLink:PRE.geo.link,
+    area:PRE.measurement.area, areaUnit:'sq ft', measureMethod:PRE.measurement.method,
+    cost: document.getElementById('pre_cost').value, photo: stamped
+  };
+  try{
+    if(!configured()) throw new Error('__NOCFG__');
+    const r = await fetch(SCRIPT_URL, {method:'POST', body:JSON.stringify(payload)});
+    const res = await r.json();
+    if(!res.success) throw new Error(res.message||'Submit failed');
+    showSubmissionSuccess(res.submissionId);
+  }catch(e){
+    if(e.message==='__NOCFG__') showSubmissionSuccess('DEMO-'+Date.now());
+    else { toast(e.message||'Could not submit', true); btn.disabled=false; btn.textContent='Submit Site Measurement'; }
+  }
+}
+function showSubmissionSuccess(id){
+  const wrap = document.getElementById('mainWrap');
+  wrap.innerHTML = `
+    <div class="card" style="text-align:center;">
+      <div style="font-size:40px;">✅</div>
+      <h2 style="margin-top:10px;">Measurement Submitted</h2>
+      <p style="color:var(--slate); font-size:13px; margin-top:6px;">Save this ID — you'll need it to verify the installation later.</p>
+      <div class="id-badge">${id}</div>
+      <button class="btn btn-primary btn-block" style="margin-top:20px;" onclick="renderPreAuditForm()">➕ Measure Another Site</button>
+      <button class="btn btn-outline btn-block" style="margin-top:10px;" onclick="renderMainMenu()">← Back to Menu</button>
+    </div>
+  `;
+}
+
+/* ============================================================
+   POST-INSTALLATION VERIFICATION FLOW
+   ============================================================ */
+let VERIFY = {};
+function startVerifyFlow(){
+  requireCheckin(renderVerifyLookup);
+}
+function renderVerifyLookup(){
+  const wrap = document.getElementById('mainWrap');
+  wrap.innerHTML = `
+    <div class="card">
+      <h2>Find a Submission</h2>
+      <div class="field"><label>Submission ID <span class="req-mark">*</span></label><input type="text" id="verifyIdInput" placeholder="e.g. BV260901-143022"></div>
+      <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="lookupSubmission()" id="verifyLookupBtn">Find Submission</button>
+    </div>
+    <button class="btn btn-outline btn-block" onclick="renderMainMenu()">← Back to menu</button>
+  `;
+}
+async function lookupSubmission(){
+  const id = document.getElementById('verifyIdInput').value.trim();
+  if(!id){ toast('Enter a submission ID', true); return; }
+  const btn = document.getElementById('verifyLookupBtn');
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span> Searching…';
+  try{
+    if(!configured()) throw new Error('__NOCFG__');
+    const r = await fetchWithTimeout(`${SCRIPT_URL}?action=getSubmission&id=${encodeURIComponent(id)}`, {}, 10000);
+    const j = await r.json();
+    if(!j.success) throw new Error(j.message||'Not found');
+    VERIFY = {submission:j.submission, geo:null, photo:null, measurement:null};
+    renderVerifyForm();
+  }catch(e){
+    toast(e.message||'Could not find that submission', true);
+    btn.disabled=false; btn.textContent='Find Submission';
+  }
+}
+function renderVerifyForm(){
+  const s = VERIFY.submission;
+  const alreadyVerified = s.Status === 'Verified';
+  const wrap = document.getElementById('mainWrap');
+  wrap.innerHTML = `
+    <div class="card">
+      <h2>Submission Found <span class="status-pill ${alreadyVerified?'verified':'pending'}">${s.Status}</span></h2>
+      <div class="detail-row"><span>ID</span><span>${s.SubmissionID}</span></div>
+      <div class="detail-row"><span>Category</span><span>${s.Category}</span></div>
+      <div class="detail-row"><span>Address</span><span>${s.PreAddress||'—'}</span></div>
+      <div class="detail-row"><span>Submitted Area</span><span>${s.PreArea} ${s.PreAreaUnit}</span></div>
+      <div class="detail-row"><span>Submitted Cost</span><span>₹${s.PreCost}</span></div>
+      <div class="detail-row"><span>Auditor</span><span>${s.PreAuditorName}</span></div>
+    </div>
+    ${alreadyVerified ? `
+      <div class="card">
+        <h2>Already Verified</h2>
+        <div class="detail-row"><span>Approved Area</span><span>${s.PostArea} sq ft</span></div>
+        <div class="detail-row"><span>Approved Cost</span><span>₹${s.PostApprovedCost}</span></div>
+        <div class="detail-row"><span>Verified By</span><span>${s.PostAuditorName}</span></div>
+      </div>
+      <button class="btn btn-outline btn-block" onclick="renderMainMenu()">← Back to menu</button>
+    ` : `
+      <div class="card">
+        <h2>Verify Installation</h2>
+        <div class="geo-status pending" id="verifyGeoStatus" style="margin-top:12px;">Not captured yet</div>
+        <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="captureVerifyLocation()" id="verifyGeoBtn">📍 Get Current Location</button>
+      </div>
+      <div class="card locked" id="verifyPhotoCard">
+        <h2>Installed Site Photo &amp; Measurement</h2>
+        <div class="photo-box" style="margin-top:12px;">
+          <p style="font-size:12px; color:var(--slate); margin:0 0 10px;">Photograph the ACTUAL installed ad, with your reference object, to measure what really went up.</p>
+          <button class="btn btn-outline btn-block" onclick="captureVerifyPhoto()">📷 Capture installed site photo</button>
+        </div>
+        <div id="verifyMeasureArea"></div>
+      </div>
+      <div class="card locked" id="verifyCostCard">
+        <h2>Approval</h2>
+        <div class="field"><label>Auditor Name</label><input type="text" id="verify_auditor" value="${CHECKIN_NAME}"></div>
+        <div class="field"><label>Approved Cost (₹)</label><input type="number" id="verify_cost" step="0.01"></div>
+        <div class="field"><label>Remarks</label><textarea id="verify_remarks" rows="2" placeholder="Optional notes"></textarea></div>
+      </div>
+      <button class="btn btn-primary btn-block" onclick="submitVerification()" id="verifySubmitBtn">Submit Verification</button>
+      <button class="btn btn-outline btn-block" style="margin-top:10px;" onclick="renderMainMenu()">← Back to menu</button>
+    `}
+  `;
+}
+function captureVerifyLocation(){
+  if(!navigator.geolocation){ toast('Geolocation not supported', true); return; }
+  const btn = document.getElementById('verifyGeoBtn');
+  btn.disabled=true; btn.innerHTML='<span class="spin" style="border-color:rgba(18,23,43,.2); border-top-color:var(--ink);"></span> Locating…';
+  navigator.geolocation.getCurrentPosition((pos)=>{
+    const lat=pos.coords.latitude, lng=pos.coords.longitude;
+    VERIFY.geo = {lat, lng, link:`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`};
+    document.getElementById('verifyGeoStatus').className='geo-status got';
+    document.getElementById('verifyGeoStatus').textContent = `✅ ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    document.getElementById('verifyPhotoCard').classList.remove('locked');
+    document.getElementById('verifyCostCard').classList.remove('locked');
+    btn.disabled=false; btn.innerHTML='📍 Re-capture Location';
+  }, ()=>{ toast('Could not get location', true); btn.disabled=false; btn.innerHTML='📍 Get Current Location'; }, {enableHighAccuracy:true, timeout:15000});
+}
+function captureVerifyPhoto(){
+  openCamera('environment', (dataUrl)=>{
+    VERIFY.photoRaw = dataUrl;
+    document.getElementById('verifyMeasureArea').innerHTML = `<div id="verifyMeasureToolMount" style="margin-top:14px;"></div>`;
+    renderMeasureTool('verifyMeasureToolMount', dataUrl, (result)=>{
+      VERIFY.measurement = result;
+      document.getElementById('verifyMeasureArea').innerHTML += `<div class="result-box" style="margin-top:12px;"><b>${result.area} sq ft</b>Installed area (${result.method})</div>`;
+    });
+  });
+}
+async function submitVerification(){
+  if(!VERIFY.geo){ toast('Capture the location first', true); return; }
+  if(!VERIFY.photoRaw || !VERIFY.measurement){ toast('Capture the photo and complete the measurement', true); return; }
+  const btn = document.getElementById('verifySubmitBtn');
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span> Submitting…';
+  const now = new Date();
+  const lines = [`${now.toISOString().slice(0,10)} ${now.toTimeString().slice(0,5)}`, `Verification · ${VERIFY.submission.SubmissionID}`, `Auditor: ${document.getElementById('verify_auditor').value}`];
+  const stamped = await stampPhoto(VERIFY.photoRaw, lines);
+  const payload = {
+    action:'submitPostVerification', submissionId: VERIFY.submission.SubmissionID,
+    date: now.toISOString().slice(0,10), time: now.toTimeString().slice(0,5),
+    auditorName: document.getElementById('verify_auditor').value, phone: CHECKIN_PHONE,
+    lat:VERIFY.geo.lat, lng:VERIFY.geo.lng, mapsLink:VERIFY.geo.link,
+    area:VERIFY.measurement.area, approvedCost: document.getElementById('verify_cost').value,
+    remarks: document.getElementById('verify_remarks').value, photo: stamped
+  };
+  try{
+    if(!configured()) throw new Error('__NOCFG__');
+    const r = await fetch(SCRIPT_URL, {method:'POST', body:JSON.stringify(payload)});
+    const res = await r.json();
+    if(!res.success) throw new Error(res.message||'Submit failed');
+    const wrap = document.getElementById('mainWrap');
+    wrap.innerHTML = `<div class="card" style="text-align:center;"><div style="font-size:40px;">✅</div><h2 style="margin-top:10px;">Verification Complete</h2><p style="color:var(--slate); font-size:13px;">${res.submissionId} is now marked Verified.</p><button class="btn btn-primary btn-block" style="margin-top:20px;" onclick="renderMainMenu()">← Back to Menu</button></div>`;
+  }catch(e){
+    toast(e.message||'Could not submit', true);
+    btn.disabled=false; btn.textContent='Submit Verification';
+  }
+}
+
+</script>
+</body>
+</html>
