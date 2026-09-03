@@ -55,6 +55,21 @@ h1,h2,h3{font-family:'Oswald',sans-serif; margin:0;}
 .locked{opacity:.4; pointer-events:none;}
 .measure-canvas-wrap{position:relative; width:100%; margin-top:10px; touch-action:none;}
 .measure-canvas-wrap canvas{width:100%; border-radius:8px; display:block;}
+.magnifier{position:absolute; width:130px; height:130px; border-radius:50%; border:3px solid var(--amber); box-shadow:0 6px 18px rgba(0,0,0,.35); pointer-events:none; z-index:50; background:#000; display:none;}
+.ref-diagram{display:flex; align-items:center; gap:12px; background:var(--paper-2); border-radius:10px; padding:10px 14px; margin-top:8px;}
+.ref-diagram svg{flex-shrink:0;}
+.ref-diagram .ref-diagram-text{font-size:12px; color:var(--ink); line-height:1.5;}
+.ref-diagram .ref-diagram-text b{color:var(--amber-dark);}
+.calc-panel{background:var(--ink); color:#fff; border-radius:10px; padding:12px 14px; margin-top:10px; font-family:'IBM Plex Mono',monospace; font-size:11.5px; line-height:1.9;}
+.calc-panel .calc-title{font-family:'IBM Plex Sans',sans-serif; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--amber); margin-bottom:4px;}
+.calc-panel .calc-row{opacity:.92;}
+.calc-panel .calc-final{color:var(--amber); font-weight:700; border-top:1px dashed rgba(255,255,255,.25); margin-top:6px; padding-top:6px;}
+.step-badges{display:flex; gap:6px; margin:8px 0;}
+.step-badges span{flex:1; text-align:center; padding:6px 4px; border-radius:8px; font-size:10.5px; font-weight:700; background:var(--paper-2); color:var(--slate);}
+.step-badges span.done{background:var(--green-bg); color:var(--green);}
+.step-badges span.active{background:var(--amber); color:#fff;}
+.cam-guide-box{position:absolute; border:3px dashed rgba(255,255,255,.85); border-radius:6px; pointer-events:none;}
+.cam-guide-text{position:absolute; left:0; right:0; text-align:center; color:#fff; font-size:13px; font-weight:600; text-shadow:0 1px 4px rgba(0,0,0,.6); pointer-events:none; padding:0 20px;}
 .measure-tag{position:absolute; background:var(--ink); color:#fff; font-size:10px; padding:2px 6px; border-radius:6px; pointer-events:none; transform:translate(-50%,-130%);}
 .measure-hint{font-size:12px; color:var(--slate); margin-top:8px; line-height:1.5;}
 .tab-toggle{display:flex; gap:8px; margin-top:14px;}
@@ -234,11 +249,19 @@ async function verifyBiometricDevice(credIds){
 
 /* ---- Front-camera capture (getUserMedia, reliable across devices) ---- */
 let _camStream=null, _camTargetCb=null;
-async function openCamera(facing, onCapture){
+async function openCamera(facing, onCapture, guide){
   _camTargetCb = onCapture;
   const overlay = document.createElement('div');
   overlay.style.cssText='position:fixed;inset:0;background:#000;z-index:400;display:flex;flex-direction:column;';
-  overlay.innerHTML = `<video id="camVideo" autoplay playsinline muted style="flex:1;width:100%;object-fit:cover;${facing==='user'?'transform:scaleX(-1);':''}"></video>
+  overlay.innerHTML = `<div style="position:relative;flex:1;overflow:hidden;">
+    <video id="camVideo" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;${facing==='user'?'transform:scaleX(-1);':''}"></video>
+    ${guide ? `
+    <div class="cam-guide-text" style="top:14px;">📄 Keep the A4 sheet flat in the dashed box below, held next to the target — both fully visible</div>
+    <div class="cam-guide-box" style="left:6%; bottom:14%; width:24%; aspect-ratio:21/29.7; display:flex; align-items:flex-end; justify-content:center; padding-bottom:6px;">
+      <span style="background:rgba(0,0,0,.55); color:#fff; font-size:10px; font-weight:700; padding:3px 6px; border-radius:6px;">A4 HERE</span>
+    </div>
+    ` : ''}
+    </div>
     <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px;background:#000;">
       <button id="camCancel" style="background:none;border:none;color:#fff;font-size:14px;font-weight:600;width:70px;">✕ Cancel</button>
       <button id="camShutter" style="width:70px;height:70px;border-radius:50%;background:#fff;border:4px solid rgba(255,255,255,.4);"></button>
@@ -486,15 +509,24 @@ function renderCalibrateView(){
       <select id="refObjectSelect" onchange="onRefObjectChange()">${refOptions}</select>
     </div>
     <div class="field" id="customCmField" style="display:none;"><label>Reference length (cm)</label><input type="number" id="customCm" step="0.1"></div>
-    <div class="measure-hint" id="measureInstruction">Step 1 of 3 — Tap the TWO ENDS of your reference object in the photo below.</div>
+    <div id="refDiagramMount"></div>
+    <div class="step-badges" id="stepBadges">
+      <span id="badgeRef">1. Reference</span><span id="badgeWidth">2. Width</span><span id="badgeHeight">3. Height</span>
+    </div>
+    <div class="measure-hint" id="measureInstruction"></div>
     <div class="measure-canvas-wrap" id="canvasWrap">
       <canvas id="measureCanvas"></canvas>
+      <canvas id="magnifierCanvas" class="magnifier" width="130" height="130"></canvas>
     </div>
     <div style="display:flex; gap:8px; margin-top:10px;">
-      <button class="btn btn-outline" style="flex:1;" onclick="resetMeasurePoints()">↺ Restart points</button>
+      <button class="btn btn-outline" style="flex:1;" onclick="undoLastPoint()">⌫ Undo last point</button>
+      <button class="btn btn-outline" style="flex:1;" onclick="resetMeasurePoints()">↺ Restart all</button>
     </div>
+    <div id="measureCalcArea"></div>
     <div id="measureResultArea"></div>
   `;
+  onRefObjectChange();
+  updateStepUI();
   const img = new Image();
   img.onload = ()=>{
     const canvas = document.getElementById('measureCanvas');
@@ -502,51 +534,164 @@ function renderCalibrateView(){
     canvas.getContext('2d').drawImage(img,0,0);
     canvas._img = img;
     canvas.style.touchAction = 'none';
-    canvas.addEventListener('pointerdown', onCanvasTap);
+    canvas.addEventListener('pointerdown', onPointerDown);
   };
   img.src = MEASURE_STATE.photo;
+}
+const STEP_TEXT = {
+  ref: "Press and hold near the reference object's edge — a zoomed circle will pop up above your finger. Drag until the crosshair sits exactly on ONE END, then lift your finger. Repeat for the OTHER END.",
+  width: "Now do the same on the TARGET's WIDTH — the two ends of its left-to-right span.",
+  height: "Now do the same on the TARGET's HEIGHT — the two ends of its top-to-bottom span.",
+  done: "✅ Measurement complete — check the numbers below before using it."
+};
+function updateStepUI(){
+  const s = MEASURE_STATE.stage;
+  document.getElementById('measureInstruction').textContent = STEP_TEXT[s] || '';
+  ['ref','width','height'].forEach(k=>{
+    const el = document.getElementById('badge'+k.charAt(0).toUpperCase()+k.slice(1));
+    if(!el) return;
+    el.classList.remove('active','done');
+    const order = ['ref','width','height'];
+    if(order.indexOf(k) < order.indexOf(s) || s==='done') el.classList.add('done');
+    else if(k===s) el.classList.add('active');
+  });
+}
+function refDiagramSVG(idx){
+  const isA4Long = idx===0, isA4Short = idx===1;
+  if(isA4Long || isA4Short){
+    const label = isA4Long ? '29.7 cm' : '21 cm';
+    return `
+    <svg viewBox="0 0 140 110" width="90" height="70">
+      <rect x="40" y="8" width="60" height="86" rx="3" fill="#fff" stroke="#D8D2C4" stroke-width="2"/>
+      ${isA4Long ? `
+        <line x1="40" y1="8" x2="40" y2="94" stroke="#F5A623" stroke-width="5" stroke-linecap="round"/>
+        <circle cx="40" cy="8" r="5" fill="#F5A623"/><circle cx="40" cy="94" r="5" fill="#F5A623"/>
+      ` : `
+        <line x1="40" y1="8" x2="100" y2="8" stroke="#F5A623" stroke-width="5" stroke-linecap="round"/>
+        <circle cx="40" cy="8" r="5" fill="#F5A623"/><circle cx="100" cy="8" r="5" fill="#F5A623"/>
+      `}
+    </svg>
+    <div class="ref-diagram-text">This is an A4 sheet held <b>upright (portrait)</b>.<br>Tap the <b>two orange dots</b> shown — that's the ${label} edge.</div>`;
+  }
+  return `
+    <svg viewBox="0 0 140 60" width="90" height="40">
+      <line x1="15" y1="30" x2="125" y2="30" stroke="#D8D2C4" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="15" cy="30" r="6" fill="#F5A623"/><circle cx="125" cy="30" r="6" fill="#F5A623"/>
+    </svg>
+    <div class="ref-diagram-text">Tap the <b>two ends</b> of your reference object — its full known length.</div>`;
 }
 function onRefObjectChange(){
   const idx = Number(document.getElementById('refObjectSelect').value);
   document.getElementById('customCmField').style.display = REFERENCE_OBJECTS[idx].cm===null ? 'block' : 'none';
+  const mount = document.getElementById('refDiagramMount');
+  if(mount) mount.innerHTML = `<div class="ref-diagram">${refDiagramSVG(idx)}</div>`;
 }
 function resetMeasurePoints(){
-  MEASURE_STATE.points = []; MEASURE_STATE.stage='ref';
+  MEASURE_STATE.points = []; MEASURE_STATE.stage='ref'; MEASURE_STATE.refCm=null; MEASURE_STATE.pxPerCm=null; MEASURE_STATE.widthCm=null; MEASURE_STATE.heightCm=null;
   const canvas = document.getElementById('measureCanvas');
   canvas.getContext('2d').drawImage(canvas._img,0,0);
-  document.getElementById('measureInstruction').textContent = 'Step 1 of 3 — Tap the TWO ENDS of your reference object in the photo below.';
+  updateStepUI();
+  document.getElementById('measureCalcArea').innerHTML = '';
   document.getElementById('measureResultArea').innerHTML = '';
 }
-function onCanvasTap(e){
+function undoLastPoint(){
+  if(MEASURE_STATE.points.length>0){
+    MEASURE_STATE.points.pop();
+    const canvas = document.getElementById('measureCanvas');
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(canvas._img,0,0);
+    MEASURE_STATE.points.forEach(p=>{
+      ctx.fillStyle = MEASURE_STATE.stage==='ref' ? '#F5A623' : '#1B7A43';
+      ctx.beginPath(); ctx.arc(p.x,p.y,10,0,Math.PI*2); ctx.fill();
+    });
+  } else {
+    resetMeasurePoints();
+  }
+}
+function toCanvasCoords(canvas, e){
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width/rect.width, scaleY = canvas.height/rect.height;
+  return {x:(e.clientX-rect.left)*scaleX, y:(e.clientY-rect.top)*scaleY};
+}
+function updateMagnifier(canvas, e){
+  const {x,y} = toCanvasCoords(canvas, e);
+  const mag = document.getElementById('magnifierCanvas');
+  const wrap = document.getElementById('canvasWrap');
+  const wrapRect = wrap.getBoundingClientRect();
+  const fingerX = e.clientX - wrapRect.left, fingerY = e.clientY - wrapRect.top;
+  const magSize = 130;
+  let left = fingerX - magSize/2;
+  let top = fingerY - magSize - 34;
+  if(top < 0) top = fingerY + 34;
+  left = Math.max(4, Math.min(left, wrapRect.width - magSize - 4));
+  mag.style.left = left+'px'; mag.style.top = top+'px'; mag.style.display='block';
+  const mctx = mag.getContext('2d');
+  mctx.clearRect(0,0,mag.width,mag.height);
+  mctx.imageSmoothingEnabled = false;
+  const cropSize = 40;
+  const sx = Math.max(0, Math.min(canvas.width-cropSize, x-cropSize/2));
+  const sy = Math.max(0, Math.min(canvas.height-cropSize, y-cropSize/2));
+  mctx.drawImage(canvas, sx, sy, cropSize, cropSize, 0, 0, mag.width, mag.height);
+  const relX = ((x-sx)/cropSize)*mag.width, relY = ((y-sy)/cropSize)*mag.height;
+  const color = MEASURE_STATE.stage==='ref' ? '#F5A623' : '#1B7A43';
+  mctx.strokeStyle = color; mctx.lineWidth = 2;
+  mctx.beginPath(); mctx.moveTo(relX-16,relY); mctx.lineTo(relX+16,relY); mctx.stroke();
+  mctx.beginPath(); mctx.moveTo(relX,relY-16); mctx.lineTo(relX,relY+16); mctx.stroke();
+  mctx.beginPath(); mctx.arc(relX,relY,3,0,Math.PI*2); mctx.fillStyle='#fff'; mctx.fill();
+  return {x,y};
+}
+function hideMagnifier(){ document.getElementById('magnifierCanvas').style.display='none'; }
+function onPointerDown(e){
   if(MEASURE_STATE.stage==='done') return;
   e.preventDefault();
   const canvas = e.target;
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width/rect.width, scaleY = canvas.height/rect.height;
-  const x = (e.clientX-rect.left)*scaleX, y = (e.clientY-rect.top)*scaleY;
+  let pos = updateMagnifier(canvas, e);
+  const move = (ev)=>{ ev.preventDefault(); pos = updateMagnifier(canvas, ev); };
+  const up = (ev)=>{
+    ev.preventDefault();
+    canvas.removeEventListener('pointermove', move);
+    hideMagnifier();
+    commitPoint(canvas, pos);
+  };
+  canvas.addEventListener('pointermove', move);
+  canvas.addEventListener('pointerup', up, {once:true});
+  canvas.addEventListener('pointercancel', up, {once:true});
+}
+function fmt(n){ return Math.round(n*10)/10; }
+function commitPoint(canvas, pos){
+  if(!pos) return;
+  const {x,y} = pos;
   MEASURE_STATE.points.push({x,y});
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = MEASURE_STATE.stage==='ref' ? '#F5A623' : '#1B7A43';
+  const color = MEASURE_STATE.stage==='ref' ? '#F5A623' : '#1B7A43';
+  ctx.fillStyle = color;
   ctx.beginPath(); ctx.arc(x,y,10,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
   const n = MEASURE_STATE.points.length;
+  const calcEl = document.getElementById('measureCalcArea');
   if(MEASURE_STATE.stage==='ref' && n===2){
     drawLine(ctx, MEASURE_STATE.points[0], MEASURE_STATE.points[1], '#F5A623');
     const idx = Number(document.getElementById('refObjectSelect').value);
     const refCm = REFERENCE_OBJECTS[idx].cm !== null ? REFERENCE_OBJECTS[idx].cm : Number(document.getElementById('customCm').value);
-    if(!refCm){ toast('Enter the custom reference length first', true); MEASURE_STATE.points=[]; return; }
+    if(!refCm){ toast('Enter the custom reference length first', true); MEASURE_STATE.points.pop(); ctx.drawImage(canvas._img,0,0); return; }
     const pxDist = Math.hypot(MEASURE_STATE.points[1].x-MEASURE_STATE.points[0].x, MEASURE_STATE.points[1].y-MEASURE_STATE.points[0].y);
     MEASURE_STATE.refCm = refCm;
     MEASURE_STATE.pxPerCm = pxDist/refCm;
     MEASURE_STATE.points = [];
     MEASURE_STATE.stage = 'width';
-    document.getElementById('measureInstruction').textContent = "Step 2 of 3 — Tap the TWO ENDS of the target's WIDTH.";
+    calcEl.innerHTML = `<div class="calc-panel"><div class="calc-title">How this is calculated</div>
+      <div class="calc-row">Reference line measured: ${Math.round(pxDist)} px on screen = ${refCm} cm (known)</div>
+      <div class="calc-row">Scale worked out: ${Math.round(pxDist)} px ÷ ${refCm} cm = <b>${fmt(MEASURE_STATE.pxPerCm)} px per cm</b></div></div>`;
   } else if(MEASURE_STATE.stage==='width' && n===2){
     drawLine(ctx, MEASURE_STATE.points[0], MEASURE_STATE.points[1], '#1B7A43');
     const pxDist = Math.hypot(MEASURE_STATE.points[1].x-MEASURE_STATE.points[0].x, MEASURE_STATE.points[1].y-MEASURE_STATE.points[0].y);
     MEASURE_STATE.widthCm = pxDist/MEASURE_STATE.pxPerCm;
     MEASURE_STATE.points = [];
     MEASURE_STATE.stage = 'height';
-    document.getElementById('measureInstruction').textContent = "Step 3 of 3 — Tap the TWO ENDS of the target's HEIGHT.";
+    const widthFt = MEASURE_STATE.widthCm/30.48;
+    calcEl.innerHTML += `<div class="calc-panel"><div class="calc-title">Width</div>
+      <div class="calc-row">Width line measured: ${Math.round(pxDist)} px</div>
+      <div class="calc-row">${Math.round(pxDist)} px ÷ ${fmt(MEASURE_STATE.pxPerCm)} px/cm = ${fmt(MEASURE_STATE.widthCm)} cm = <b>${fmt(widthFt)} ft</b></div></div>`;
   } else if(MEASURE_STATE.stage==='height' && n===2){
     drawLine(ctx, MEASURE_STATE.points[0], MEASURE_STATE.points[1], '#1B7A43');
     const pxDist = Math.hypot(MEASURE_STATE.points[1].x-MEASURE_STATE.points[0].x, MEASURE_STATE.points[1].y-MEASURE_STATE.points[0].y);
@@ -554,12 +699,16 @@ function onCanvasTap(e){
     MEASURE_STATE.stage = 'done';
     const widthFt = MEASURE_STATE.widthCm/30.48, heightFt = MEASURE_STATE.heightCm/30.48;
     const areaSqFt = (widthFt*heightFt).toFixed(1);
-    document.getElementById('measureInstruction').textContent = '✅ Measurement complete.';
+    calcEl.innerHTML += `<div class="calc-panel"><div class="calc-title">Height</div>
+      <div class="calc-row">Height line measured: ${Math.round(pxDist)} px</div>
+      <div class="calc-row">${Math.round(pxDist)} px ÷ ${fmt(MEASURE_STATE.pxPerCm)} px/cm = ${fmt(MEASURE_STATE.heightCm)} cm = <b>${fmt(heightFt)} ft</b></div>
+      <div class="calc-row calc-final">Area = ${fmt(widthFt)} ft × ${fmt(heightFt)} ft = ${areaSqFt} sq ft</div></div>`;
     document.getElementById('measureResultArea').innerHTML = `
       <div class="result-box"><b>${areaSqFt} sq ft</b>Width ${widthFt.toFixed(1)} ft × Height ${heightFt.toFixed(1)} ft — calculated from your reference object</div>
       <button class="btn btn-dark btn-block" style="margin-top:12px;" onclick="confirmCalibratedMeasurement(${areaSqFt}, ${widthFt.toFixed(2)}, ${heightFt.toFixed(2)})">Use this measurement</button>
     `;
   }
+  updateStepUI();
 }
 function drawLine(ctx, p1, p2, color){
   ctx.strokeStyle = color; ctx.lineWidth = 3;
@@ -646,7 +795,7 @@ function capturePreSitePhoto(){
       PRE.measurement = result;
       document.getElementById('preMeasureArea').innerHTML += `<div class="result-box" style="margin-top:12px;"><b>${result.area} sq ft</b>Measurement locked in (${result.method})</div>`;
     });
-  });
+  }, true);
 }
 async function submitPreAudit(){
   if(!PRE.category){ toast('Select a site category', true); return; }
@@ -795,7 +944,7 @@ function captureVerifyPhoto(){
       VERIFY.measurement = result;
       document.getElementById('verifyMeasureArea').innerHTML += `<div class="result-box" style="margin-top:12px;"><b>${result.area} sq ft</b>Installed area (${result.method})</div>`;
     });
-  });
+  }, true);
 }
 async function submitVerification(){
   if(!VERIFY.geo){ toast('Capture the location first', true); return; }
