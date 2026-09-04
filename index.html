@@ -2,979 +2,1238 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Betaverse — OOH Site Audit</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>SiteScale — Wall & Hoarding Measurement</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
-:root{
-  --ink:#12172B; --ink-2:#1B2140; --paper:#FAF8F1; --paper-2:#F1ECE0; --card:#FFFFFF;
-  --border:#E4DFCF; --border-2:#D8D2C4; --slate:#6B7280; --amber:#F5A623; --amber-dark:#C97F0E;
-  --green:#1B7A43; --green-bg:#E7F3EC; --red:#C0392B; --red-bg:#FBEAE8;
-}
-*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-body{margin:0; font-family:'IBM Plex Sans',sans-serif; background:var(--paper); color:var(--ink); padding-bottom:40px;}
-h1,h2,h3{font-family:'Oswald',sans-serif; margin:0;}
-.appbar{background:var(--ink); color:var(--paper); padding:16px 20px; display:flex; align-items:center; gap:10px;}
-.appbar .name{font-family:'Oswald'; font-size:18px; font-weight:700;}
-.appbar .name span{color:var(--amber);}
-.appbar .sub{font-size:11px; color:#9AA0B8;}
-.wrap{max-width:640px; margin:0 auto; padding:16px;}
-.card{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px; margin-bottom:16px; box-shadow:0 2px 10px rgba(18,23,43,.04);}
-.card h2{font-size:16px; text-transform:uppercase; letter-spacing:.03em;}
-.field{margin-top:14px;}
-.field label{display:block; font-size:12px; font-weight:700; color:var(--slate); text-transform:uppercase; letter-spacing:.03em; margin-bottom:6px;}
-.field input, .field select, .field textarea{width:100%; padding:12px; border:1.5px solid var(--border-2); border-radius:10px; font-size:15px; font-family:inherit; background:var(--paper); color:var(--ink);}
-.field input:focus, .field select:focus, .field textarea:focus{outline:none; border-color:var(--amber);}
-.btn{display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:14px 20px; border-radius:11px; border:none; font-weight:700; font-size:15px; cursor:pointer; transition:transform .12s cubic-bezier(.34,1.56,.64,1);}
-.btn:active{transform:scale(.96);}
-.btn-primary{background:linear-gradient(135deg,var(--amber),var(--amber-dark)); color:#fff; box-shadow:0 4px 14px rgba(245,166,35,.35);}
-.btn-dark{background:var(--ink); color:#fff;}
-.btn-outline{background:var(--card); color:var(--ink); border:1.5px solid var(--border-2);}
-.btn-block{width:100%;}
-.btn:disabled{opacity:.5; cursor:not-allowed;}
-.req-mark{color:var(--red);}
-.spin{display:inline-block; width:16px; height:16px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite;}
-@keyframes spin{to{transform:rotate(360deg);}}
-.toast{position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff; padding:12px 20px; border-radius:30px; font-size:13px; font-weight:600; z-index:500; display:none; max-width:90%; text-align:center;}
-.toast.err{background:var(--red);}
-.category-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px;}
-.category-card{border:1.5px solid var(--border-2); border-radius:12px; padding:16px 10px; text-align:center; cursor:pointer; background:var(--card); transition:transform .12s, border-color .15s;}
-.category-card.sel{border-color:var(--amber); background:var(--paper-2); transform:scale(1.02);}
-.category-card .icon{font-size:26px;}
-.category-card .label{font-size:12px; font-weight:700; margin-top:6px;}
-.menu-choice{border:1.5px solid var(--border-2); border-radius:14px; padding:20px; margin-bottom:14px; cursor:pointer; background:var(--card);}
-.menu-choice h3{font-size:17px;}
-.menu-choice p{font-size:13px; color:var(--slate); margin:6px 0 0;}
-.geo-status{padding:10px 12px; border-radius:10px; font-size:13px; font-weight:600;}
-.geo-status.pending{background:var(--red-bg); color:var(--red);}
-.geo-status.got{background:var(--green-bg); color:var(--green);}
-.photo-box{border:1.5px dashed var(--border-2); border-radius:12px; padding:16px; text-align:center;}
-.photo-box img{max-width:100%; max-height:220px; border-radius:8px; margin-top:10px; display:none;}
-.lock-note{font-size:12px; color:var(--red); margin-top:8px; font-weight:600;}
-.locked{opacity:.4; pointer-events:none;}
-.measure-canvas-wrap{position:relative; width:100%; margin-top:10px; touch-action:none;}
-.measure-canvas-wrap canvas{width:100%; border-radius:8px; display:block;}
-.magnifier{position:absolute; width:130px; height:130px; border-radius:50%; border:3px solid var(--amber); box-shadow:0 6px 18px rgba(0,0,0,.35); pointer-events:none; z-index:50; background:#000; display:none;}
-.ref-diagram{display:flex; align-items:center; gap:12px; background:var(--paper-2); border-radius:10px; padding:10px 14px; margin-top:8px;}
-.ref-diagram svg{flex-shrink:0;}
-.ref-diagram .ref-diagram-text{font-size:12px; color:var(--ink); line-height:1.5;}
-.ref-diagram .ref-diagram-text b{color:var(--amber-dark);}
-.calc-panel{background:var(--ink); color:#fff; border-radius:10px; padding:12px 14px; margin-top:10px; font-family:'IBM Plex Mono',monospace; font-size:11.5px; line-height:1.9;}
-.calc-panel .calc-title{font-family:'IBM Plex Sans',sans-serif; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--amber); margin-bottom:4px;}
-.calc-panel .calc-row{opacity:.92;}
-.calc-panel .calc-final{color:var(--amber); font-weight:700; border-top:1px dashed rgba(255,255,255,.25); margin-top:6px; padding-top:6px;}
-.step-badges{display:flex; gap:6px; margin:8px 0;}
-.step-badges span{flex:1; text-align:center; padding:6px 4px; border-radius:8px; font-size:10.5px; font-weight:700; background:var(--paper-2); color:var(--slate);}
-.step-badges span.done{background:var(--green-bg); color:var(--green);}
-.step-badges span.active{background:var(--amber); color:#fff;}
-.cam-guide-box{position:absolute; border:3px dashed rgba(255,255,255,.85); border-radius:6px; pointer-events:none;}
-.cam-guide-text{position:absolute; left:0; right:0; text-align:center; color:#fff; font-size:13px; font-weight:600; text-shadow:0 1px 4px rgba(0,0,0,.6); pointer-events:none; padding:0 20px;}
-.measure-tag{position:absolute; background:var(--ink); color:#fff; font-size:10px; padding:2px 6px; border-radius:6px; pointer-events:none; transform:translate(-50%,-130%);}
-.measure-hint{font-size:12px; color:var(--slate); margin-top:8px; line-height:1.5;}
-.tab-toggle{display:flex; gap:8px; margin-top:14px;}
-.tab-toggle button{flex:1; padding:10px; border-radius:10px; border:1.5px solid var(--border-2); background:var(--card); font-weight:700; font-size:13px; cursor:pointer;}
-.tab-toggle button.active{background:var(--ink); color:#fff; border-color:var(--ink);}
-.result-box{background:var(--paper-2); border-radius:10px; padding:14px; margin-top:10px; font-size:13px; line-height:1.7;}
-.result-box b{display:block; font-size:22px; font-family:'Oswald'; color:var(--ink); margin-bottom:2px;}
-.id-badge{background:var(--ink); color:var(--amber); font-family:'IBM Plex Mono',monospace; font-weight:700; padding:10px 16px; border-radius:10px; text-align:center; font-size:18px; letter-spacing:.05em; margin-top:10px;}
-.detail-row{display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed var(--border-2); font-size:13px;}
-.detail-row span:first-child{color:var(--slate);}
-.detail-row span:last-child{font-weight:600;}
-.status-pill{display:inline-block; padding:4px 12px; border-radius:20px; font-size:11px; font-weight:700; text-transform:uppercase;}
-.status-pill.pending{background:#FFF4E5; color:var(--amber-dark);}
-.status-pill.verified{background:var(--green-bg); color:var(--green);}
-.gate-screen{max-width:380px; margin:60px auto; padding:0 20px; text-align:center;}
-.gate-screen .icon{font-size:44px;}
+  :root{
+    --ink:#1B2A3C;
+    --ink-soft:#3B4A5E;
+    --paper:#F5F3EE;
+    --paper-raised:#FFFFFF;
+    --steel:#8A94A0;
+    --steel-line:#D8D3C8;
+    --orange:#E8622C;
+    --orange-dark:#C74E1E;
+    --green:#2F8F5B;
+    --blue:#4C8DFF;
+    --mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+    --sans: 'Barlow Condensed', 'Archivo Narrow', sans-serif;
+    --body: 'Inter', system-ui, sans-serif;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--body);
+    min-height:100vh;
+  }
+  .wrap{max-width:520px;margin:0 auto;padding:0 0 40px;}
+
+  header{
+    background:var(--ink);
+    color:var(--paper);
+    padding:22px 20px 18px;
+    position:relative;
+    overflow:hidden;
+  }
+  header::after{
+    content:"";
+    position:absolute;
+    right:-30px; top:-30px;
+    width:140px;height:140px;
+    border:2px solid rgba(245,243,238,0.08);
+    border-radius:50%;
+  }
+  .brand{
+    font-family:var(--sans);
+    font-weight:700;
+    font-size:26px;
+    letter-spacing:0.3px;
+    display:flex;
+    align-items:baseline;
+    gap:8px;
+  }
+  .brand .accent{color:var(--orange);}
+  .tagline{
+    font-size:13px;
+    color:#B9C2CE;
+    margin-top:4px;
+    max-width:280px;
+  }
+  .tab-row{
+    display:flex;
+    background:var(--paper-raised);
+    border-bottom:1px solid var(--steel-line);
+  }
+  .tab-btn{
+    flex:1;
+    padding:13px 0;
+    text-align:center;
+    font-family:var(--sans);
+    font-weight:600;
+    font-size:15px;
+    letter-spacing:0.3px;
+    color:var(--steel);
+    background:none;
+    border:none;
+    border-bottom:3px solid transparent;
+    cursor:pointer;
+  }
+  .tab-btn.active{
+    color:var(--ink);
+    border-bottom-color:var(--orange);
+  }
+
+  main{padding:18px 18px 0;}
+  section{display:none;}
+  section.active{display:block;}
+
+  .card{
+    background:var(--paper-raised);
+    border:1px solid var(--steel-line);
+    border-radius:3px;
+    padding:16px;
+    margin-bottom:14px;
+  }
+
+  .field-label{
+    font-size:11.5px;
+    font-weight:600;
+    color:var(--steel);
+    text-transform:uppercase;
+    letter-spacing:0.6px;
+    margin-bottom:6px;
+    display:block;
+  }
+  input[type=text], input[type=number], textarea{
+    width:100%;
+    border:1px solid var(--steel-line);
+    background:var(--paper);
+    padding:11px 12px;
+    font-size:16px;
+    font-family:var(--body);
+    color:var(--ink);
+    border-radius:2px;
+  }
+  input:focus, textarea:focus{outline:2px solid var(--orange); outline-offset:-1px;}
+  textarea{resize:vertical; min-height:56px;}
+  .field{margin-bottom:14px;}
+  .row2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+
+  .measure-readout{
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+    background:var(--ink);
+    color:var(--paper);
+    padding:14px 16px;
+    border-radius:3px;
+    margin-bottom:14px;
+  }
+  .measure-readout .num{
+    font-family:var(--mono);
+    font-size:26px;
+    font-weight:600;
+    color:var(--orange);
+  }
+  .measure-readout .unit{font-size:13px; color:#B9C2CE;}
+
+  .camera-zone{
+    border:2px dashed var(--steel-line);
+    border-radius:3px;
+    text-align:center;
+    padding:22px 16px;
+    background:var(--paper);
+    cursor:pointer;
+    position:relative;
+  }
+  .camera-zone.has-photo{padding:0; border-style:solid;}
+  .camera-zone img{width:100%; display:block; border-radius:2px;}
+  .camera-zone .cam-icon{font-size:26px; margin-bottom:6px;}
+  .camera-zone .cam-text{font-family:var(--sans); font-weight:600; font-size:14px; color:var(--ink-soft);}
+  .camera-zone .cam-sub{font-size:11.5px; color:var(--steel); margin-top:2px;}
+  #photoInput{display:none;}
+  .skip-link{
+    display:block; text-align:center; margin-top:8px;
+    font-size:12px; color:var(--steel); text-decoration:underline; cursor:pointer; background:none; border:none; width:100%;
+  }
+  .photo-remove{
+    display:block; text-align:center; margin-top:8px;
+    font-size:12px; color:var(--orange-dark); text-decoration:underline; cursor:pointer; background:none; border:none; width:100%;
+  }
+
+  .gps-chip{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    background:var(--paper);
+    border:1px solid var(--steel-line);
+    border-radius:3px;
+    padding:10px 12px;
+    font-family:var(--mono);
+    font-size:12.5px;
+    color:var(--ink-soft);
+    margin-top:10px;
+  }
+  .gps-chip.locked{border-color:var(--green); color:var(--green);}
+  .gps-dot{width:8px;height:8px;border-radius:50%;background:var(--steel); flex-shrink:0;}
+  .gps-chip.locked .gps-dot{background:var(--green);}
+  .gps-chip.error .gps-dot{background:var(--orange);}
+  .gps-chip.error{color:var(--orange-dark); border-color:var(--orange);}
+
+  button.primary{
+    width:100%;
+    background:var(--orange);
+    color:#fff;
+    border:none;
+    padding:14px;
+    font-family:var(--sans);
+    font-weight:600;
+    font-size:16px;
+    letter-spacing:0.3px;
+    border-radius:3px;
+    cursor:pointer;
+  }
+  button.primary:active{background:var(--orange-dark);}
+  button.primary:disabled{background:var(--steel-line); color:var(--steel); cursor:not-allowed;}
+  button.ghost{
+    width:100%;
+    background:none;
+    border:1px solid var(--steel-line);
+    color:var(--ink-soft);
+    padding:12px;
+    font-family:var(--sans);
+    font-weight:600;
+    font-size:14px;
+    border-radius:3px;
+    cursor:pointer;
+    margin-top:8px;
+  }
+  button.small{
+    background:var(--paper);
+    border:1px solid var(--steel-line);
+    color:var(--ink-soft);
+    padding:8px 10px;
+    font-family:var(--body);
+    font-size:12.5px;
+    font-weight:600;
+    border-radius:2px;
+    cursor:pointer;
+  }
+
+  .log-item{
+    background:var(--paper-raised);
+    border:1px solid var(--steel-line);
+    border-radius:3px;
+    padding:14px;
+    margin-bottom:10px;
+    display:flex;
+    gap:12px;
+  }
+  .log-item img{width:72px; height:72px; object-fit:cover; border-radius:2px; flex-shrink:0; background:var(--steel-line);}
+  .log-item .li-noimg{width:72px; height:72px; border-radius:2px; flex-shrink:0; background:var(--paper); border:1px dashed var(--steel-line); display:flex; align-items:center; justify-content:center; font-size:20px; color:var(--steel-line);}
+  .log-item .li-body{flex:1; min-width:0;}
+  .log-item .li-title{font-family:var(--sans); font-weight:600; font-size:16px; color:var(--ink);}
+  .log-item .li-dims{font-family:var(--mono); font-size:13px; color:var(--orange-dark); margin-top:2px;}
+  .log-item .li-meta{font-size:11.5px; color:var(--steel); margin-top:4px; line-height:1.5;}
+  .li-del{background:none; border:none; color:var(--steel); font-size:18px; cursor:pointer; padding:0 4px; align-self:flex-start;}
+
+  .empty-state{
+    text-align:center;
+    padding:40px 20px;
+    color:var(--steel);
+  }
+  .empty-state .es-icon{font-size:32px; margin-bottom:8px;}
+  .empty-state .es-text{font-size:14px;}
+
+  .export-bar{padding:4px 0 14px;}
+  .count-strip{
+    font-family:var(--mono);
+    font-size:12px;
+    color:var(--steel);
+    padding:0 2px 10px;
+  }
+  .toast{
+    position:fixed;
+    bottom:20px; left:50%;
+    transform:translateX(-50%);
+    background:var(--ink);
+    color:var(--paper);
+    padding:11px 20px;
+    border-radius:3px;
+    font-size:13.5px;
+    font-family:var(--body);
+    opacity:0;
+    pointer-events:none;
+    transition:opacity 0.25s;
+    z-index:999;
+    white-space:nowrap;
+    max-width:88vw;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .toast.show{opacity:1;}
+
+  /* method toggle */
+  .method-toggle{
+    display:flex;
+    border:1px solid var(--steel-line);
+    border-radius:3px;
+    overflow:hidden;
+    margin-bottom:14px;
+  }
+  .method-toggle button{
+    flex:1;
+    padding:10px 4px;
+    background:var(--paper);
+    border:none;
+    font-family:var(--body);
+    font-size:11.5px;
+    font-weight:600;
+    color:var(--steel);
+    cursor:pointer;
+    border-right:1px solid var(--steel-line);
+  }
+  .method-toggle button:last-child{border-right:none;}
+  .method-toggle button.active{
+    background:var(--ink);
+    color:var(--paper);
+  }
+
+  /* calibration canvas */
+  .calib-wrap{position:relative; border:1px solid var(--steel-line); border-radius:3px; overflow:hidden; background:#000;}
+  #calibCanvas{display:block; width:100%; touch-action:none; cursor:crosshair;}
+  .calib-instruction{
+    background:var(--ink);
+    color:var(--paper);
+    font-size:13px;
+    padding:10px 12px;
+    border-radius:3px 3px 0 0;
+    font-family:var(--body);
+  }
+  .calib-instruction b{color:var(--orange);}
+  .ref-presets{display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;}
+  .ref-presets button{flex:1; min-width:80px;}
+  .ref-presets button.selected{background:var(--orange); color:#fff; border-color:var(--orange);}
+  .custom-ref-input{display:none; margin-top:10px;}
+  .calib-actions{display:flex; gap:8px; margin-top:10px;}
+  .calib-actions button{flex:1;}
+  .accuracy-note{
+    font-size:11.5px;
+    color:var(--steel);
+    line-height:1.5;
+    margin-top:10px;
+    padding:10px;
+    background:var(--paper);
+    border-left:2px solid var(--orange);
+  }
+  .result-row{display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--steel-line); font-size:14px;}
+  .result-row:last-child{border-bottom:none;}
+  .result-row .rl{color:var(--steel); font-size:12.5px;}
+  .result-row .rv{font-family:var(--mono); font-weight:600; color:var(--ink);}
+
+  /* AR ruler */
+  .ar-support-note{
+    font-size:12px; color:var(--steel); line-height:1.6;
+    background:var(--paper); border-left:2px solid var(--blue);
+    padding:10px 12px; margin-bottom:12px;
+  }
+  .ar-status-line{font-size:12.5px; font-family:var(--mono); margin-top:8px; color:var(--steel);}
+  .ar-status-line.ok{color:var(--green);}
+  .ar-status-line.bad{color:var(--orange-dark);}
+  #arCanvas{display:none;}
+  #arOverlay{
+    display:none;
+    position:fixed; inset:0; z-index:1000;
+    font-family:var(--body);
+    pointer-events:none; /* let taps fall through to the AR session by default */
+  }
+  #arOverlay .ar-top{
+    position:absolute; top:0; left:0; right:0;
+    padding:14px 16px calc(14px + env(safe-area-inset-top));
+    background:linear-gradient(to bottom, rgba(0,0,0,0.55), transparent);
+    color:#fff;
+  }
+  #arOverlay .ar-instruction{font-size:14px; font-weight:600;}
+  #arOverlay .ar-sub{font-size:12px; opacity:0.85; margin-top:2px;}
+  #arOverlay .ar-crosshair{
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:22px; height:22px; border:2px solid #fff; border-radius:50%;
+    box-shadow:0 0 0 2px rgba(0,0,0,0.4);
+  }
+  #arOverlay .ar-crosshair.hit{border-color:var(--green);}
+  #arOverlay .ar-crosshair.wait{border-color:#F2B33D;}
+  #arOverlay .ar-crosshair::after{
+    content:""; position:absolute; top:50%; left:50%; width:4px; height:4px;
+    background:#fff; border-radius:50%; transform:translate(-50%,-50%);
+  }
+  #arOverlay .ar-labels{
+    position:absolute; top:calc(72px + env(safe-area-inset-top)); left:16px; right:16px;
+    display:flex; gap:6px;
+    pointer-events:auto;
+  }
+  #arOverlay .ar-labels button{
+    flex:1; padding:8px 4px; font-size:12px; font-weight:600;
+    background:rgba(0,0,0,0.45); color:#fff; border:1px solid rgba(255,255,255,0.3);
+    border-radius:3px;
+  }
+  #arOverlay .ar-labels button.active{ background:var(--orange); border-color:var(--orange); }
+  #arOverlay .ar-list{
+    position:absolute; bottom:100px; left:16px; right:16px;
+    max-height:120px; overflow-y:auto;
+    background:rgba(0,0,0,0.55); border-radius:3px; padding:8px 10px;
+    color:#fff; font-family:var(--mono); font-size:12.5px;
+    pointer-events:auto;
+  }
+  #arOverlay .ar-list .ar-list-row{display:flex; justify-content:space-between; padding:3px 0;}
+  #arOverlay .ar-bottom{
+    position:absolute; bottom:0; left:0; right:0;
+    padding:14px 16px calc(14px + env(safe-area-inset-bottom));
+    background:linear-gradient(to top, rgba(0,0,0,0.6), transparent);
+    display:flex; gap:8px;
+    pointer-events:auto;
+  }
+  #arOverlay .ar-bottom button{
+    flex:1; padding:12px; border-radius:3px; font-weight:600; font-size:14px; border:none;
+  }
+  #arBtnUndo{ background:rgba(255,255,255,0.15); color:#fff; }
+  #arBtnFinish{ background:var(--orange); color:#fff; }
 </style>
 </head>
 <body>
+<div class="wrap">
 
-<div id="screen-gate" class="gate-screen">
-  <div class="icon">📐</div>
-  <h1 style="margin-top:10px;">BETAVERSE</h1>
-  <p style="color:var(--slate); font-size:13px; margin-top:6px;">Outdoor Ad Site Audit — enter the access code to continue</p>
-  <div class="field" style="margin-top:24px; text-align:left;">
-    <label>Access Code</label>
-    <input type="password" id="gateCode" placeholder="Enter code">
-  </div>
-  <button class="btn btn-primary btn-block" style="margin-top:14px;" onclick="checkGate()" id="gateBtn">Continue</button>
-  <div id="gateError" style="color:var(--red); font-size:13px; margin-top:10px; display:none;"></div>
-</div>
+  <header>
+    <div class="brand">Site<span class="accent">Scale</span></div>
+    <div class="tagline">Field measurement capture for walls & hoardings — logged with GPS.</div>
+  </header>
 
-<div id="screen-app" style="display:none;">
-  <div class="appbar">
-    <div>
-      <div class="name">BETA<span>VERSE</span></div>
-      <div class="sub">Outdoor Ad Site Audit · v1.0.0</div>
-    </div>
+  <div class="tab-row">
+    <button class="tab-btn active" data-tab="capture">New Entry</button>
+    <button class="tab-btn" data-tab="log">Log</button>
   </div>
-  <div class="wrap" id="mainWrap"></div>
+
+  <main>
+    <section id="capture" class="active">
+
+      <div class="card">
+        <span class="field-label">Measurement method</span>
+        <div class="method-toggle">
+          <button id="modeManualBtn" class="active">Manual</button>
+          <button id="modePhotoBtn">Photo-calibrated</button>
+          <button id="modeArBtn">AR Ruler (Beta)</button>
+        </div>
+
+        <!-- Photo calibration UI -->
+        <div id="calibBlock" style="display:none;">
+          <div id="refPresetBlock">
+            <span class="field-label">Reference object used in photo</span>
+            <div class="ref-presets">
+              <button class="small" data-cm="21">A4 short (21cm)</button>
+              <button class="small" data-cm="29.7">A4 long (29.7cm)</button>
+              <button class="small" data-cm="8.56">Card (8.56cm)</button>
+              <button class="small" data-cm="0">Custom</button>
+            </div>
+            <div class="custom-ref-input" id="customRefWrap">
+              <input type="number" id="customRefCm" placeholder="Reference length in cm" step="0.1">
+            </div>
+          </div>
+
+          <div style="margin-top:12px;">
+            <div class="calib-instruction" id="calibInstruction">Pehle photo capture karo neeche, fir reference size select karo.</div>
+            <div class="calib-wrap">
+              <canvas id="calibCanvas"></canvas>
+            </div>
+            <div class="calib-actions">
+              <button class="small" id="undoPointBtn">Undo point</button>
+              <button class="small" id="resetCalibBtn">Reset</button>
+            </div>
+          </div>
+
+          <div class="accuracy-note">Photo perpendicular honi chahiye wall ke, aur reference object wall ke same plane me hona chahiye — tabhi accuracy achi milegi. Ye estimate hai.</div>
+
+          <div id="calibResultBlock" style="display:none; margin-top:12px;">
+            <div class="result-row"><span class="rl">Scale</span><span class="rv" id="scaleOut">—</span></div>
+            <div class="result-row"><span class="rl">Estimated width</span><span class="rv" id="estWidthOut">—</span></div>
+            <div class="result-row"><span class="rl">Estimated height</span><span class="rv" id="estHeightOut">—</span></div>
+          </div>
+        </div>
+
+        <!-- AR ruler UI -->
+        <div id="arBlock" style="display:none;">
+          <div class="ar-support-note">
+            <b>Requires:</b> Android phone, Chrome browser, ARCore support, aur ye page HTTPS pe hosted hona chahiye. No reference object needed.<br><br>
+            <b>Accuracy ke liye zaroori:</b> Start karte hi phone ko 2-3 second side-to-side/thoda circular move karo (jab tak blue tracked-surface overlay na dikhe) — tabhi tap karo. Bilkul plain/blank painted wall pe tracking weak padti hai; agar possible ho to wall ke corner, ground, ya kisi texture/edge ko bhi frame me rakho taaki phone ko reference points milein.
+          </div>
+          <button class="primary" id="arSupportCheckBtn">Check AR support & Start</button>
+          <div class="ar-status-line" id="arStatusLine"></div>
+          <div id="arResultsList" style="margin-top:10px;"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="field-label">Photo (optional)</span>
+        <div class="camera-zone" id="camZone">
+          <div class="cam-icon">📷</div>
+          <div class="cam-text">Tap to add photo</div>
+          <div class="cam-sub">Optional — for visual record only</div>
+        </div>
+        <input type="file" id="photoInput" accept="image/*" capture="environment">
+        <button class="photo-remove" id="removePhotoBtn" style="display:none;">Remove photo</button>
+      </div>
+
+      <div class="card">
+        <span class="field-label">Location tag</span>
+        <div class="field">
+          <input type="text" id="siteName" placeholder="Site / market / address label">
+        </div>
+        <div class="gps-chip" id="gpsChip">
+          <div class="gps-dot"></div>
+          <span id="gpsText">Waiting for GPS lock…</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="field-label">Measurement (feet)</span>
+        <div class="row2">
+          <div class="field">
+            <label class="field-label" style="margin-bottom:4px;">Width</label>
+            <input type="number" id="widthIn" inputmode="decimal" placeholder="0.0" step="0.1">
+          </div>
+          <div class="field">
+            <label class="field-label" style="margin-bottom:4px;">Height</label>
+            <input type="number" id="heightIn" inputmode="decimal" placeholder="0.0" step="0.1">
+          </div>
+        </div>
+        <div class="measure-readout">
+          <span id="areaOut" class="num">0.0</span>
+          <span class="unit">sq. ft area</span>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label class="field-label" style="margin-bottom:4px;">Notes (optional)</label>
+          <textarea id="notesIn" placeholder="Structure type, surface condition, brand on wall, etc."></textarea>
+        </div>
+      </div>
+
+      <button class="primary" id="saveBtn">Save entry</button>
+    </section>
+
+    <section id="log">
+      <div class="count-strip" id="countStrip">0 entries logged</div>
+      <div id="logList"></div>
+      <div class="export-bar">
+        <button class="primary" id="exportBtn">Export to Excel</button>
+        <button class="ghost" id="clearBtn">Clear all entries</button>
+      </div>
+    </section>
+  </main>
 </div>
 
 <div class="toast" id="toast"></div>
 
+<!-- AR full-screen overlay -->
+<canvas id="arCanvas"></canvas>
+<div id="arOverlay">
+  <div class="ar-top">
+    <div class="ar-instruction" id="arInstruction">Phone ko dheere se move karo, surface detect hone do…</div>
+    <div class="ar-sub" id="arSub">Tap anywhere to place a point once the ring turns green</div>
+  </div>
+  <div class="ar-labels">
+    <button class="active" data-label="Width">Width</button>
+    <button data-label="Height">Height</button>
+    <button data-label="Diagonal">Diagonal</button>
+  </div>
+  <div class="ar-crosshair" id="arCrosshair"></div>
+  <div class="ar-list" id="arList"></div>
+  <div class="ar-bottom">
+    <button id="arBtnUndo">Undo point</button>
+    <button id="arBtnFinish">Finish & use these</button>
+  </div>
+</div>
+
 <script>
-const SCRIPT_URL = "PASTE_YOUR_BETAVERSE_APPS_SCRIPT_URL_HERE";
-function configured(){ return SCRIPT_URL && SCRIPT_URL.indexOf('PASTE_YOUR') === -1; }
-function toast(msg, isErr){
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.className = 'toast' + (isErr?' err':''); t.style.display='block';
-  clearTimeout(t._h); t._h = setTimeout(()=>t.style.display='none', 3200);
-}
-async function fetchWithTimeout(url, opts, ms){
-  const controller = new AbortController();
-  const timer = setTimeout(()=>controller.abort(), ms || 8000);
-  return fetch(url, Object.assign({}, opts, {signal:controller.signal})).finally(()=>clearTimeout(timer));
-}
-function deviceInfo(){
-  return {ua: navigator.userAgent, platform: navigator.platform||''};
-}
-function logClientError(message, stack, source){
-  try{
-    if(!configured()) return;
-    fetch(SCRIPT_URL, {method:'POST', body: JSON.stringify({
-      action:'logError', message:String(message||'').slice(0,500), stack:String(stack||'').slice(0,1500),
-      source:source||'window', url:location.href, device:JSON.stringify(deviceInfo()), phone: CHECKIN_PHONE||''
-    })}).catch(()=>{});
-  }catch(_e){}
-}
-window.addEventListener('error', e=>logClientError(e.message, e.error&&e.error.stack, 'window.onerror'));
-window.addEventListener('unhandledrejection', e=>logClientError('Unhandled rejection: '+(e.reason&&e.reason.message||e.reason), e.reason&&e.reason.stack, 'unhandledrejection'));
+let currentPhoto = null;
+let currentLat = null;
+let currentLng = null;
+let currentAccuracy = null;
+let entries = [];
+let measureMode = 'manual'; // 'manual' | 'photo' | 'ar'
 
-/* ---- Access gate ---- */
-function checkGate(){
-  const code = document.getElementById('gateCode').value;
-  const btn = document.getElementById('gateBtn');
-  const err = document.getElementById('gateError');
-  err.style.display='none';
-  if(!code){ err.textContent='Enter the access code.'; err.style.display='block'; return; }
-  btn.disabled=true; btn.innerHTML='<span class="spin"></span> Checking…';
-  const done = (ok)=>{
-    btn.disabled=false; btn.innerHTML='Continue';
-    if(ok){
-      try{ sessionStorage.setItem('betaverse_gate_ok','1'); }catch(_e){}
-      document.getElementById('screen-gate').style.display='none';
-      document.getElementById('screen-app').style.display='block';
-      renderMainMenu();
-    } else {
-      err.textContent='Incorrect code — please try again.'; err.style.display='block';
-    }
-  };
-  if(!configured()){ done(true); return; } // demo mode if backend not yet configured
-  fetchWithTimeout(`${SCRIPT_URL}?action=checkAccessCode&code=${encodeURIComponent(code)}`, {}, 8000)
-    .then(r=>r.json()).then(j=>done(j.success)).catch(()=>{ err.textContent='Could not verify — check your connection.'; err.style.display='block'; btn.disabled=false; btn.innerHTML='Continue'; });
-}
-(function(){
-  try{ if(sessionStorage.getItem('betaverse_gate_ok')==='1'){
-    document.getElementById('screen-gate').style.display='none';
-    document.getElementById('screen-app').style.display='block';
-  } }catch(_e){}
-})();
+const camZone = document.getElementById('camZone');
+const photoInput = document.getElementById('photoInput');
+const removePhotoBtn = document.getElementById('removePhotoBtn');
+const gpsChip = document.getElementById('gpsChip');
+const gpsText = document.getElementById('gpsText');
+const widthIn = document.getElementById('widthIn');
+const heightIn = document.getElementById('heightIn');
+const areaOut = document.getElementById('areaOut');
+const toast = document.getElementById('toast');
+const modeManualBtn = document.getElementById('modeManualBtn');
+const modePhotoBtn = document.getElementById('modePhotoBtn');
+const modeArBtn = document.getElementById('modeArBtn');
+const calibBlock = document.getElementById('calibBlock');
+const arBlock = document.getElementById('arBlock');
 
-/* ---- Downscale helper (same pattern as FieldAudit) ---- */
-function downscale(file, cb){
+function showToast(msg){
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(()=>toast.classList.remove('show'), 2400);
+}
+
+// tabs
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('main section').forEach(s=>s.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+    if(btn.dataset.tab === 'log') renderLog();
+  });
+});
+
+// camera (optional now)
+camZone.addEventListener('click', ()=>photoInput.click());
+photoInput.addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
   const reader = new FileReader();
-  reader.onload = ()=>{
-    const img = new Image();
-    img.onload = ()=>{
-      const maxW = 1280;
-      const scale = Math.min(1, maxW/img.width);
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width*scale; canvas.height = img.height*scale;
-      canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
-      cb(canvas.toDataURL('image/jpeg',0.85));
-    };
-    img.src = reader.result;
+  reader.onload = (ev)=>{
+    currentPhoto = ev.target.result;
+    camZone.classList.add('has-photo');
+    camZone.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = currentPhoto;
+    camZone.appendChild(img);
+    removePhotoBtn.style.display = 'block';
+    if(measureMode === 'photo') loadCalibImage();
   };
   reader.readAsDataURL(file);
+});
+removePhotoBtn.addEventListener('click', ()=>{
+  currentPhoto = null;
+  camZone.classList.remove('has-photo');
+  camZone.innerHTML = '<div class="cam-icon">📷</div><div class="cam-text">Tap to add photo</div><div class="cam-sub">Optional — for visual record only</div>';
+  removePhotoBtn.style.display = 'none';
+  photoInput.value = '';
+});
+
+// mode toggle
+function setMode(mode){
+  measureMode = mode;
+  [modeManualBtn, modePhotoBtn, modeArBtn].forEach(b=>b.classList.remove('active'));
+  calibBlock.style.display = 'none';
+  arBlock.style.display = 'none';
+  if(mode === 'manual'){ modeManualBtn.classList.add('active'); }
+  if(mode === 'photo'){
+    modePhotoBtn.classList.add('active');
+    calibBlock.style.display = 'block';
+    if(currentPhoto) loadCalibImage();
+  }
+  if(mode === 'ar'){ modeArBtn.classList.add('active'); arBlock.style.display = 'block'; }
 }
-function stampPhoto(base64, lines){
-  return new Promise((resolve)=>{
-    const img = new Image();
-    img.onload = ()=>{
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width; canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img,0,0);
-      const fontSize = Math.max(14, Math.round(canvas.width/38));
-      ctx.font = `${fontSize}px sans-serif`;
-      const pad = fontSize*0.6;
-      const boxH = (lines.length*fontSize*1.35) + pad*2;
-      ctx.fillStyle = 'rgba(0,0,0,.55)';
-      ctx.fillRect(0, canvas.height-boxH, canvas.width, boxH);
-      ctx.fillStyle = '#fff';
-      lines.forEach((line,i)=>{ ctx.fillText(line, pad, canvas.height-boxH+pad+fontSize+(i*fontSize*1.35)); });
-      resolve(canvas.toDataURL('image/jpeg',0.85));
-    };
-    img.src = base64;
+modeManualBtn.addEventListener('click', ()=>setMode('manual'));
+modePhotoBtn.addEventListener('click', ()=>setMode('photo'));
+modeArBtn.addEventListener('click', ()=>setMode('ar'));
+
+// GPS
+function lockGPS(){
+  if(!navigator.geolocation){
+    gpsChip.classList.add('error');
+    gpsText.textContent = 'GPS not supported on this device';
+    return;
+  }
+  gpsText.textContent = 'Waiting for GPS lock…';
+  navigator.geolocation.getCurrentPosition(
+    (pos)=>{
+      currentLat = pos.coords.latitude;
+      currentLng = pos.coords.longitude;
+      currentAccuracy = pos.coords.accuracy;
+      gpsChip.classList.remove('error');
+      gpsChip.classList.add('locked');
+      gpsText.textContent = currentLat.toFixed(6) + ', ' + currentLng.toFixed(6) + ' (±' + Math.round(currentAccuracy) + 'm)';
+    },
+    (err)=>{
+      gpsChip.classList.add('error');
+      gpsText.textContent = 'Location denied — enable GPS permission';
+    },
+    { enableHighAccuracy:true, timeout:15000 }
+  );
+}
+lockGPS();
+
+// area calc
+function updateArea(){
+  const w = parseFloat(widthIn.value) || 0;
+  const h = parseFloat(heightIn.value) || 0;
+  const area = w * h;
+  areaOut.textContent = area.toFixed(1);
+}
+widthIn.addEventListener('input', updateArea);
+heightIn.addEventListener('input', updateArea);
+
+/* ---------- Photo calibration (reference-object measurement) ---------- */
+const calibCanvas = document.getElementById('calibCanvas');
+const cctx = calibCanvas.getContext('2d');
+let calibImg = new Image();
+let calibPoints = [];
+let refCm = null;
+const calibInstruction = document.getElementById('calibInstruction');
+const calibResultBlock = document.getElementById('calibResultBlock');
+
+document.querySelectorAll('.ref-presets button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.ref-presets button').forEach(b=>b.classList.remove('selected'));
+    btn.classList.add('selected');
+    const cm = parseFloat(btn.dataset.cm);
+    if(cm === 0){
+      document.getElementById('customRefWrap').style.display = 'block';
+      refCm = null;
+    }else{
+      document.getElementById('customRefWrap').style.display = 'none';
+      refCm = cm;
+    }
+    resetCalibPoints();
   });
+});
+document.getElementById('customRefCm').addEventListener('input', (e)=>{
+  refCm = parseFloat(e.target.value) || null;
+  resetCalibPoints();
+});
+
+function loadCalibImage(){
+  if(!currentPhoto) return;
+  calibImg = new Image();
+  calibImg.onload = ()=>{
+    const maxW = calibCanvas.parentElement.clientWidth || 480;
+    const scale = maxW / calibImg.width;
+    calibCanvas.width = maxW;
+    calibCanvas.height = calibImg.height * scale;
+    drawCalib();
+  };
+  calibImg.src = currentPhoto;
 }
 
-/* ---- Daily check-in state ---- */
-let CHECKIN_PHONE='', CHECKIN_NAME='', CHECKIN_DONE=false, CHECKIN_PHOTO_BASE64=null;
-function loadSavedIdentity(){
-  try{ return JSON.parse(localStorage.getItem('betaverse_identity')||'null'); }catch(_e){ return null; }
-}
-function saveIdentity(phone,name){
-  try{ localStorage.setItem('betaverse_identity', JSON.stringify({phone,name})); }catch(_e){}
-}
-
-/* ---- WebAuthn biometric (same pattern as FieldAudit) ---- */
-function b64uToBuf(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='='; const bin=atob(s); const buf=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i); return buf.buffer; }
-function bufToB64u(buf){ const bytes=new Uint8Array(buf); let bin=''; bytes.forEach(b=>bin+=String.fromCharCode(b)); return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
-async function registerBiometricDevice(phone,name){
-  if(!window.PublicKeyCredential) return {ok:false, reason:'not_supported'};
-  try{
-    const cred = await navigator.credentials.create({publicKey:{
-      challenge: crypto.getRandomValues(new Uint8Array(32)),
-      rp:{name:'Betaverse'}, user:{id: new TextEncoder().encode(phone), name:phone, displayName:name},
-      pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
-      authenticatorSelection:{authenticatorAttachment:'platform', userVerification:'required'}, timeout:60000
-    }});
-    return {ok:true, credentialId: bufToB64u(cred.rawId)};
-  }catch(e){ return {ok:false, reason:'cancelled'}; }
-}
-async function verifyBiometricDevice(credIds){
-  if(!window.PublicKeyCredential) return {ok:false, reason:'not_supported'};
-  try{
-    await navigator.credentials.get({publicKey:{
-      challenge: crypto.getRandomValues(new Uint8Array(32)),
-      allowCredentials: credIds.map(id=>({type:'public-key', id:b64uToBuf(id)})),
-      userVerification:'required', timeout:60000
-    }});
-    return {ok:true};
-  }catch(e){ return {ok:false, reason:'cancelled'}; }
+function drawCalib(){
+  cctx.clearRect(0,0,calibCanvas.width, calibCanvas.height);
+  cctx.drawImage(calibImg, 0, 0, calibCanvas.width, calibCanvas.height);
+  const colors = ['#E8622C','#E8622C','#2F8F5B','#2F8F5B','#4C8DFF','#4C8DFF'];
+  const labels = ['Ref','Ref','W','W','H','H'];
+  calibPoints.forEach((p, i)=>{
+    cctx.fillStyle = colors[i];
+    cctx.beginPath();
+    cctx.arc(p.x, p.y, 6, 0, Math.PI*2);
+    cctx.fill();
+    cctx.fillStyle = '#fff';
+    cctx.font = '10px sans-serif';
+    cctx.fillText(labels[i], p.x+8, p.y-8);
+  });
+  for(let i=0; i+1 < calibPoints.length; i+=2){
+    cctx.strokeStyle = colors[i];
+    cctx.lineWidth = 2;
+    cctx.beginPath();
+    cctx.moveTo(calibPoints[i].x, calibPoints[i].y);
+    cctx.lineTo(calibPoints[i+1].x, calibPoints[i+1].y);
+    cctx.stroke();
+  }
+  updateInstruction();
 }
 
-/* ---- Front-camera capture (getUserMedia, reliable across devices) ---- */
-let _camStream=null, _camTargetCb=null;
-async function openCamera(facing, onCapture, guide){
-  _camTargetCb = onCapture;
-  const overlay = document.createElement('div');
-  overlay.style.cssText='position:fixed;inset:0;background:#000;z-index:400;display:flex;flex-direction:column;';
-  overlay.innerHTML = `<div style="position:relative;flex:1;overflow:hidden;">
-    <video id="camVideo" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;${facing==='user'?'transform:scaleX(-1);':''}"></video>
-    ${guide ? `
-    <div class="cam-guide-text" style="top:14px;">📄 Keep the A4 sheet flat in the dashed box below, held next to the target — both fully visible</div>
-    <div class="cam-guide-box" style="left:6%; bottom:14%; width:24%; aspect-ratio:21/29.7; display:flex; align-items:flex-end; justify-content:center; padding-bottom:6px;">
-      <span style="background:rgba(0,0,0,.55); color:#fff; font-size:10px; font-weight:700; padding:3px 6px; border-radius:6px;">A4 HERE</span>
-    </div>
-    ` : ''}
-    </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px;background:#000;">
-      <button id="camCancel" style="background:none;border:none;color:#fff;font-size:14px;font-weight:600;width:70px;">✕ Cancel</button>
-      <button id="camShutter" style="width:70px;height:70px;border-radius:50%;background:#fff;border:4px solid rgba(255,255,255,.4);"></button>
-      <span style="width:70px;"></span>
-    </div>`;
-  document.body.appendChild(overlay);
-  document.getElementById('camCancel').onclick = ()=>{ closeCam(overlay); };
-  document.getElementById('camShutter').onclick = ()=>{ captureCam(overlay, facing); };
+function updateInstruction(){
+  const n = calibPoints.length;
+  if(!currentPhoto){ calibInstruction.innerHTML = 'Pehle photo capture karo neeche.'; return; }
+  if(!refCm){ calibInstruction.innerHTML = 'Reference size select karo (upar).'; return; }
+  if(n===0) calibInstruction.innerHTML = '<b>Step 1/3</b> — Reference object ke known edge ke 2 corner tap karo.';
+  else if(n===1) calibInstruction.innerHTML = '<b>Step 1/3</b> — Reference edge ka doosra corner tap karo.';
+  else if(n===2) calibInstruction.innerHTML = '<b>Step 2/3</b> — Wall ke width ke 2 end points tap karo.';
+  else if(n===3) calibInstruction.innerHTML = '<b>Step 2/3</b> — Width ka doosra point tap karo.';
+  else if(n===4) calibInstruction.innerHTML = '<b>Step 3/3</b> — Wall ke height ke 2 end points tap karo.';
+  else if(n===5) calibInstruction.innerHTML = '<b>Step 3/3</b> — Height ka doosra point tap karo.';
+  else calibInstruction.innerHTML = '✓ Calculated — neeche result check karo.';
+}
+
+function dist2(a,b){ return Math.sqrt(Math.pow(a.x-b.x,2) + Math.pow(a.y-b.y,2)); }
+
+function computeCalib(){
+  if(calibPoints.length < 6 || !refCm) return;
+  const refPx = dist2(calibPoints[0], calibPoints[1]);
+  const wPx = dist2(calibPoints[2], calibPoints[3]);
+  const hPx = dist2(calibPoints[4], calibPoints[5]);
+  const cmPerPx = refCm / refPx;
+  const wFt = (wPx * cmPerPx) / 30.48;
+  const hFt = (hPx * cmPerPx) / 30.48;
+
+  document.getElementById('scaleOut').textContent = cmPerPx.toFixed(3) + ' cm/px';
+  document.getElementById('estWidthOut').textContent = wFt.toFixed(2) + ' ft';
+  document.getElementById('estHeightOut').textContent = hFt.toFixed(2) + ' ft';
+  calibResultBlock.style.display = 'block';
+
+  widthIn.value = wFt.toFixed(2);
+  heightIn.value = hFt.toFixed(2);
+  updateArea();
+  showToast('Measurement filled from photo — check before saving');
+}
+
+calibCanvas.addEventListener('click', (e)=>{
+  if(!currentPhoto){ showToast('Pehle photo capture karo'); return; }
+  if(!refCm){ showToast('Pehle reference size select karo'); return; }
+  if(calibPoints.length >= 6) return;
+  const rect = calibCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  calibPoints.push({x,y});
+  drawCalib();
+  if(calibPoints.length === 6) computeCalib();
+});
+
+document.getElementById('undoPointBtn').addEventListener('click', ()=>{
+  calibPoints.pop();
+  calibResultBlock.style.display = 'none';
+  drawCalib();
+});
+document.getElementById('resetCalibBtn').addEventListener('click', resetCalibPoints);
+function resetCalibPoints(){
+  calibPoints = [];
+  calibResultBlock.style.display = 'none';
+  if(calibImg.src) drawCalib();
+}
+
+/* ---------- AR Ruler (WebXR hit-test) ---------- */
+const arSupportCheckBtn = document.getElementById('arSupportCheckBtn');
+const arStatusLine = document.getElementById('arStatusLine');
+const arResultsList = document.getElementById('arResultsList');
+const arOverlay = document.getElementById('arOverlay');
+const arCanvas = document.getElementById('arCanvas');
+const arCrosshair = document.getElementById('arCrosshair');
+const arInstruction = document.getElementById('arInstruction');
+const arSub = document.getElementById('arSub');
+const arList = document.getElementById('arList');
+
+let arSession = null, arRenderer = null, arScene = null, arCamera = null;
+let arReticle = null, arHitTestSource = null, arRefSpace = null;
+let arCurrentLabel = 'Width';
+let arPendingPoints = [];
+let arMeasurements = [];
+let arLastHitPose = null;
+let THREE = null;
+let arPlaneGroup = null;      // visual mesh of detected surfaces
+let arHitStableSince = null;  // timestamp when current unbroken hit streak began
+const AR_STABLE_MS = 450;     // require this much continuous tracking before a tap counts
+
+document.querySelectorAll('.ar-labels button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.ar-labels button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    arCurrentLabel = btn.dataset.label;
+  });
+});
+
+arSupportCheckBtn.addEventListener('click', startARFlow);
+
+async function startARFlow(){
+  arStatusLine.className = 'ar-status-line';
+  arStatusLine.textContent = 'Checking device support…';
+
+  if(location.protocol !== 'https:' && location.hostname !== 'localhost'){
+    arStatusLine.className = 'ar-status-line bad';
+    arStatusLine.textContent = 'Ye page HTTPS pe hosted nahi hai — AR camera access sirf secure (https://) page pe milta hai. Is file ko kisi web host pe upload karke wahan se kholo.';
+    return;
+  }
+  if(!navigator.xr){
+    arStatusLine.className = 'ar-status-line bad';
+    arStatusLine.textContent = 'WebXR is browser me support nahi hai. Android Chrome (latest) use karo.';
+    return;
+  }
+  const supported = await navigator.xr.isSessionSupported('immersive-ar').catch(()=>false);
+  if(!supported){
+    arStatusLine.className = 'ar-status-line bad';
+    arStatusLine.textContent = 'Is device/browser pe AR support nahi mila. ARCore-compatible Android phone + Chrome chahiye.';
+    return;
+  }
+  arStatusLine.className = 'ar-status-line ok';
+  arStatusLine.textContent = 'AR supported — starting…';
+
   try{
-    _camStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:facing}, audio:false});
-    document.getElementById('camVideo').srcObject = _camStream;
-  }catch(e){
-    closeCam(overlay);
-    toast('Could not open camera — check permissions', true);
+    if(!THREE){
+      THREE = await import('https://unpkg.com/three@0.160.0/build/three.module.js');
+    }
+    await launchARSession();
+  }catch(err){
+    arStatusLine.className = 'ar-status-line bad';
+    arStatusLine.textContent = 'AR start fail hua: ' + (err && err.message ? err.message : err);
   }
 }
-function closeCam(overlay){
-  if(_camStream){ _camStream.getTracks().forEach(t=>t.stop()); _camStream=null; }
-  overlay.remove();
-}
-function captureCam(overlay, facing){
-  const video = document.getElementById('camVideo');
-  const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-  const ctx = canvas.getContext('2d');
-  if(facing==='user'){ ctx.translate(canvas.width,0); ctx.scale(-1,1); }
-  ctx.drawImage(video,0,0,canvas.width,canvas.height);
-  const dataUrl = canvas.toDataURL('image/jpeg',0.9);
-  closeCam(overlay);
-  fetch(dataUrl).then(r=>r.blob()).then(blob=>{
-    const file = new File([blob],'capture.jpg',{type:'image/jpeg'});
-    downscale(file, _camTargetCb);
+
+async function launchARSession(){
+  arMeasurements = [];
+  arPendingPoints = [];
+  arCurrentLabel = 'Width';
+  document.querySelectorAll('.ar-labels button').forEach(b=>b.classList.toggle('active', b.dataset.label==='Width'));
+  updateArList();
+
+  arScene = new THREE.Scene();
+  arCamera = new THREE.PerspectiveCamera();
+
+  arRenderer = new THREE.WebGLRenderer({ canvas: arCanvas, alpha:true, antialias:true });
+  arRenderer.setPixelRatio(window.devicePixelRatio);
+  arRenderer.setSize(window.innerWidth, window.innerHeight);
+  arRenderer.xr.enabled = true;
+
+  const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+  arScene.add(light);
+
+  const ringGeo = new THREE.RingGeometry(0.045, 0.06, 32).rotateX(-Math.PI/2);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0x2F8F5B });
+  arReticle = new THREE.Mesh(ringGeo, ringMat);
+  arReticle.matrixAutoUpdate = false;
+  arReticle.visible = false;
+  arScene.add(arReticle);
+
+  arPlaneGroup = new THREE.Group();
+  arScene.add(arPlaneGroup);
+  arHitStableSince = null;
+
+  arSession = await navigator.xr.requestSession('immersive-ar', {
+    requiredFeatures: ['hit-test'],
+    optionalFeatures: ['dom-overlay', 'plane-detection'],
+    domOverlay: { root: arOverlay }
   });
+
+  arCanvas.style.display = 'block';
+  arOverlay.style.display = 'block';
+
+  // three.js manages this session's own reference space internally —
+  // reuse the SAME instance for hit-test pose math instead of requesting
+  // a second independent 'local' space, so reticle + rendering never drift apart.
+  arRenderer.xr.setReferenceSpaceType('local');
+  await arRenderer.xr.setSession(arSession);
+  arRefSpace = arRenderer.xr.getReferenceSpace();
+
+  const viewerSpace = await arSession.requestReferenceSpace('viewer');
+  arHitTestSource = await arSession.requestHitTestSource({ space: viewerSpace });
+
+  arSession.addEventListener('select', onARSelect);
+  arSession.addEventListener('end', onARSessionEnd);
+  arInstruction.textContent = 'Phone ko dheere-dheere side-to-side move karo…';
+  arSub.textContent = 'Tracking build ho rahi hai — jaldi tap mat karo';
+
+  document.getElementById('arBtnUndo').onclick = onARUndo;
+  document.getElementById('arBtnFinish').onclick = ()=>{ if(arSession) arSession.end(); };
+
+  arRenderer.setAnimationLoop(onARFrame);
 }
 
-/* ============================================================
-   MAIN MENU
-   ============================================================ */
-function renderMainMenu(){
-  const wrap = document.getElementById('mainWrap');
-  wrap.innerHTML = `
-    <div class="menu-choice" onclick="startPreAuditFlow()">
-      <h3>📐 New Site Measurement</h3>
-      <p>Measure a billboard, hoarding, wall painting, or wall ad site BEFORE the ad goes up — creates a new Submission ID.</p>
-    </div>
-    <div class="menu-choice" onclick="startVerifyFlow()">
-      <h3>✅ Verify Installation</h3>
-      <p>After the ad has been put up, confirm how much of the submitted site actually got the ad and the approved cost — linked to an existing Submission ID.</p>
-    </div>
-    <div class="menu-choice" onclick="startMySubmissionsFlow()">
-      <h3>📋 My Submissions</h3>
-      <p>Browse your own past site measurements — handy if you don't remember a Submission ID by heart.</p>
-    </div>
-  `;
-}
-
-/* ============================================================
-   MY SUBMISSIONS — browse own past submissions by phone, so an
-   auditor doesn't have to remember/write down every Submission ID
-   to come back and verify it later.
-   ============================================================ */
-function startMySubmissionsFlow(){
-  requireCheckin(renderMySubmissions);
-}
-async function renderMySubmissions(){
-  const wrap = document.getElementById('mainWrap');
-  wrap.innerHTML = `<div class="card"><h2>My Submissions</h2><div id="mySubsList" style="margin-top:12px;"><div class="spin" style="border-color:rgba(18,23,43,.2); border-top-color:var(--ink);"></div></div></div><button class="btn btn-outline btn-block" onclick="renderMainMenu()">← Back to menu</button>`;
-  const listEl = document.getElementById('mySubsList');
-  try{
-    if(!configured()) throw new Error('__NOCFG__');
-    const r = await fetchWithTimeout(`${SCRIPT_URL}?action=listMySubmissions&phone=${encodeURIComponent(CHECKIN_PHONE)}`, {}, 10000);
-    const j = await r.json();
-    const subs = j.submissions || [];
-    if(!subs.length){ listEl.innerHTML = `<p style="color:var(--slate); font-size:13px;">No submissions yet — your first "New Site Measurement" will show up here.</p>`; return; }
-    listEl.innerHTML = subs.map(s=>`
-      <div class="menu-choice" style="padding:14px;" onclick="jumpToVerify('${s.submissionId}')">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <b class="mono" style="font-size:13px;">${s.submissionId}</b>
-          <span class="status-pill ${s.status==='Verified'?'verified':'pending'}">${s.status}</span>
-        </div>
-        <p style="margin:6px 0 0;">${s.category} · ${s.area||'—'} sq ft · ₹${s.cost||0}</p>
-        <p style="margin:2px 0 0; font-size:12px;">${s.address||''}${s.city?', '+s.city:''} · ${s.date||''}</p>
-      </div>
-    `).join('');
-  }catch(e){
-    listEl.innerHTML = `<p style="color:var(--red); font-size:13px;">Could not load submissions — check your connection.</p>`;
-  }
-}
-function jumpToVerify(id){
-  document.getElementById('mainWrap').innerHTML = `<div class="card"><h2>Loading…</h2></div>`;
-  (async ()=>{
+function updateDetectedPlanes(frame){
+  if(!frame.detectedPlanes || !arPlaneGroup) return;
+  // rebuild each frame — plane count/shape is small, simplest way to stay in sync
+  while(arPlaneGroup.children.length) arPlaneGroup.remove(arPlaneGroup.children[0]);
+  frame.detectedPlanes.forEach(plane=>{
     try{
-      const r = await fetchWithTimeout(`${SCRIPT_URL}?action=getSubmission&id=${encodeURIComponent(id)}`, {}, 10000);
-      const j = await r.json();
-      if(!j.success) throw new Error(j.message);
-      VERIFY = {submission:j.submission, geo:null, photo:null, measurement:null};
-      renderVerifyForm();
-    }catch(e){ toast('Could not open that submission', true); renderMySubmissions(); }
-  })();
-}
+      const pose = frame.getPose(plane.planeSpace, arRefSpace);
+      if(!pose || !plane.polygon || plane.polygon.length < 3) return;
+      const shape = new THREE.Shape();
+      plane.polygon.forEach((pt, i)=>{
+        if(i===0) shape.moveTo(pt.x, pt.z); else shape.lineTo(pt.x, pt.z);
+      });
+      const geo = new THREE.ShapeGeometry(shape);
+      geo.rotateX(Math.PI/2);
+      const mat = new THREE.MeshBasicMaterial({ color:0x4C8DFF, transparent:true, opacity:0.16, side:THREE.DoubleSide, depthWrite:false });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.matrixAutoUpdate = false;
+      mesh.matrix.fromArray(pose.transform.matrix);
+      arPlaneGroup.add(mesh);
 
-/* ============================================================
-   DAILY CHECK-IN — required once per day before either flow, same
-   selfie + WebAuthn pattern as FieldAudit.
-   ============================================================ */
-let CHECKIN_ON_DONE = null;
-function requireCheckin(onDone){
-  CHECKIN_ON_DONE = onDone;
-  const wrap = document.getElementById('mainWrap');
-  const saved = loadSavedIdentity();
-  wrap.innerHTML = `<div class="card"><h2>Daily Check-in</h2><div id="checkinArea" style="margin-top:14px;"></div></div>`;
-  if(saved && saved.phone){
-    document.getElementById('checkinArea').innerHTML = `<div class="spin" style="border-color:rgba(18,23,43,.2); border-top-color:var(--ink);"></div>`;
-    const today = new Date().toISOString().slice(0,10);
-    if(!configured()){ CHECKIN_PHONE=saved.phone; CHECKIN_NAME=saved.name; CHECKIN_DONE=true; onDone(); return; }
-    fetchWithTimeout(`${SCRIPT_URL}?action=checkinStatus&phone=${encodeURIComponent(saved.phone)}&date=${today}`, {}, 8000)
-      .then(r=>r.json()).then(j=>{
-        if(j.checkedIn){ CHECKIN_PHONE=saved.phone; CHECKIN_NAME=saved.name; CHECKIN_DONE=true; onDone(); }
-        else renderCheckinCapture(saved.phone, saved.name);
-      }).catch(()=>renderCheckinCapture(saved.phone, saved.name));
-  } else {
-    renderCheckinCapture('','');
-  }
-}
-function renderCheckinCapture(phone, name){
-  const area = document.getElementById('checkinArea');
-  area.innerHTML = `
-    <div class="field"><label>Your Phone Number <span class="req-mark">*</span></label>
-      <input type="text" id="ck_phone" inputmode="numeric" maxlength="10" value="${phone}" placeholder="10-digit number">
-    </div>
-    <div class="field"><label>Your Name <span class="req-mark">*</span></label>
-      <input type="text" id="ck_name" value="${name}" placeholder="Full name">
-    </div>
-    <button class="btn btn-primary btn-block" style="margin-top:14px;" onclick="captureCheckinSelfie()">🤳 Take selfie to check in</button>
-    <img id="ck_preview" style="max-width:200px; border-radius:8px; margin-top:10px; display:none;">
-    <button class="btn btn-dark btn-block" style="margin-top:12px;" onclick="doCheckin()" id="ck_submitBtn" disabled>Submit check-in</button>
-  `;
-}
-function captureCheckinSelfie(){
-  openCamera('user', (dataUrl)=>{
-    CHECKIN_PHOTO_BASE64 = dataUrl;
-    const prev = document.getElementById('ck_preview');
-    prev.src = dataUrl; prev.style.display='block';
-    document.getElementById('ck_submitBtn').disabled = false;
+      // faint outline so the edge of the tracked surface is visible too
+      const edges = new THREE.EdgesGeometry(geo);
+      const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color:0x4C8DFF, transparent:true, opacity:0.5 }));
+      line.matrixAutoUpdate = false;
+      line.matrix.fromArray(pose.transform.matrix);
+      arPlaneGroup.add(line);
+    }catch(e){ /* a plane can go stale mid-frame — skip it */ }
   });
 }
-async function doCheckin(){
-  const phone = document.getElementById('ck_phone').value.trim();
-  const name = document.getElementById('ck_name').value.trim();
-  if(!phone || phone.length!==10){ toast('Enter a valid 10-digit phone number', true); return; }
-  if(!name){ toast('Enter your name', true); return; }
-  if(!CHECKIN_PHOTO_BASE64){ toast('Take a selfie first', true); return; }
-  const btn = document.getElementById('ck_submitBtn');
-  btn.disabled=true; btn.innerHTML='<span class="spin"></span> Verifying fingerprint/Face…';
-  let bioResult, wasNew=false;
-  try{
-    if(!configured()) throw new Error('__NOCFG__');
-    const credRes = await fetchWithTimeout(`${SCRIPT_URL}?action=getBiometricCredentials&phone=${encodeURIComponent(phone)}`, {}, 8000);
-    const credJson = await credRes.json();
-    if(credJson.enrolled && credJson.credentialIds && credJson.credentialIds.length){
-      bioResult = await verifyBiometricDevice(credJson.credentialIds);
-      if(!bioResult.ok){ toast('Fingerprint/Face verification failed', true); btn.disabled=false; btn.textContent='Submit check-in'; return; }
-    } else {
-      wasNew = true;
-      bioResult = await registerBiometricDevice(phone, name);
-      if(!bioResult.ok){ toast('Fingerprint/Face setup was cancelled', true); btn.disabled=false; btn.textContent='Submit check-in'; return; }
+
+function onARFrame(timestamp, frame){
+  if(!frame){ arRenderer.render(arScene, arCamera); return; }
+
+  updateDetectedPlanes(frame);
+
+  if(arHitTestSource){
+    const results = frame.getHitTestResults(arHitTestSource);
+    if(results.length > 0){
+      const pose = results[0].getPose(arRefSpace);
+      arReticle.visible = true;
+      arReticle.matrix.fromArray(pose.transform.matrix);
+      arLastHitPose = pose;
+
+      if(arHitStableSince === null) arHitStableSince = timestamp;
+      const stableFor = timestamp - arHitStableSince;
+      const isStable = stableFor >= AR_STABLE_MS;
+
+      arCrosshair.classList.toggle('hit', isStable);
+      arCrosshair.classList.toggle('wait', !isStable);
+
+      if(!isStable){
+        arSub.textContent = 'Tracking stabilize ho raha hai, ek second ruko…';
+      }else if(arPendingPoints.length === 1){
+        const p = new THREE.Vector3().setFromMatrixPosition(arReticle.matrix);
+        const d = arPendingPoints[0].distanceTo(p);
+        arSub.textContent = 'Live: ' + (d*3.28084).toFixed(2) + ' ft — tap to confirm ' + arCurrentLabel;
+      }else{
+        arSub.textContent = 'Tap anywhere to place a point';
+      }
+    }else{
+      arReticle.visible = false;
+      arLastHitPose = null;
+      arHitStableSince = null;
+      arCrosshair.classList.remove('hit','wait');
+      arSub.textContent = 'Move phone slowly — looking for a surface…';
     }
+  }
+  arRenderer.render(arScene, arCamera);
+}
+
+function onARSelect(){
+  if(!arLastHitPose){ showToast('Surface detect nahi hui, phone thoda move karo'); return; }
+  if(arHitStableSince === null || (performance.now() - arHitStableSince) < AR_STABLE_MS){
+    showToast('Thoda ruko — tracking abhi stabilize ho rahi hai');
+    return;
+  }
+  const point = new THREE.Vector3().setFromMatrixPosition(arReticle.matrix);
+
+  const dotGeo = new THREE.SphereGeometry(0.012, 16, 16);
+  const dotMat = new THREE.MeshBasicMaterial({ color: 0xE8622C });
+  const dot = new THREE.Mesh(dotGeo, dotMat);
+  dot.position.copy(point);
+  arScene.add(dot);
+
+  arPendingPoints.push(point);
+
+  if(arPendingPoints.length === 2){
+    const p1 = arPendingPoints[0], p2 = arPendingPoints[1];
+    const distM = p1.distanceTo(p2);
+    const distFt = distM * 3.28084;
+
+    const lineGeo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+    const lineMat = new THREE.LineBasicMaterial({ color: 0x2F8F5B, linewidth:2 });
+    const line = new THREE.Line(lineGeo, lineMat);
+    arScene.add(line);
+
+    arMeasurements.push({ label: arCurrentLabel, ft: distFt });
+    arPendingPoints = [];
+    updateArList();
+
+    const order = ['Width','Height','Diagonal'];
+    const doneLabels = arMeasurements.map(m=>m.label);
+    const next = order.find(l=>!doneLabels.includes(l));
+    if(next){
+      arCurrentLabel = next;
+      document.querySelectorAll('.ar-labels button').forEach(b=>b.classList.toggle('active', b.dataset.label===next));
+    }
+    arInstruction.textContent = arCurrentLabel + ' ke 2 points tap karo';
+  }else{
+    arInstruction.textContent = arCurrentLabel + ' ka doosra point tap karo';
+  }
+}
+
+function onARUndo(){
+  if(arPendingPoints.length > 0){
+    arPendingPoints.pop();
+    arInstruction.textContent = arCurrentLabel + ' ke points tap karo';
+    showToast('Last point removed');
+  }else if(arMeasurements.length > 0){
+    arMeasurements.pop();
+    updateArList();
+    showToast('Last measurement removed');
+  }
+}
+
+function updateArList(){
+  if(arMeasurements.length === 0){
+    arList.innerHTML = '<div style="opacity:0.7;">No measurements yet</div>';
+    return;
+  }
+  arList.innerHTML = arMeasurements.map(m=>
+    '<div class="ar-list-row"><span>' + m.label + '</span><span>' + m.ft.toFixed(2) + ' ft</span></div>'
+  ).join('');
+}
+
+function onARSessionEnd(){
+  arCanvas.style.display = 'none';
+  arOverlay.style.display = 'none';
+  if(arRenderer) arRenderer.setAnimationLoop(null);
+  arHitTestSource = null;
+  arSession = null;
+
+  const wM = arMeasurements.find(m=>m.label==='Width');
+  const hM = arMeasurements.find(m=>m.label==='Height');
+  const others = arMeasurements.filter(m=>m.label!=='Width' && m.label!=='Height');
+
+  if(wM){ widthIn.value = wM.ft.toFixed(2); }
+  if(hM){ heightIn.value = hM.ft.toFixed(2); }
+  updateArea();
+
+  if(others.length){
+    const notesEl = document.getElementById('notesIn');
+    const extra = others.map(m=>m.label + ': ' + m.ft.toFixed(2) + ' ft').join(', ');
+    notesEl.value = (notesEl.value ? notesEl.value + ' | ' : '') + 'AR: ' + extra;
+  }
+
+  arResultsList.innerHTML = arMeasurements.length
+    ? '<div class="accuracy-note">AR se mila: ' + arMeasurements.map(m=>m.label+' '+m.ft.toFixed(2)+'ft').join(', ') + ' — width/height fields me bhar diya gaya hai, save se pehle check kar lo.</div>'
+    : '';
+  arStatusLine.className = 'ar-status-line';
+  arStatusLine.textContent = arMeasurements.length ? 'Done — measurements form me bhar diye gaye.' : 'Session ended, koi measurement nahi liya gaya.';
+  showToast('AR session ended');
+}
+
+window.addEventListener('resize', ()=>{
+  if(arRenderer){
+    arRenderer.setSize(window.innerWidth, window.innerHeight);
+  }
+});
+
+/* ---------- storage ---------- */
+async function loadEntries(){
+  try{
+    const res = await window.storage.get('wall-entries', false);
+    entries = res && res.value ? JSON.parse(res.value) : [];
   }catch(e){
-    if(e.message!=='__NOCFG__'){ toast('Could not check biometric status', true); btn.disabled=false; btn.textContent='Submit check-in'; return; }
+    entries = [];
   }
-  btn.innerHTML='<span class="spin"></span> Submitting…';
-  const today = new Date().toISOString().slice(0,10);
-  const stamped = await stampPhoto(CHECKIN_PHOTO_BASE64, [`${today} · Daily Check-in`, name]);
+  renderLog();
+}
+async function persistEntries(){
   try{
-    if(!configured()) throw new Error('__NOCFG__');
-    if(wasNew && bioResult.credentialId){
-      await fetch(SCRIPT_URL,{method:'POST', body:JSON.stringify({action:'enrollBiometric', phone, name, credentialId:bioResult.credentialId, facePhoto:stamped})}).catch(()=>{});
-    }
-    await fetch(SCRIPT_URL,{method:'POST', body:JSON.stringify({action:'submitCheckin', date:today, phone, name, photo:stamped})});
-  }catch(e){}
-  saveIdentity(phone, name);
-  CHECKIN_PHONE=phone; CHECKIN_NAME=name; CHECKIN_DONE=true;
-  toast('Checked in ✅');
-  if(CHECKIN_ON_DONE) CHECKIN_ON_DONE();
+    await window.storage.set('wall-entries', JSON.stringify(entries), false);
+  }catch(e){
+    showToast('Could not save — storage error');
+  }
 }
 
-/* ============================================================
-   MEASUREMENT TOOL — reference-object calibration + manual fallback.
-   Photo shows the target AND a known-size reference object together;
-   tapping 2 points on the reference (its known length) then 2 points
-   on the target gives a pixel→real-world ratio, so the area comes
-   from an actual measurement in the photo, not a guess.
-   ============================================================ */
-const REFERENCE_OBJECTS = [
-  {label:'A4 sheet — long edge (29.7 cm)', cm:29.7},
-  {label:'A4 sheet — short edge (21 cm)', cm:21},
-  {label:'₹100 note — long edge (15.8 cm)', cm:15.8},
-  {label:'1 metre tape/rod', cm:100},
-  {label:'Custom length…', cm:null}
-];
-let MEASURE_STATE = null;
-function renderMeasureTool(containerId, photoDataUrl, onDone){
-  MEASURE_STATE = {photo:photoDataUrl, points:[], stage:'ref', refCm:null, pxPerCm:null, widthCm:null, heightCm:null, onDone};
-  const c = document.getElementById(containerId);
-  c.innerHTML = `
-    <div class="tab-toggle">
-      <button class="active" id="tabCalibrate" onclick="switchMeasureTab('calibrate')">📷 Measure from Photo</button>
-      <button id="tabManual" onclick="switchMeasureTab('manual')">✏️ Enter Manually</button>
-    </div>
-    <div id="measureCalibrateView"></div>
-    <div id="measureManualView" style="display:none;"></div>
-  `;
-  renderCalibrateView();
-  renderManualView();
-}
-function switchMeasureTab(tab){
-  document.getElementById('tabCalibrate').classList.toggle('active', tab==='calibrate');
-  document.getElementById('tabManual').classList.toggle('active', tab==='manual');
-  document.getElementById('measureCalibrateView').style.display = tab==='calibrate' ? 'block' : 'none';
-  document.getElementById('measureManualView').style.display = tab==='manual' ? 'block' : 'none';
-}
-function renderManualView(){
-  document.getElementById('measureManualView').innerHTML = `
-    <div class="field"><label>Width (feet)</label><input type="number" step="0.1" id="manualWidth" oninput="updateManualArea()"></div>
-    <div class="field"><label>Height (feet)</label><input type="number" step="0.1" id="manualHeight" oninput="updateManualArea()"></div>
-    <div class="result-box"><b id="manualAreaResult">0 sq ft</b>Total measured area</div>
-    <button class="btn btn-dark btn-block" style="margin-top:12px;" onclick="confirmManualMeasurement()">Use this measurement</button>
-  `;
-}
-function updateManualArea(){
-  const w = Number(document.getElementById('manualWidth').value)||0;
-  const h = Number(document.getElementById('manualHeight').value)||0;
-  document.getElementById('manualAreaResult').textContent = (w*h).toFixed(1) + ' sq ft';
-}
-function confirmManualMeasurement(){
-  const w = Number(document.getElementById('manualWidth').value)||0;
-  const h = Number(document.getElementById('manualHeight').value)||0;
-  if(!w || !h){ toast('Enter both width and height', true); return; }
-  MEASURE_STATE.onDone({area:(w*h).toFixed(1), method:'Manual entry', width:w, height:h});
-}
-function renderCalibrateView(){
-  const refOptions = REFERENCE_OBJECTS.map((r,i)=>`<option value="${i}">${r.label}</option>`).join('');
-  document.getElementById('measureCalibrateView').innerHTML = `
-    <div class="field"><label>What are you using as a size reference?</label>
-      <select id="refObjectSelect" onchange="onRefObjectChange()">${refOptions}</select>
-    </div>
-    <div class="field" id="customCmField" style="display:none;"><label>Reference length (cm)</label><input type="number" id="customCm" step="0.1"></div>
-    <div id="refDiagramMount"></div>
-    <div class="step-badges" id="stepBadges">
-      <span id="badgeRef">1. Reference</span><span id="badgeWidth">2. Width</span><span id="badgeHeight">3. Height</span>
-    </div>
-    <div class="measure-hint" id="measureInstruction"></div>
-    <div class="measure-canvas-wrap" id="canvasWrap">
-      <canvas id="measureCanvas"></canvas>
-      <canvas id="magnifierCanvas" class="magnifier" width="130" height="130"></canvas>
-    </div>
-    <div style="display:flex; gap:8px; margin-top:10px;">
-      <button class="btn btn-outline" style="flex:1;" onclick="undoLastPoint()">⌫ Undo last point</button>
-      <button class="btn btn-outline" style="flex:1;" onclick="resetMeasurePoints()">↺ Restart all</button>
-    </div>
-    <div id="measureCalcArea"></div>
-    <div id="measureResultArea"></div>
-  `;
-  onRefObjectChange();
-  updateStepUI();
-  const img = new Image();
-  img.onload = ()=>{
-    const canvas = document.getElementById('measureCanvas');
-    canvas.width = img.width; canvas.height = img.height;
-    canvas.getContext('2d').drawImage(img,0,0);
-    canvas._img = img;
-    canvas.style.touchAction = 'none';
-    canvas.addEventListener('pointerdown', onPointerDown);
+// save entry
+document.getElementById('saveBtn').addEventListener('click', ()=>{
+  const site = document.getElementById('siteName').value.trim();
+  const w = parseFloat(widthIn.value);
+  const h = parseFloat(heightIn.value);
+  const notes = document.getElementById('notesIn').value.trim();
+
+  if(!site){ showToast('Add a location label first'); return; }
+  if(!w || !h){ showToast('Enter width and height'); return; }
+  if(currentLat === null){ showToast('Still waiting on GPS — try again in a moment'); return; }
+
+  const entry = {
+    id: Date.now(),
+    site, width:w, height:h, area:(w*h),
+    notes, photo: currentPhoto,
+    method: measureMode,
+    lat: currentLat, lng: currentLng, accuracy: currentAccuracy,
+    timestamp: new Date().toISOString()
   };
-  img.src = MEASURE_STATE.photo;
-}
-const STEP_TEXT = {
-  ref: "Press and hold near the reference object's edge — a zoomed circle will pop up above your finger. Drag until the crosshair sits exactly on ONE END, then lift your finger. Repeat for the OTHER END.",
-  width: "Now do the same on the TARGET's WIDTH — the two ends of its left-to-right span.",
-  height: "Now do the same on the TARGET's HEIGHT — the two ends of its top-to-bottom span.",
-  done: "✅ Measurement complete — check the numbers below before using it."
-};
-function updateStepUI(){
-  const s = MEASURE_STATE.stage;
-  document.getElementById('measureInstruction').textContent = STEP_TEXT[s] || '';
-  ['ref','width','height'].forEach(k=>{
-    const el = document.getElementById('badge'+k.charAt(0).toUpperCase()+k.slice(1));
-    if(!el) return;
-    el.classList.remove('active','done');
-    const order = ['ref','width','height'];
-    if(order.indexOf(k) < order.indexOf(s) || s==='done') el.classList.add('done');
-    else if(k===s) el.classList.add('active');
-  });
-}
-function refDiagramSVG(idx){
-  const isA4Long = idx===0, isA4Short = idx===1;
-  if(isA4Long || isA4Short){
-    const label = isA4Long ? '29.7 cm' : '21 cm';
-    return `
-    <svg viewBox="0 0 140 110" width="90" height="70">
-      <rect x="40" y="8" width="60" height="86" rx="3" fill="#fff" stroke="#D8D2C4" stroke-width="2"/>
-      ${isA4Long ? `
-        <line x1="40" y1="8" x2="40" y2="94" stroke="#F5A623" stroke-width="5" stroke-linecap="round"/>
-        <circle cx="40" cy="8" r="5" fill="#F5A623"/><circle cx="40" cy="94" r="5" fill="#F5A623"/>
-      ` : `
-        <line x1="40" y1="8" x2="100" y2="8" stroke="#F5A623" stroke-width="5" stroke-linecap="round"/>
-        <circle cx="40" cy="8" r="5" fill="#F5A623"/><circle cx="100" cy="8" r="5" fill="#F5A623"/>
-      `}
-    </svg>
-    <div class="ref-diagram-text">This is an A4 sheet held <b>upright (portrait)</b>.<br>Tap the <b>two orange dots</b> shown — that's the ${label} edge.</div>`;
+  entries.unshift(entry);
+  persistEntries();
+
+  // reset form
+  document.getElementById('siteName').value = '';
+  widthIn.value = ''; heightIn.value = ''; updateArea();
+  document.getElementById('notesIn').value = '';
+  currentPhoto = null;
+  camZone.classList.remove('has-photo');
+  camZone.innerHTML = '<div class="cam-icon">📷</div><div class="cam-text">Tap to add photo</div><div class="cam-sub">Optional — for visual record only</div>';
+  removePhotoBtn.style.display = 'none';
+  setMode('manual');
+  resetCalibPoints();
+  arResultsList.innerHTML = '';
+  arStatusLine.textContent = '';
+  lockGPS();
+
+  showToast('Entry saved');
+});
+
+// render log
+function renderLog(){
+  const list = document.getElementById('logList');
+  const count = document.getElementById('countStrip');
+  count.textContent = entries.length + (entries.length === 1 ? ' entry logged' : ' entries logged');
+
+  if(entries.length === 0){
+    list.innerHTML = '<div class="empty-state"><div class="es-icon">📐</div><div class="es-text">No measurements yet. Capture your first entry from New Entry.</div></div>';
+    return;
   }
-  return `
-    <svg viewBox="0 0 140 60" width="90" height="40">
-      <line x1="15" y1="30" x2="125" y2="30" stroke="#D8D2C4" stroke-width="4" stroke-linecap="round"/>
-      <circle cx="15" cy="30" r="6" fill="#F5A623"/><circle cx="125" cy="30" r="6" fill="#F5A623"/>
-    </svg>
-    <div class="ref-diagram-text">Tap the <b>two ends</b> of your reference object — its full known length.</div>`;
-}
-function onRefObjectChange(){
-  const idx = Number(document.getElementById('refObjectSelect').value);
-  document.getElementById('customCmField').style.display = REFERENCE_OBJECTS[idx].cm===null ? 'block' : 'none';
-  const mount = document.getElementById('refDiagramMount');
-  if(mount) mount.innerHTML = `<div class="ref-diagram">${refDiagramSVG(idx)}</div>`;
-}
-function resetMeasurePoints(){
-  MEASURE_STATE.points = []; MEASURE_STATE.stage='ref'; MEASURE_STATE.refCm=null; MEASURE_STATE.pxPerCm=null; MEASURE_STATE.widthCm=null; MEASURE_STATE.heightCm=null;
-  const canvas = document.getElementById('measureCanvas');
-  canvas.getContext('2d').drawImage(canvas._img,0,0);
-  updateStepUI();
-  document.getElementById('measureCalcArea').innerHTML = '';
-  document.getElementById('measureResultArea').innerHTML = '';
-}
-function undoLastPoint(){
-  if(MEASURE_STATE.points.length>0){
-    MEASURE_STATE.points.pop();
-    const canvas = document.getElementById('measureCanvas');
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(canvas._img,0,0);
-    MEASURE_STATE.points.forEach(p=>{
-      ctx.fillStyle = MEASURE_STATE.stage==='ref' ? '#F5A623' : '#1B7A43';
-      ctx.beginPath(); ctx.arc(p.x,p.y,10,0,Math.PI*2); ctx.fill();
-    });
-  } else {
-    resetMeasurePoints();
-  }
-}
-function toCanvasCoords(canvas, e){
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width/rect.width, scaleY = canvas.height/rect.height;
-  return {x:(e.clientX-rect.left)*scaleX, y:(e.clientY-rect.top)*scaleY};
-}
-function updateMagnifier(canvas, e){
-  const {x,y} = toCanvasCoords(canvas, e);
-  const mag = document.getElementById('magnifierCanvas');
-  const wrap = document.getElementById('canvasWrap');
-  const wrapRect = wrap.getBoundingClientRect();
-  const fingerX = e.clientX - wrapRect.left, fingerY = e.clientY - wrapRect.top;
-  const magSize = 130;
-  let left = fingerX - magSize/2;
-  let top = fingerY - magSize - 34;
-  if(top < 0) top = fingerY + 34;
-  left = Math.max(4, Math.min(left, wrapRect.width - magSize - 4));
-  mag.style.left = left+'px'; mag.style.top = top+'px'; mag.style.display='block';
-  const mctx = mag.getContext('2d');
-  mctx.clearRect(0,0,mag.width,mag.height);
-  mctx.imageSmoothingEnabled = false;
-  const cropSize = 40;
-  const sx = Math.max(0, Math.min(canvas.width-cropSize, x-cropSize/2));
-  const sy = Math.max(0, Math.min(canvas.height-cropSize, y-cropSize/2));
-  mctx.drawImage(canvas, sx, sy, cropSize, cropSize, 0, 0, mag.width, mag.height);
-  const relX = ((x-sx)/cropSize)*mag.width, relY = ((y-sy)/cropSize)*mag.height;
-  const color = MEASURE_STATE.stage==='ref' ? '#F5A623' : '#1B7A43';
-  mctx.strokeStyle = color; mctx.lineWidth = 2;
-  mctx.beginPath(); mctx.moveTo(relX-16,relY); mctx.lineTo(relX+16,relY); mctx.stroke();
-  mctx.beginPath(); mctx.moveTo(relX,relY-16); mctx.lineTo(relX,relY+16); mctx.stroke();
-  mctx.beginPath(); mctx.arc(relX,relY,3,0,Math.PI*2); mctx.fillStyle='#fff'; mctx.fill();
-  return {x,y};
-}
-function hideMagnifier(){ document.getElementById('magnifierCanvas').style.display='none'; }
-function onPointerDown(e){
-  if(MEASURE_STATE.stage==='done') return;
-  e.preventDefault();
-  const canvas = e.target;
-  let pos = updateMagnifier(canvas, e);
-  const move = (ev)=>{ ev.preventDefault(); pos = updateMagnifier(canvas, ev); };
-  const up = (ev)=>{
-    ev.preventDefault();
-    canvas.removeEventListener('pointermove', move);
-    hideMagnifier();
-    commitPoint(canvas, pos);
-  };
-  canvas.addEventListener('pointermove', move);
-  canvas.addEventListener('pointerup', up, {once:true});
-  canvas.addEventListener('pointercancel', up, {once:true});
-}
-function fmt(n){ return Math.round(n*10)/10; }
-function commitPoint(canvas, pos){
-  if(!pos) return;
-  const {x,y} = pos;
-  MEASURE_STATE.points.push({x,y});
-  const ctx = canvas.getContext('2d');
-  const color = MEASURE_STATE.stage==='ref' ? '#F5A623' : '#1B7A43';
-  ctx.fillStyle = color;
-  ctx.beginPath(); ctx.arc(x,y,10,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
-  const n = MEASURE_STATE.points.length;
-  const calcEl = document.getElementById('measureCalcArea');
-  if(MEASURE_STATE.stage==='ref' && n===2){
-    drawLine(ctx, MEASURE_STATE.points[0], MEASURE_STATE.points[1], '#F5A623');
-    const idx = Number(document.getElementById('refObjectSelect').value);
-    const refCm = REFERENCE_OBJECTS[idx].cm !== null ? REFERENCE_OBJECTS[idx].cm : Number(document.getElementById('customCm').value);
-    if(!refCm){ toast('Enter the custom reference length first', true); MEASURE_STATE.points.pop(); ctx.drawImage(canvas._img,0,0); return; }
-    const pxDist = Math.hypot(MEASURE_STATE.points[1].x-MEASURE_STATE.points[0].x, MEASURE_STATE.points[1].y-MEASURE_STATE.points[0].y);
-    MEASURE_STATE.refCm = refCm;
-    MEASURE_STATE.pxPerCm = pxDist/refCm;
-    MEASURE_STATE.points = [];
-    MEASURE_STATE.stage = 'width';
-    calcEl.innerHTML = `<div class="calc-panel"><div class="calc-title">How this is calculated</div>
-      <div class="calc-row">Reference line measured: ${Math.round(pxDist)} px on screen = ${refCm} cm (known)</div>
-      <div class="calc-row">Scale worked out: ${Math.round(pxDist)} px ÷ ${refCm} cm = <b>${fmt(MEASURE_STATE.pxPerCm)} px per cm</b></div></div>`;
-  } else if(MEASURE_STATE.stage==='width' && n===2){
-    drawLine(ctx, MEASURE_STATE.points[0], MEASURE_STATE.points[1], '#1B7A43');
-    const pxDist = Math.hypot(MEASURE_STATE.points[1].x-MEASURE_STATE.points[0].x, MEASURE_STATE.points[1].y-MEASURE_STATE.points[0].y);
-    MEASURE_STATE.widthCm = pxDist/MEASURE_STATE.pxPerCm;
-    MEASURE_STATE.points = [];
-    MEASURE_STATE.stage = 'height';
-    const widthFt = MEASURE_STATE.widthCm/30.48;
-    calcEl.innerHTML += `<div class="calc-panel"><div class="calc-title">Width</div>
-      <div class="calc-row">Width line measured: ${Math.round(pxDist)} px</div>
-      <div class="calc-row">${Math.round(pxDist)} px ÷ ${fmt(MEASURE_STATE.pxPerCm)} px/cm = ${fmt(MEASURE_STATE.widthCm)} cm = <b>${fmt(widthFt)} ft</b></div></div>`;
-  } else if(MEASURE_STATE.stage==='height' && n===2){
-    drawLine(ctx, MEASURE_STATE.points[0], MEASURE_STATE.points[1], '#1B7A43');
-    const pxDist = Math.hypot(MEASURE_STATE.points[1].x-MEASURE_STATE.points[0].x, MEASURE_STATE.points[1].y-MEASURE_STATE.points[0].y);
-    MEASURE_STATE.heightCm = pxDist/MEASURE_STATE.pxPerCm;
-    MEASURE_STATE.stage = 'done';
-    const widthFt = MEASURE_STATE.widthCm/30.48, heightFt = MEASURE_STATE.heightCm/30.48;
-    const areaSqFt = (widthFt*heightFt).toFixed(1);
-    calcEl.innerHTML += `<div class="calc-panel"><div class="calc-title">Height</div>
-      <div class="calc-row">Height line measured: ${Math.round(pxDist)} px</div>
-      <div class="calc-row">${Math.round(pxDist)} px ÷ ${fmt(MEASURE_STATE.pxPerCm)} px/cm = ${fmt(MEASURE_STATE.heightCm)} cm = <b>${fmt(heightFt)} ft</b></div>
-      <div class="calc-row calc-final">Area = ${fmt(widthFt)} ft × ${fmt(heightFt)} ft = ${areaSqFt} sq ft</div></div>`;
-    document.getElementById('measureResultArea').innerHTML = `
-      <div class="result-box"><b>${areaSqFt} sq ft</b>Width ${widthFt.toFixed(1)} ft × Height ${heightFt.toFixed(1)} ft — calculated from your reference object</div>
-      <button class="btn btn-dark btn-block" style="margin-top:12px;" onclick="confirmCalibratedMeasurement(${areaSqFt}, ${widthFt.toFixed(2)}, ${heightFt.toFixed(2)})">Use this measurement</button>
+  list.innerHTML = '';
+  entries.forEach(en=>{
+    const div = document.createElement('div');
+    div.className = 'log-item';
+    const d = new Date(en.timestamp);
+    const methodLabel = en.method === 'photo' ? 'Photo-calibrated' : (en.method === 'ar' ? 'AR Ruler' : 'Manual');
+    div.innerHTML = `
+      ${en.photo ? '<img src="'+en.photo+'">' : '<div class="li-noimg">—</div>'}
+      <div class="li-body">
+        <div class="li-title">${escapeHtml(en.site)}</div>
+        <div class="li-dims">${en.width} × ${en.height} ft — ${en.area.toFixed(1)} sq.ft</div>
+        <div class="li-meta">${en.lat.toFixed(5)}, ${en.lng.toFixed(5)}<br>${d.toLocaleDateString()} ${d.toLocaleTimeString()} · ${methodLabel}</div>
+      </div>
+      <button class="li-del" data-id="${en.id}">✕</button>
     `;
-  }
-  updateStepUI();
-}
-function drawLine(ctx, p1, p2, color){
-  ctx.strokeStyle = color; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.stroke();
-}
-function confirmCalibratedMeasurement(area, width, height){
-  MEASURE_STATE.onDone({area, method:'Photo reference measurement', width, height});
-}
-
-/* ============================================================
-   PRE-INSTALLATION FLOW
-   ============================================================ */
-let PRE = {};
-function startPreAuditFlow(){
-  requireCheckin(renderPreAuditForm);
-}
-function renderPreAuditForm(){
-  PRE = {category:'', geo:null, photo:null, measurement:null};
-  const wrap = document.getElementById('mainWrap');
-  wrap.innerHTML = `
-    <div class="card">
-      <h2>1. Site Category <span class="req-mark">*</span></h2>
-      <div class="category-grid" id="categoryGrid">
-        ${['Billboard / Hoarding','Wall Painting','Hand-painted / Localized Wall Ad'].map(c=>`
-          <div class="category-card" onclick="selectCategory('${c}', this)"><div class="icon">${c.includes('Billboard')?'🛑':c.includes('Painting')?'🎨':'🏚️'}</div><div class="label">${c}</div></div>
-        `).join('')}
-      </div>
-    </div>
-    <div class="card">
-      <h2>2. Location <span class="req-mark">*</span></h2>
-      <div class="geo-status pending" id="preGeoStatus" style="margin-top:12px;">Not captured yet</div>
-      <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="capturePreLocation()" id="preGeoBtn">📍 Get Current Location</button>
-      <div class="field"><label>Address</label><textarea id="pre_address" rows="2" placeholder="Auto-filled, edit if needed"></textarea></div>
-      <div class="field"><label>City</label><input type="text" id="pre_city"></div>
-    </div>
-    <div class="card locked" id="prePhotoCard">
-      <h2>3. Site Photo &amp; Measurement <span class="req-mark">*</span></h2>
-      <div class="photo-box" style="margin-top:12px;" id="prePhotoBox">
-        <p style="font-size:12px; color:var(--slate); margin:0 0 10px;">Frame the target AND your reference object (A4 sheet, note, tape) together in one photo for accurate measurement.</p>
-        <button class="btn btn-outline btn-block" onclick="capturePreSitePhoto()">📷 Capture site photo</button>
-      </div>
-      <div id="preMeasureArea"></div>
-    </div>
-    <div class="card locked" id="preCostCard">
-      <h2>4. Cost &amp; Auditor</h2>
-      <div class="field"><label>Auditor Name</label><input type="text" id="pre_auditor" value="${CHECKIN_NAME}"></div>
-      <div class="field"><label>Cost (₹)</label><input type="number" id="pre_cost" step="0.01"></div>
-    </div>
-    <button class="btn btn-primary btn-block" style="margin-top:6px;" onclick="submitPreAudit()" id="preSubmitBtn">Submit Site Measurement</button>
-    <button class="btn btn-outline btn-block" style="margin-top:10px;" onclick="renderMainMenu()">← Back to menu</button>
-  `;
-}
-function selectCategory(cat, el){
-  PRE.category = cat;
-  document.querySelectorAll('#categoryGrid .category-card').forEach(c=>c.classList.remove('sel'));
-  el.classList.add('sel');
-}
-function capturePreLocation(){
-  if(!navigator.geolocation){ toast('Geolocation not supported', true); return; }
-  const btn = document.getElementById('preGeoBtn');
-  btn.disabled=true; btn.innerHTML='<span class="spin" style="border-color:rgba(18,23,43,.2); border-top-color:var(--ink);"></span> Locating…';
-  navigator.geolocation.getCurrentPosition(async (pos)=>{
-    const lat=pos.coords.latitude, lng=pos.coords.longitude;
-    PRE.geo = {lat, lng, link:`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`};
-    document.getElementById('preGeoStatus').className='geo-status got';
-    document.getElementById('preGeoStatus').textContent = `✅ ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-    document.getElementById('prePhotoCard').classList.remove('locked');
-    document.getElementById('preCostCard').classList.remove('locked');
-    btn.disabled=false; btn.innerHTML='📍 Re-capture Location';
-    // Best-effort free reverse geocode (OpenStreetMap Nominatim)
-    try{
-      const r = await fetchWithTimeout(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, {headers:{'Accept-Language':'en'}}, 8000);
-      const j = await r.json();
-      if(j.display_name) document.getElementById('pre_address').value = j.display_name;
-      if(j.address){ document.getElementById('pre_city').value = j.address.city||j.address.town||j.address.village||''; }
-    }catch(_e){}
-  }, ()=>{ toast('Could not get location', true); btn.disabled=false; btn.innerHTML='📍 Get Current Location'; }, {enableHighAccuracy:true, timeout:15000});
-}
-function capturePreSitePhoto(){
-  openCamera('environment', (dataUrl)=>{
-    PRE.photoRaw = dataUrl;
-    document.getElementById('preMeasureArea').innerHTML = `<div id="measureToolMount" style="margin-top:14px;"></div>`;
-    renderMeasureTool('measureToolMount', dataUrl, (result)=>{
-      PRE.measurement = result;
-      document.getElementById('preMeasureArea').innerHTML += `<div class="result-box" style="margin-top:12px;"><b>${result.area} sq ft</b>Measurement locked in (${result.method})</div>`;
+    list.appendChild(div);
+  });
+  document.querySelectorAll('.li-del').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const id = Number(btn.dataset.id);
+      entries = entries.filter(e=>e.id !== id);
+      persistEntries();
+      renderLog();
     });
-  }, true);
+  });
 }
-async function submitPreAudit(){
-  if(!PRE.category){ toast('Select a site category', true); return; }
-  if(!PRE.geo){ toast('Capture the location first', true); return; }
-  if(!PRE.photoRaw || !PRE.measurement){ toast('Capture the site photo and complete the measurement', true); return; }
-  const btn = document.getElementById('preSubmitBtn');
-  btn.disabled=true; btn.innerHTML='<span class="spin"></span> Submitting…';
-  const now = new Date();
-  const lines = [`${now.toISOString().slice(0,10)} ${now.toTimeString().slice(0,5)}`, `${PRE.geo.lat.toFixed(6)}, ${PRE.geo.lng.toFixed(6)}`, `Auditor: ${document.getElementById('pre_auditor').value}`];
-  const stamped = await stampPhoto(PRE.photoRaw, lines);
-  const payload = {
-    action:'submitPreAudit', category:PRE.category,
-    date: now.toISOString().slice(0,10), time: now.toTimeString().slice(0,5),
-    auditorName: document.getElementById('pre_auditor').value, phone: CHECKIN_PHONE,
-    address: document.getElementById('pre_address').value, city: document.getElementById('pre_city').value,
-    lat:PRE.geo.lat, lng:PRE.geo.lng, mapsLink:PRE.geo.link,
-    area:PRE.measurement.area, areaUnit:'sq ft', measureMethod:PRE.measurement.method,
-    cost: document.getElementById('pre_cost').value, photo: stamped
-  };
-  try{
-    if(!configured()) throw new Error('__NOCFG__');
-    const r = await fetch(SCRIPT_URL, {method:'POST', body:JSON.stringify(payload)});
-    const res = await r.json();
-    if(!res.success) throw new Error(res.message||'Submit failed');
-    showSubmissionSuccess(res.submissionId);
-  }catch(e){
-    if(e.message==='__NOCFG__') showSubmissionSuccess('DEMO-'+Date.now());
-    else { toast(e.message||'Could not submit', true); btn.disabled=false; btn.textContent='Submit Site Measurement'; }
-  }
-}
-function showSubmissionSuccess(id){
-  const wrap = document.getElementById('mainWrap');
-  wrap.innerHTML = `
-    <div class="card" style="text-align:center;">
-      <div style="font-size:40px;">✅</div>
-      <h2 style="margin-top:10px;">Measurement Submitted</h2>
-      <p style="color:var(--slate); font-size:13px; margin-top:6px;">Save this ID — you'll need it to verify the installation later.</p>
-      <div class="id-badge">${id}</div>
-      <button class="btn btn-primary btn-block" style="margin-top:20px;" onclick="renderPreAuditForm()">➕ Measure Another Site</button>
-      <button class="btn btn-outline btn-block" style="margin-top:10px;" onclick="renderMainMenu()">← Back to Menu</button>
-    </div>
-  `;
+function escapeHtml(s){
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
 }
 
-/* ============================================================
-   POST-INSTALLATION VERIFICATION FLOW
-   ============================================================ */
-let VERIFY = {};
-function startVerifyFlow(){
-  requireCheckin(renderVerifyLookup);
-}
-function renderVerifyLookup(){
-  const wrap = document.getElementById('mainWrap');
-  wrap.innerHTML = `
-    <div class="card">
-      <h2>Find a Submission</h2>
-      <div class="field"><label>Submission ID <span class="req-mark">*</span></label><input type="text" id="verifyIdInput" placeholder="e.g. BV260901-143022"></div>
-      <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="lookupSubmission()" id="verifyLookupBtn">Find Submission</button>
-    </div>
-    <button class="btn btn-outline btn-block" onclick="renderMainMenu()">← Back to menu</button>
-  `;
-}
-async function lookupSubmission(){
-  const id = document.getElementById('verifyIdInput').value.trim();
-  if(!id){ toast('Enter a submission ID', true); return; }
-  const btn = document.getElementById('verifyLookupBtn');
-  btn.disabled=true; btn.innerHTML='<span class="spin"></span> Searching…';
-  try{
-    if(!configured()) throw new Error('__NOCFG__');
-    const r = await fetchWithTimeout(`${SCRIPT_URL}?action=getSubmission&id=${encodeURIComponent(id)}`, {}, 10000);
-    const j = await r.json();
-    if(!j.success) throw new Error(j.message||'Not found');
-    VERIFY = {submission:j.submission, geo:null, photo:null, measurement:null};
-    renderVerifyForm();
-  }catch(e){
-    toast(e.message||'Could not find that submission', true);
-    btn.disabled=false; btn.textContent='Find Submission';
-  }
-}
-function renderVerifyForm(){
-  const s = VERIFY.submission;
-  const alreadyVerified = s.Status === 'Verified';
-  const wrap = document.getElementById('mainWrap');
-  wrap.innerHTML = `
-    <div class="card">
-      <h2>Submission Found <span class="status-pill ${alreadyVerified?'verified':'pending'}">${s.Status}</span></h2>
-      <div class="detail-row"><span>ID</span><span>${s.SubmissionID}</span></div>
-      <div class="detail-row"><span>Category</span><span>${s.Category}</span></div>
-      <div class="detail-row"><span>Address</span><span>${s.PreAddress||'—'}</span></div>
-      <div class="detail-row"><span>Submitted Area</span><span>${s.PreArea} ${s.PreAreaUnit}</span></div>
-      <div class="detail-row"><span>Submitted Cost</span><span>₹${s.PreCost}</span></div>
-      <div class="detail-row"><span>Auditor</span><span>${s.PreAuditorName}</span></div>
-    </div>
-    ${alreadyVerified ? `
-      <div class="card">
-        <h2>Already Verified</h2>
-        <div class="detail-row"><span>Approved Area</span><span>${s.PostArea} sq ft</span></div>
-        <div class="detail-row"><span>Approved Cost</span><span>₹${s.PostApprovedCost}</span></div>
-        <div class="detail-row"><span>Verified By</span><span>${s.PostAuditorName}</span></div>
-      </div>
-      <button class="btn btn-outline btn-block" onclick="renderMainMenu()">← Back to menu</button>
-    ` : `
-      <div class="card">
-        <h2>Verify Installation</h2>
-        <div class="geo-status pending" id="verifyGeoStatus" style="margin-top:12px;">Not captured yet</div>
-        <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="captureVerifyLocation()" id="verifyGeoBtn">📍 Get Current Location</button>
-      </div>
-      <div class="card locked" id="verifyPhotoCard">
-        <h2>Installed Site Photo &amp; Measurement</h2>
-        <div class="photo-box" style="margin-top:12px;">
-          <p style="font-size:12px; color:var(--slate); margin:0 0 10px;">Photograph the ACTUAL installed ad, with your reference object, to measure what really went up.</p>
-          <button class="btn btn-outline btn-block" onclick="captureVerifyPhoto()">📷 Capture installed site photo</button>
-        </div>
-        <div id="verifyMeasureArea"></div>
-      </div>
-      <div class="card locked" id="verifyCostCard">
-        <h2>Approval</h2>
-        <div class="field"><label>Auditor Name</label><input type="text" id="verify_auditor" value="${CHECKIN_NAME}"></div>
-        <div class="field"><label>Approved Cost (₹)</label><input type="number" id="verify_cost" step="0.01"></div>
-        <div class="field"><label>Remarks</label><textarea id="verify_remarks" rows="2" placeholder="Optional notes"></textarea></div>
-      </div>
-      <button class="btn btn-primary btn-block" onclick="submitVerification()" id="verifySubmitBtn">Submit Verification</button>
-      <button class="btn btn-outline btn-block" style="margin-top:10px;" onclick="renderMainMenu()">← Back to menu</button>
-    `}
-  `;
-}
-function captureVerifyLocation(){
-  if(!navigator.geolocation){ toast('Geolocation not supported', true); return; }
-  const btn = document.getElementById('verifyGeoBtn');
-  btn.disabled=true; btn.innerHTML='<span class="spin" style="border-color:rgba(18,23,43,.2); border-top-color:var(--ink);"></span> Locating…';
-  navigator.geolocation.getCurrentPosition((pos)=>{
-    const lat=pos.coords.latitude, lng=pos.coords.longitude;
-    VERIFY.geo = {lat, lng, link:`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`};
-    document.getElementById('verifyGeoStatus').className='geo-status got';
-    document.getElementById('verifyGeoStatus').textContent = `✅ ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-    document.getElementById('verifyPhotoCard').classList.remove('locked');
-    document.getElementById('verifyCostCard').classList.remove('locked');
-    btn.disabled=false; btn.innerHTML='📍 Re-capture Location';
-  }, ()=>{ toast('Could not get location', true); btn.disabled=false; btn.innerHTML='📍 Get Current Location'; }, {enableHighAccuracy:true, timeout:15000});
-}
-function captureVerifyPhoto(){
-  openCamera('environment', (dataUrl)=>{
-    VERIFY.photoRaw = dataUrl;
-    document.getElementById('verifyMeasureArea').innerHTML = `<div id="verifyMeasureToolMount" style="margin-top:14px;"></div>`;
-    renderMeasureTool('verifyMeasureToolMount', dataUrl, (result)=>{
-      VERIFY.measurement = result;
-      document.getElementById('verifyMeasureArea').innerHTML += `<div class="result-box" style="margin-top:12px;"><b>${result.area} sq ft</b>Installed area (${result.method})</div>`;
-    });
-  }, true);
-}
-async function submitVerification(){
-  if(!VERIFY.geo){ toast('Capture the location first', true); return; }
-  if(!VERIFY.photoRaw || !VERIFY.measurement){ toast('Capture the photo and complete the measurement', true); return; }
-  const btn = document.getElementById('verifySubmitBtn');
-  btn.disabled=true; btn.innerHTML='<span class="spin"></span> Submitting…';
-  const now = new Date();
-  const lines = [`${now.toISOString().slice(0,10)} ${now.toTimeString().slice(0,5)}`, `Verification · ${VERIFY.submission.SubmissionID}`, `Auditor: ${document.getElementById('verify_auditor').value}`];
-  const stamped = await stampPhoto(VERIFY.photoRaw, lines);
-  const payload = {
-    action:'submitPostVerification', submissionId: VERIFY.submission.SubmissionID,
-    date: now.toISOString().slice(0,10), time: now.toTimeString().slice(0,5),
-    auditorName: document.getElementById('verify_auditor').value, phone: CHECKIN_PHONE,
-    lat:VERIFY.geo.lat, lng:VERIFY.geo.lng, mapsLink:VERIFY.geo.link,
-    area:VERIFY.measurement.area, approvedCost: document.getElementById('verify_cost').value,
-    remarks: document.getElementById('verify_remarks').value, photo: stamped
-  };
-  try{
-    if(!configured()) throw new Error('__NOCFG__');
-    const r = await fetch(SCRIPT_URL, {method:'POST', body:JSON.stringify(payload)});
-    const res = await r.json();
-    if(!res.success) throw new Error(res.message||'Submit failed');
-    const wrap = document.getElementById('mainWrap');
-    wrap.innerHTML = `<div class="card" style="text-align:center;"><div style="font-size:40px;">✅</div><h2 style="margin-top:10px;">Verification Complete</h2><p style="color:var(--slate); font-size:13px;">${res.submissionId} is now marked Verified.</p><button class="btn btn-primary btn-block" style="margin-top:20px;" onclick="renderMainMenu()">← Back to Menu</button></div>`;
-  }catch(e){
-    toast(e.message||'Could not submit', true);
-    btn.disabled=false; btn.textContent='Submit Verification';
-  }
-}
+// clear all
+document.getElementById('clearBtn').addEventListener('click', ()=>{
+  if(entries.length === 0) return;
+  if(!confirm('Delete all logged entries? This cannot be undone.')) return;
+  entries = [];
+  persistEntries();
+  renderLog();
+});
 
+// export to excel
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  if(entries.length === 0){ showToast('No entries to export'); return; }
+  const rows = entries.map(en=>{
+    const d = new Date(en.timestamp);
+    const methodLabel = en.method === 'photo' ? 'Photo-calibrated' : (en.method === 'ar' ? 'AR Ruler' : 'Manual');
+    return {
+      'Site / Location Label': en.site,
+      'Width (ft)': en.width,
+      'Height (ft)': en.height,
+      'Area (sq.ft)': Number(en.area.toFixed(2)),
+      'Method': methodLabel,
+      'Notes': en.notes,
+      'Latitude': en.lat,
+      'Longitude': en.lng,
+      'GPS Accuracy (m)': en.accuracy ? Math.round(en.accuracy) : '',
+      'Date': d.toLocaleDateString(),
+      'Time': d.toLocaleTimeString(),
+      'Maps Link': 'https://maps.google.com/?q=' + en.lat + ',' + en.lng
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:26},{wch:10},{wch:10},{wch:12},{wch:16},{wch:30},{wch:12},{wch:12},{wch:14},{wch:12},{wch:10},{wch:36}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Measurements');
+  XLSX.writeFile(wb, 'wall-hoarding-measurements.xlsx');
+  showToast('Excel file downloaded');
+});
+
+loadEntries();
 </script>
 </body>
 </html>
