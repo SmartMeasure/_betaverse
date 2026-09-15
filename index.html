@@ -40,7 +40,69 @@
   --shadow-card: 0 0 0 1px rgba(255,255,255,0.06), 0 14px 34px rgba(0,0,0,0.6);
   --glow-cyan: 0 0 14px rgba(255,255,255,0.35);
   --glow-violet: 0 0 16px rgba(200,200,205,0.3);
+  --main-bg: linear-gradient(180deg, rgba(15,15,16,0.92), rgba(6,6,7,0.94));
+  --input-bg: rgba(0,0,0,0.45);
 }
+/* ---------- Theme: Black & White (clean, clear, professional) ----------
+   Toggled via [data-theme="light"] on <html>. Everything else in this file
+   reads colors from the variables below, so switching themes needs no other
+   changes anywhere else in the app. */
+:root[data-theme="light"]{
+  --void:#FFFFFF;
+  --void-deep:#FFFFFF;
+  --panel:#FFFFFF;
+  --panel-2:#F4F5F7;
+  --panel-3:#E7E9EC;
+  --edge:rgba(10,10,15,0.14);
+  --edge-soft:rgba(10,10,15,0.07);
+  --ink:#12131A;
+  --ink-soft:#53555C;
+  --ink-faint:#8B8D93;
+  --cyan:#101114;
+  --cyan-dim:#3A3B40;
+  --violet:#585A61;
+  --danger:#D6234B;
+  --danger-soft:rgba(214,35,75,0.12);
+  --success:#0FA86B;
+  --success-soft:rgba(15,168,107,0.12);
+  --warn:#B9791A;
+  --warn-soft:rgba(185,121,26,0.14);
+  --shadow-card: 0 0 0 1px rgba(10,10,15,0.08), 0 10px 26px rgba(10,10,15,0.10);
+  --glow-cyan: 0 0 14px rgba(16,17,20,0.18);
+  --glow-violet: 0 0 12px rgba(16,17,20,0.12);
+  --main-bg: linear-gradient(180deg, rgba(255,255,255,0.97), rgba(248,249,251,0.98));
+  --input-bg: rgba(16,17,20,0.035);
+}
+/* Legibility fixes for the handful of places that hardcode a dark label on
+   top of the cyan/violet accent gradient — on the light theme that gradient
+   turns dark, so the label needs to flip to white to stay readable. */
+:root[data-theme="light"] .dz-btn,
+:root[data-theme="light"] .btn.accent,
+:root[data-theme="light"] .pill-opt.sel{ color:#FFFFFF; }
+:root[data-theme="light"] ::selection{ background:rgba(10,10,15,0.14); color:#101114; }
+:root[data-theme="light"] .stat-card .stat-value,
+:root[data-theme="light"] .stat-card.danger .stat-value,
+:root[data-theme="light"] .stat-card.success .stat-value,
+:root[data-theme="light"] .stat-card.warn .stat-value{ text-shadow:none; }
+:root[data-theme="light"] .stat-card:hover{ border-color:rgba(16,17,20,0.3); }
+:root[data-theme="light"] .tab-indicator{ box-shadow:0 0 10px rgba(16,17,20,0.35), 0 0 16px rgba(16,17,20,0.15); }
+:root[data-theme="light"] .field input:focus,
+:root[data-theme="light"] .field select:focus,
+:root[data-theme="light"] .field textarea:focus{ box-shadow:0 0 0 3px rgba(16,17,20,0.10); }
+:root[data-theme="light"] .field.readonly input{ background:rgba(16,17,20,0.04); }
+
+/* Theme switcher control in the topbar */
+.theme-switch{display:flex;align-items:center;gap:6px;}
+.theme-switch .pill-group{gap:6px;}
+.theme-switch .pill-opt{padding:6px 12px;font-size:11.5px;}
+
+/* Rate Check — quick numeric date entry next to the date picker */
+.date-combo{display:flex;gap:6px;align-items:flex-start;}
+.date-combo input[type=date]{flex:1;min-width:0;}
+#rcBillDateQuick{width:82px;flex:none;font-family:var(--font-mono);text-align:center;letter-spacing:.03em;}
+#rcBillDateQuick.quick-bad{border-color:var(--danger) !important;}
+#rcBillDateQuick.quick-ok{border-color:var(--success) !important;}
+
 @media (prefers-reduced-motion: reduce){
   *{animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important;}
 }
@@ -120,7 +182,7 @@ input,select,textarea{font-family:var(--font-body);}
 .tab-indicator{position:absolute;bottom:-1px;height:2px;background:linear-gradient(90deg,var(--cyan),var(--violet));box-shadow:0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(190,190,196,0.5);border-radius:2px;transition:left .35s cubic-bezier(.4,0,.2,1), width .35s cubic-bezier(.4,0,.2,1);pointer-events:none;}
 
 main{
-  background:linear-gradient(180deg, rgba(15,15,16,0.92), rgba(6,6,7,0.94));
+  background:var(--main-bg);
   border:1px solid var(--edge);border-top:none;border-radius:0 0 12px 12px;
   padding:32px;min-height:60vh;box-shadow:var(--shadow-card);backdrop-filter:blur(10px);
   animation:dropIn .65s cubic-bezier(.2,.8,.2,1) .1s both;
@@ -193,7 +255,7 @@ main{
 .field label{display:block;font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin-bottom:5px;}
 .field input[type=text],.field input[type=number],.field input[type=date],.field select,.field textarea{
   width:100%;padding:9px 11px;border:1px solid var(--edge);border-radius:var(--radius-sm);
-  background:rgba(0,0,0,0.45);color:var(--ink);font-size:13.5px;transition:border-color .15s, box-shadow .15s;
+  background:var(--input-bg);color:var(--ink);font-size:13.5px;transition:border-color .15s, box-shadow .15s;
 }
 .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(255,255,255,0.16);}
 .field .hint{font-size:11px;color:var(--ink-faint);margin-top:4px;}
@@ -268,7 +330,7 @@ td.wrap{white-space:normal;}
 .li-table{width:100%;border-collapse:collapse;margin-top:8px;}
 .li-table th{font-size:10.5px;text-transform:uppercase;color:var(--ink-soft);text-align:left;padding:6px 8px;border-bottom:1px solid var(--edge);}
 .li-table td{padding:6px 8px;border-bottom:1px solid var(--edge-soft);}
-.li-table input{width:100%;border:1px solid var(--edge);border-radius:3px;padding:6px 8px;font-size:12.5px;font-family:var(--font-mono);background:rgba(0,0,0,0.45);color:var(--ink);}
+.li-table input{width:100%;border:1px solid var(--edge);border-radius:3px;padding:6px 8px;font-size:12.5px;font-family:var(--font-mono);background:var(--input-bg);color:var(--ink);}
 .li-table input.prodsearch{font-family:var(--font-body);}
 
 .tag{font-family:var(--font-mono);font-size:10.5px;background:rgba(255,255,255,0.1);color:var(--cyan);padding:2px 7px;border-radius:4px;border:1px solid rgba(255,255,255,0.2);}
@@ -396,6 +458,18 @@ function fmtDMY(dt){
 }
 function todayISO(){ const d=new Date(); return d.toISOString().slice(0,10); }
 function isoToDMYDate(iso){ if(!iso) return null; const [y,m,d]=iso.split('-').map(Number); return new Date(y,m-1,d); }
+// Quick numeric date entry: "260826" -> 26-08-26, "010826" -> 01-08-26, etc.
+// Expects exactly 6 digits, DDMMYY, and assumes the 21st century.
+function ddmmyyToISO(str){
+  const digits = String(str||'').replace(/\D/g,'');
+  if(digits.length !== 6) return null;
+  const dd = Number(digits.slice(0,2)), mm = Number(digits.slice(2,4)), yy = Number(digits.slice(4,6));
+  if(mm<1 || mm>12) return null;
+  const year = 2000+yy;
+  const daysInMonth = new Date(year, mm, 0).getDate();
+  if(dd<1 || dd>daysInMonth) return null;
+  return `${year}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+}
 
 /* location normalization + alias matching */
 const LOCATION_ALIASES = {
@@ -452,7 +526,10 @@ function renderShell(){
           <p>Overinvoicing audit for the DB → retailer network</p>
         </div>
       </div>
-      <div class="status-strip" id="statusStrip"></div>
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+        <div class="status-strip" id="statusStrip"></div>
+        <div class="theme-switch" id="themeSwitch"></div>
+      </div>
     </header>
     <nav class="tabstrip" id="tabStrip"><div id="tabButtons" style="display:flex;gap:4px;"></div><span class="tab-indicator" id="tabIndicator"></span></nav>
     <main>
@@ -466,7 +543,39 @@ function renderShell(){
   `;
   renderTabs();
   renderStatusStrip();
+  renderThemeSwitch();
 }
+
+/* ---------------- Theme switcher ---------------- */
+const THEMES = [
+  {id:'dark', label:'Tech Universe'},
+  {id:'light', label:'Black & White'},
+];
+function getTheme(){
+  try{ return localStorage.getItem('rl_theme') || 'light'; }catch(e){ return 'light'; }
+}
+function applyTheme(theme){
+  if(theme==='light') document.documentElement.setAttribute('data-theme','light');
+  else document.documentElement.removeAttribute('data-theme');
+}
+function setTheme(theme){
+  applyTheme(theme);
+  try{ localStorage.setItem('rl_theme', theme); }catch(e){}
+  renderThemeSwitch();
+}
+function renderThemeSwitch(){
+  const host = $('#themeSwitch');
+  if(!host) return;
+  const current = getTheme();
+  host.innerHTML = `
+    <span class="small-muted" style="text-transform:uppercase;letter-spacing:.06em;font-weight:600;">Theme</span>
+    <div class="pill-group">
+      ${THEMES.map(t=>`<div class="pill-opt ${current===t.id?'sel':''}" data-theme-opt="${t.id}">${esc(t.label)}</div>`).join('')}
+    </div>`;
+  $all('.pill-opt', host).forEach(p=>p.addEventListener('click', ()=> setTheme(p.dataset.themeOpt)));
+}
+// Apply the saved theme immediately (before first render) so there's no flash.
+applyTheme(getTheme());
 
 function renderTabs(){
   const strip = $('#tabStrip');
@@ -1412,7 +1521,14 @@ function renderRateCheck(){
     <div class="inline-fields">
       <div class="field"><label>Retailer / Outlet Name <span class="colmap-req">*</span></label><input type="text" id="rcRetailer" value="${esc(f.retailer)}"></div>
       <div class="field"><label>Bill Number</label><input type="text" id="rcBillNo" value="${esc(f.billNo)}"></div>
-      <div class="field"><label>Bill Date <span class="colmap-req">*</span></label><input type="date" id="rcBillDate" value="${f.billDateISO}"></div>
+      <div class="field">
+        <label>Bill Date <span class="colmap-req">*</span></label>
+        <div class="date-combo">
+          <input type="date" id="rcBillDate" value="${f.billDateISO}">
+          <input type="text" id="rcBillDateQuick" placeholder="DDMMYY" maxlength="6" inputmode="numeric" title="Type as DDMMYY — e.g. 260826 = 26-08-26, 010826 = 01-08-26">
+        </div>
+        <div class="hint">or type DDMMYY, e.g. 260826 = 26‑08‑26</div>
+      </div>
       <div class="field"><label>Collected By</label><input type="text" id="rcCollectedBy" value="${esc(f.collectedBy)}"></div>
       <div class="field"><label>Submission Date</label><input type="date" id="rcSubDate" value="${f.submissionISO}"></div>
     </div>
@@ -1450,7 +1566,23 @@ function renderRateCheck(){
   $all('#rcBillType .pill-opt').forEach(p=>p.addEventListener('click', ()=>{ f.billType=p.dataset.billtype; renderRateCheck(); }));
   $('#rcRetailer').addEventListener('input', e=> f.retailer=e.target.value);
   $('#rcBillNo').addEventListener('input', e=> f.billNo=e.target.value);
-  $('#rcBillDate').addEventListener('change', e=>{ f.billDateISO=e.target.value; recomputeAllLineRates(); renderLineItems(); });
+  $('#rcBillDate').addEventListener('change', e=>{ f.billDateISO=e.target.value; const q=$('#rcBillDateQuick'); if(q){ q.value=''; q.classList.remove('quick-ok','quick-bad'); } recomputeAllLineRates(); renderLineItems(); });
+  const rcQuick = $('#rcBillDateQuick');
+  if(rcQuick) rcQuick.addEventListener('input', e=>{
+    e.target.value = e.target.value.replace(/\D/g,'').slice(0,6);
+    e.target.classList.remove('quick-ok','quick-bad');
+    if(e.target.value.length===6){
+      const iso = ddmmyyToISO(e.target.value);
+      if(iso){
+        f.billDateISO = iso;
+        $('#rcBillDate').value = iso;
+        e.target.classList.add('quick-ok');
+        recomputeAllLineRates(); renderLineItems();
+      } else {
+        e.target.classList.add('quick-bad');
+      }
+    }
+  });
   $('#rcCollectedBy').addEventListener('input', e=> f.collectedBy=e.target.value);
   $('#rcSubDate').addEventListener('change', e=> f.submissionISO=e.target.value);
   const bcInput = $('#rcBillCopyInput');
@@ -1945,6 +2077,9 @@ async function exportExcelPro(){
     // Data rows starting row 6
     let r = 6;
     const usedBillUids = [];
+    const embeddedUids = new Set();   // dedupe: embed each bill's photo once, not once per product line
+    let embeddedPhotoCount = 0;
+    const EMBEDDABLE_EXT = {jpg:'jpeg', jpeg:'jpeg', png:'png', gif:'gif'};
     rows.forEach(b=>{
       const statusLabel = b.status==='over'?'OVERCHARGE':(b.status==='under'?'UNDERCHARGE':'MATCH');
       const dbStatusLabel = b.dbActive ? (isInactiveStatus(b.dbActive)?'INACTIVE':'ACTIVE') : '';
@@ -1962,10 +2097,38 @@ async function exportExcelPro(){
         billCopy: '', collectedBy:b.collectedBy||'', submissionStr:b.submissionStr,
       };
       cols.forEach((c,i)=>{ if(c.key!=='billCopy') row.getCell(i+1).value = vals[c.key]; });
+      let photoEmbedded = false;
       if(bf){
-        const bcCell = row.getCell(cols.findIndex(c=>c.key==='billCopy')+1);
+        const billCopyColIdx = cols.findIndex(c=>c.key==='billCopy');
+        const bcCell = row.getCell(billCopyColIdx+1);
         bcCell.value = { text:'📎 View bill', hyperlink: `Bills/${bf.savedName}` };
         bcCell.font = {name:'Calibri', size:10, color:{argb:ACCENTINK}, underline:true};
+        // Free, powerful add-on: embed the actual photo into the workbook
+        // itself so it opens straight from this report — no unzipping or
+        // Bills folder needed. Embedded once per bill (not per product
+        // line). Safety net: any failure (unsupported file type, corrupt
+        // data, oversized image, etc.) is swallowed here and the hyperlink
+        // above — which always works once the ZIP is unzipped — still gets
+        // the photo open.
+        if(!embeddedUids.has(b.billUid)){
+          embeddedUids.add(b.billUid);
+          const embedExt = EMBEDDABLE_EXT[(bf.ext||'').toLowerCase()];
+          if(embedExt){
+            try{
+              const base64 = (bf.dataUrl.split(',')[1]) || '';
+              if(base64){
+                const imgId = wb.addImage({ base64, extension: embedExt });
+                ws.addImage(imgId, {
+                  tl:{ col: billCopyColIdx + 0.06, row: (r-1) + 0.06 },
+                  ext:{ width:64, height:46 },
+                  editAs:'oneCell'
+                });
+                photoEmbedded = true;
+                embeddedPhotoCount++;
+              }
+            }catch(imgErr){ /* embedding failed — hyperlink above is the safety net */ }
+          }
+        }
       }
       ['companyRate','invoiceRate','diff','overchargeAmt','underchargeAmt'].forEach(k=>{
         const idx = cols.findIndex(c=>c.key===k)+1;
@@ -1983,7 +2146,7 @@ async function exportExcelPro(){
       if(b.status==='over') overCell.font = {name:'Calibri', size:10, bold:true, color:{argb:DANGER}};
       const underCell = row.getCell(cols.findIndex(c=>c.key==='underchargeAmt')+1);
       if(b.status==='under') underCell.font = {name:'Calibri', size:10, bold:true, color:{argb:'FF9C6B12'}};
-      row.height = 18;
+      row.height = photoEmbedded ? 54 : 18;
       r++;
     });
 
@@ -2034,7 +2197,8 @@ async function exportExcelPro(){
       a.href = url; a.download = `Overinvoicing_Report_${stamp}.zip`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
-      toast(`Report exported as ZIP with ${usedBillUids.length} bill cop${usedBillUids.length===1?'y':'ies'} — unzip and keep the Bills folder next to the Excel file so the links open`, 'ok');
+      const photoNote = embeddedPhotoCount>0 ? ` — ${embeddedPhotoCount} photo${embeddedPhotoCount===1?'':'s'} also embedded right in the report, no unzip needed to view ${embeddedPhotoCount===1?'it':'them'}` : '';
+      toast(`Report exported as ZIP with ${usedBillUids.length} bill cop${usedBillUids.length===1?'y':'ies'} — unzip and keep the Bills folder next to the Excel file so the links open${photoNote}`, 'ok');
     } else {
       const blob = new Blob([buf], {type:'application/octet-stream'});
       const url = URL.createObjectURL(blob);
@@ -2042,7 +2206,7 @@ async function exportExcelPro(){
       a.href = url; a.download = `Overinvoicing_Report_${stamp}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
-      toast('Report exported', 'ok');
+      toast(embeddedPhotoCount>0 ? `Report exported — ${embeddedPhotoCount} bill photo${embeddedPhotoCount===1?'':'s'} open directly from the report` : 'Report exported', 'ok');
     }
   }catch(err){
     console.error(err); toast('Export failed: '+err.message, 'err');
@@ -2078,6 +2242,12 @@ async function exportExcelPro(){
     }
     function step(){
       ctx.clearRect(0,0,W,H);
+      // Node/line color adapts to the current theme so the field stays a
+      // quiet background layer on both the dark and light themes.
+      const isLight = document.documentElement.getAttribute('data-theme')==='light';
+      const lineRGB = isLight ? '16,17,20' : '255,255,255';
+      const dotFill = isLight ? 'rgba(16,17,20,0.35)' : 'rgba(230,230,235,0.6)';
+      const dotGlow = isLight ? 'rgba(16,17,20,0.3)' : 'rgba(255,255,255,0.55)';
       const linkDist = Math.min(150, Math.max(110, W/9));
       for(let i=0;i<nodes.length;i++){
         const a = nodes[i];
@@ -2092,7 +2262,7 @@ async function exportExcelPro(){
           const dist = Math.sqrt(dx*dx+dy*dy);
           if(dist<linkDist){
             const op = (1 - dist/linkDist) * 0.16;
-            ctx.strokeStyle = `rgba(255,255,255,${op})`;
+            ctx.strokeStyle = `rgba(${lineRGB},${op})`;
             ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
           }
@@ -2100,8 +2270,8 @@ async function exportExcelPro(){
       }
       for(const n of nodes){
         ctx.beginPath();
-        ctx.fillStyle = 'rgba(230,230,235,0.6)';
-        ctx.shadowColor = 'rgba(255,255,255,0.55)';
+        ctx.fillStyle = dotFill;
+        ctx.shadowColor = dotGlow;
         ctx.shadowBlur = 4;
         ctx.arc(n.x, n.y, n.r, 0, Math.PI*2);
         ctx.fill();
