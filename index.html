@@ -1724,7 +1724,7 @@ function renderLineItems(){
   const div = $('#rcLineItems');
   div.innerHTML = `
     <table class="li-table">
-      <thead><tr><th style="width:26%;">Product</th><th>Category</th><th class="num">Company Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th class="num">Invoice Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th>Qty</th><th class="num">Diff<br><span class="small-muted" style="text-transform:none;">₹/kg</span></th><th>Status</th><th class="num">Total ₹</th><th></th></tr></thead>
+      <thead><tr><th style="width:22%;">Product</th><th>Product Code</th><th>Category</th><th class="num">Company Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th class="num">Invoice Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th>Qty</th><th class="num">Diff<br><span class="small-muted" style="text-transform:none;">₹/kg</span></th><th>Status</th><th class="num">Total ₹</th><th></th></tr></thead>
       <tbody>
         ${f.lineItems.map((li,i)=>renderLineRow(li,i)).join('')}
       </tbody>
@@ -1758,6 +1758,7 @@ function renderLineRow(li,i){
       <input type="text" class="prodsearch" id="liSearch${i}" placeholder="Search product name or code…" value="${esc(li.productName ? li.productName+(li.sku?(' — '+li.sku):'') : '')}">
       <div id="liResults${i}" class="combo-host"></div>
     </td>
+    <td style="font-family:var(--font-mono);">${esc(li.productCode||'—')}</td>
     <td>${esc(li.category||'—')}</td>
     <td class="num">${li.companyRate!=null?fmtMoney(li.companyRate):'—'}</td>
     <td><input type="number" step="0.01" id="liInvRate${i}" value="${esc(li.invoiceRate)}" placeholder="0.00" ${!li.productCode?'disabled':''}></td>
