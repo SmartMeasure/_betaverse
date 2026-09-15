@@ -1154,18 +1154,34 @@ async function parseRatePdf(arrayBuffer){
         else rateWords.push(it.text);
       });
       const nameText = nameWords.join(' ').replace(/\s+/g,' ').trim();
-      const skuText = skuWords.join(' ').replace(/\s+/g,' ').trim();
+      let skuText = skuWords.join(' ').replace(/\s+/g,' ').trim();
+      let finalNameText = nameText;
+      // A merged/centered product-name (spanning several SKU rows in the source
+      // sheet) can land at almost the same y as one of its own data rows and get
+      // clustered onto that row's line — and a wide SKU label like "100GM(2KG)"
+      // can also simply start left of the SKU column's usual x. Either way this
+      // row's SKU value ends up glued onto the tail of the name text instead of
+      // its own column, and the SKU column comes out empty — a state that
+      // should never happen for a real row. Reclaim it from the name's tail.
+      if(!skuText){
+        const skuSuffixRe = /(\(?\d+(\.\d+)?\s*(KG|GM|G|PC|BAG|ML|L)\)?(\s*\(\s*\d+(\.\d+)?\s*(KG|GM|G|PC|BAG|ML|L)\s*\))?)\s*$/i;
+        const m = finalNameText.match(skuSuffixRe);
+        if(m && m.index>0){
+          skuText = m[0].trim();
+          finalNameText = finalNameText.slice(0, m.index).trim();
+        }
+      }
       const codeText = codeWords.join('').trim();
       const rateText = rateWords.join('').trim();
-      if(nameText==='Product' && skuText==='SKU') continue;
+      if(finalNameText==='Product' && skuText==='SKU') continue;
       const rateNum = parseFloat(rateText.replace(/[^0-9.]/g,''));
       const isDataRow = /^\d{3,}$/.test(codeText) && !isNaN(rateNum) && rateNum>0;
       if(isDataRow){
         const codeNum = parseInt(codeText, 10);
-        if(nameText){
-          flushPending(nameText);
-          lastProductName = nameText; lastCode = codeNum;
-          rows.push({ category: currentCategory, productName: nameText, sku: skuText, productCode: codeText, rate: rateNum });
+        if(finalNameText){
+          flushPending(finalNameText);
+          lastProductName = finalNameText; lastCode = codeNum;
+          rows.push({ category: currentCategory, productName: finalNameText, sku: skuText, productCode: codeText, rate: rateNum });
         } else if(pending.length===0 && lastCode!=null && !isNaN(codeNum) && Math.abs(codeNum-lastCode)<=20){
           // No name on this row, but its code closely follows the last resolved
           // row — a trailing pack-size variant of that same product.
@@ -1177,7 +1193,7 @@ async function parseRatePdf(arrayBuffer){
         }
         continue;
       }
-      const combined = [nameText,skuText,codeText,rateText].join(' ').trim();
+      const combined = [finalNameText,skuText,codeText,rateText].join(' ').trim();
       if(!combined) continue;
       if(/^location\b/i.test(combined)) continue;
       const noDigits = !/\d/.test(combined.replace(/[().&,]/g,''));
