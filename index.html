@@ -2,1238 +2,2134 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
-<title>SiteScale — Wall & Hoarding Measurement</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rate Ledger — Overinvoicing Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
-  :root{
-    --ink:#1B2A3C;
-    --ink-soft:#3B4A5E;
-    --paper:#F5F3EE;
-    --paper-raised:#FFFFFF;
-    --steel:#8A94A0;
-    --steel-line:#D8D3C8;
-    --orange:#E8622C;
-    --orange-dark:#C74E1E;
-    --green:#2F8F5B;
-    --blue:#4C8DFF;
-    --mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
-    --sans: 'Barlow Condensed', 'Archivo Narrow', sans-serif;
-    --body: 'Inter', system-ui, sans-serif;
-  }
-  @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+:root{
+  --void:#0A0A0B;
+  --void-deep:#000000;
+  --panel:#151517;
+  --panel-2:#1D1D20;
+  --panel-3:#29292E;
+  --edge:rgba(255,255,255,0.16);
+  --edge-soft:rgba(255,255,255,0.08);
+  --ink:#F4F4F6;
+  --ink-soft:#A6A6AE;
+  --ink-faint:#68686F;
+  --cyan:#FFFFFF;
+  --cyan-dim:#C7C7CC;
+  --violet:#8E8E96;
+  --danger:#FF4D74;
+  --danger-soft:rgba(255,77,116,0.16);
+  --success:#33F0B4;
+  --success-soft:rgba(51,240,180,0.14);
+  --warn:#FFC24E;
+  --warn-soft:rgba(255,194,78,0.16);
+  --radius-sm:4px;
+  --radius:8px;
+  --font-display:'Space Grotesk', 'Segoe UI', sans-serif;
+  --font-body:'IBM Plex Sans', -apple-system, sans-serif;
+  --font-mono:'JetBrains Mono', 'SF Mono', monospace;
+  --shadow-card: 0 0 0 1px rgba(255,255,255,0.06), 0 14px 34px rgba(0,0,0,0.6);
+  --glow-cyan: 0 0 14px rgba(255,255,255,0.35);
+  --glow-violet: 0 0 16px rgba(200,200,205,0.3);
+}
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important;}
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  font-family:var(--font-body);
+  color:var(--ink);
+  background:
+    radial-gradient(1100px 640px at 12% -8%, rgba(190,190,196,0.16), transparent 60%),
+    radial-gradient(900px 560px at 108% 10%, rgba(255,255,255,0.13), transparent 60%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0px, rgba(255,255,255,0.035) 1px, transparent 1px, transparent 34px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 34px),
+    var(--void-deep);
+  min-height:100vh;
+  font-size:14px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+#bgfx{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0.75;}
+h1,h2,h3,h4{font-family:var(--font-display);font-weight:600;margin:0;color:var(--ink);letter-spacing:-0.01em;}
+::selection{background:rgba(255,255,255,0.28);color:#fff;}
+a{color:var(--cyan);}
+button{font-family:var(--font-body);cursor:pointer;}
+input,select,textarea{font-family:var(--font-body);}
+::-webkit-scrollbar{width:10px;height:10px;}
+::-webkit-scrollbar-thumb{background:var(--panel-3);border-radius:6px;}
+::-webkit-scrollbar-track{background:transparent;}
 
-  *{box-sizing:border-box;}
-  body{
-    margin:0;
-    background:var(--paper);
-    color:var(--ink);
-    font-family:var(--body);
-    min-height:100vh;
-  }
-  .wrap{max-width:520px;margin:0 auto;padding:0 0 40px;}
+/* ---------- Layout shell ---------- */
+#app{max-width:1400px;margin:0 auto;padding:0 28px 60px;position:relative;z-index:1;}
+.topbar{
+  padding:28px 0 0;
+  display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:18px;
+  animation:dropIn .55s cubic-bezier(.2,.8,.2,1) both;
+}
+.brand{display:flex;align-items:center;gap:14px;}
+.brand-mark{
+  width:46px;height:46px;border-radius:10px;position:relative;
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--cyan);
+  background:linear-gradient(155deg, var(--panel-2), var(--panel));
+  border:1px solid var(--edge);
+  box-shadow:var(--glow-cyan), inset 0 0 14px rgba(255,255,255,0.08);
+  animation:corePulse 3.6s ease-in-out infinite;
+}
+.brand-text h1{
+  font-size:24px;letter-spacing:-0.01em;
+  background:linear-gradient(90deg, var(--ink) 30%, var(--cyan) 65%, var(--violet) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.brand-text p{margin:3px 0 0;font-size:12.5px;color:var(--ink-soft);}
+.status-strip{display:flex;gap:8px;flex-wrap:wrap;}
+.status-chip{
+  display:flex;align-items:center;gap:6px;
+  padding:6px 12px;border:1px solid var(--edge);border-radius:100px;
+  background:rgba(255,255,255,0.05);font-size:11.5px;color:var(--ink-soft);
+  backdrop-filter:blur(6px);
+}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--ink-faint);flex:none;}
+.status-chip.ready .status-dot{background:var(--success);box-shadow:0 0 6px var(--success);}
+.status-chip.ready{color:var(--ink);border-color:rgba(51,240,180,0.4);background:rgba(51,240,180,0.08);}
 
-  header{
-    background:var(--ink);
-    color:var(--paper);
-    padding:22px 20px 18px;
-    position:relative;
-    overflow:hidden;
-  }
-  header::after{
-    content:"";
-    position:absolute;
-    right:-30px; top:-30px;
-    width:140px;height:140px;
-    border:2px solid rgba(245,243,238,0.08);
-    border-radius:50%;
-  }
-  .brand{
-    font-family:var(--sans);
-    font-weight:700;
-    font-size:26px;
-    letter-spacing:0.3px;
-    display:flex;
-    align-items:baseline;
-    gap:8px;
-  }
-  .brand .accent{color:var(--orange);}
-  .tagline{
-    font-size:13px;
-    color:#B9C2CE;
-    margin-top:4px;
-    max-width:280px;
-  }
-  .tab-row{
-    display:flex;
-    background:var(--paper-raised);
-    border-bottom:1px solid var(--steel-line);
-  }
-  .tab-btn{
-    flex:1;
-    padding:13px 0;
-    text-align:center;
-    font-family:var(--sans);
-    font-weight:600;
-    font-size:15px;
-    letter-spacing:0.3px;
-    color:var(--steel);
-    background:none;
-    border:none;
-    border-bottom:3px solid transparent;
-    cursor:pointer;
-  }
-  .tab-btn.active{
-    color:var(--ink);
-    border-bottom-color:var(--orange);
-  }
+/* Tab strip */
+.tabstrip{display:flex;gap:4px;margin-top:26px;border-bottom:1px solid var(--edge);padding-left:2px;position:relative;animation:dropIn .6s cubic-bezier(.2,.8,.2,1) .05s both;}
+.tab-btn{
+  font-family:var(--font-body);font-weight:600;font-size:13.5px;color:var(--ink-soft);
+  background:transparent;border:1px solid transparent;border-bottom:none;
+  padding:11px 20px 12px;border-radius:8px 8px 0 0;position:relative;
+  display:flex;align-items:center;gap:7px;transition:color .15s, background .15s;
+}
+.tab-btn .tab-num{font-family:var(--font-mono);font-size:10.5px;color:var(--ink-faint);}
+.tab-btn.active{color:var(--ink);background:linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0.02));}
+.tab-btn.active .tab-num{color:var(--cyan);}
+.tab-btn:not(.active):hover{background:rgba(255,255,255,0.06);color:var(--ink);}
+.tab-btn:disabled{opacity:0.35;cursor:not-allowed;}
+.tab-indicator{position:absolute;bottom:-1px;height:2px;background:linear-gradient(90deg,var(--cyan),var(--violet));box-shadow:0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(190,190,196,0.5);border-radius:2px;transition:left .35s cubic-bezier(.4,0,.2,1), width .35s cubic-bezier(.4,0,.2,1);pointer-events:none;}
 
-  main{padding:18px 18px 0;}
-  section{display:none;}
-  section.active{display:block;}
+main{
+  background:linear-gradient(180deg, rgba(15,15,16,0.92), rgba(6,6,7,0.94));
+  border:1px solid var(--edge);border-top:none;border-radius:0 0 12px 12px;
+  padding:32px;min-height:60vh;box-shadow:var(--shadow-card);backdrop-filter:blur(10px);
+  animation:dropIn .65s cubic-bezier(.2,.8,.2,1) .1s both;
+}
+.view{display:none;}
+.view.active{display:block;animation:materialize .3s cubic-bezier(.2,.8,.2,1);}
+@keyframes materialize{from{opacity:0;transform:translateY(6px);filter:blur(3px);}to{opacity:1;transform:translateY(0);filter:blur(0);}}
+@keyframes dropIn{from{opacity:0;transform:translateY(-8px);}to{opacity:1;transform:translateY(0);}}
+@keyframes corePulse{0%,100%{box-shadow:var(--glow-cyan), inset 0 0 14px rgba(255,255,255,0.08);}50%{box-shadow:0 0 22px rgba(255,255,255,0.7), inset 0 0 18px rgba(255,255,255,0.16);}}
 
-  .card{
-    background:var(--paper-raised);
-    border:1px solid var(--steel-line);
-    border-radius:3px;
-    padding:16px;
-    margin-bottom:14px;
-  }
+.view-head{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:22px;flex-wrap:wrap;}
+.view-head h2{font-size:21px;}
+.view-head .sub{color:var(--ink-soft);font-size:13px;margin-top:4px;max-width:60ch;}
 
-  .field-label{
-    font-size:11.5px;
-    font-weight:600;
-    color:var(--steel);
-    text-transform:uppercase;
-    letter-spacing:0.6px;
-    margin-bottom:6px;
-    display:block;
-  }
-  input[type=text], input[type=number], textarea{
-    width:100%;
-    border:1px solid var(--steel-line);
-    background:var(--paper);
-    padding:11px 12px;
-    font-size:16px;
-    font-family:var(--body);
-    color:var(--ink);
-    border-radius:2px;
-  }
-  input:focus, textarea:focus{outline:2px solid var(--orange); outline-offset:-1px;}
-  textarea{resize:vertical; min-height:56px;}
-  .field{margin-bottom:14px;}
-  .row2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+/* ---------- Cards / Grid ---------- */
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+@media (max-width:900px){.grid-4{grid-template-columns:repeat(2,1fr);}.grid-2{grid-template-columns:1fr;}}
 
-  .measure-readout{
-    display:flex;
-    align-items:baseline;
-    gap:10px;
-    background:var(--ink);
-    color:var(--paper);
-    padding:14px 16px;
-    border-radius:3px;
-    margin-bottom:14px;
-  }
-  .measure-readout .num{
-    font-family:var(--mono);
-    font-size:26px;
-    font-weight:600;
-    color:var(--orange);
-  }
-  .measure-readout .unit{font-size:13px; color:#B9C2CE;}
+.card{
+  background:linear-gradient(160deg, var(--panel-2), var(--panel));border:1px solid var(--edge);border-radius:var(--radius);
+  padding:18px 20px;
+}
+.card.dashed{border-style:dashed;}
 
-  .camera-zone{
-    border:2px dashed var(--steel-line);
-    border-radius:3px;
-    text-align:center;
-    padding:22px 16px;
-    background:var(--paper);
-    cursor:pointer;
-    position:relative;
-  }
-  .camera-zone.has-photo{padding:0; border-style:solid;}
-  .camera-zone img{width:100%; display:block; border-radius:2px;}
-  .camera-zone .cam-icon{font-size:26px; margin-bottom:6px;}
-  .camera-zone .cam-text{font-family:var(--sans); font-weight:600; font-size:14px; color:var(--ink-soft);}
-  .camera-zone .cam-sub{font-size:11.5px; color:var(--steel); margin-top:2px;}
-  #photoInput{display:none;}
-  .skip-link{
-    display:block; text-align:center; margin-top:8px;
-    font-size:12px; color:var(--steel); text-decoration:underline; cursor:pointer; background:none; border:none; width:100%;
-  }
-  .photo-remove{
-    display:block; text-align:center; margin-top:8px;
-    font-size:12px; color:var(--orange-dark); text-decoration:underline; cursor:pointer; background:none; border:none; width:100%;
-  }
+.stat-card{background:linear-gradient(160deg, var(--panel-2), var(--panel));border:1px solid var(--edge);border-radius:var(--radius);padding:16px 18px;transition:border-color .2s, transform .2s;}
+.stat-card:hover{border-color:rgba(255,255,255,0.35);transform:translateY(-1px);}
+.stat-card .stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);font-weight:600;}
+.stat-card .stat-value{font-family:var(--font-mono);font-size:27px;font-weight:600;margin-top:6px;color:var(--cyan);text-shadow:0 0 18px rgba(255,255,255,0.35);}
+.stat-card .stat-note{font-size:11.5px;color:var(--ink-faint);margin-top:4px;}
+.stat-card.danger .stat-value{color:var(--danger);text-shadow:0 0 18px rgba(255,77,116,0.4);}
+.stat-card.success .stat-value{color:var(--success);text-shadow:0 0 18px rgba(51,240,180,0.35);}
+.stat-card.warn .stat-value{color:var(--warn);text-shadow:0 0 18px rgba(255,194,78,0.35);}
 
-  .gps-chip{
-    display:flex;
-    align-items:center;
-    gap:8px;
-    background:var(--paper);
-    border:1px solid var(--steel-line);
-    border-radius:3px;
-    padding:10px 12px;
-    font-family:var(--mono);
-    font-size:12.5px;
-    color:var(--ink-soft);
-    margin-top:10px;
-  }
-  .gps-chip.locked{border-color:var(--green); color:var(--green);}
-  .gps-dot{width:8px;height:8px;border-radius:50%;background:var(--steel); flex-shrink:0;}
-  .gps-chip.locked .gps-dot{background:var(--green);}
-  .gps-chip.error .gps-dot{background:var(--orange);}
-  .gps-chip.error{color:var(--orange-dark); border-color:var(--orange);}
+/* ---------- Upload steps (Setup) ---------- */
+.setup-step{border:1px solid var(--edge);border-radius:var(--radius);background:linear-gradient(160deg, var(--panel-2), var(--panel));margin-bottom:16px;overflow:hidden;transition:border-color .2s;}
+.setup-step-head{display:flex;align-items:center;gap:14px;padding:16px 20px;cursor:pointer;user-select:none;}
+.setup-step-num{
+  width:28px;height:28px;border-radius:50%;border:1.5px solid var(--edge);display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-mono);font-size:12px;font-weight:600;flex:none;background:var(--panel);color:var(--ink-soft);
+}
+.setup-step.done{border-color:rgba(51,240,180,0.3);}
+.setup-step.done .setup-step-num{background:var(--success);color:#04241a;border-color:var(--success);box-shadow:0 0 10px rgba(51,240,180,0.55);}
+.setup-step-title{font-weight:600;font-size:14.5px;flex:1;}
+.setup-step-desc{font-size:12px;color:var(--ink-soft);font-weight:400;margin-top:2px;}
+.setup-step-status{font-size:11.5px;color:var(--ink-faint);font-family:var(--font-mono);}
+.setup-step.done .setup-step-status{color:var(--success);}
+.setup-step-body{padding:0 20px 22px 60px;border-top:1px dashed var(--edge-soft);}
+.setup-step-body.collapsed{display:none;}
 
-  button.primary{
-    width:100%;
-    background:var(--orange);
-    color:#fff;
-    border:none;
-    padding:14px;
-    font-family:var(--sans);
-    font-weight:600;
-    font-size:16px;
-    letter-spacing:0.3px;
-    border-radius:3px;
-    cursor:pointer;
-  }
-  button.primary:active{background:var(--orange-dark);}
-  button.primary:disabled{background:var(--steel-line); color:var(--steel); cursor:not-allowed;}
-  button.ghost{
-    width:100%;
-    background:none;
-    border:1px solid var(--steel-line);
-    color:var(--ink-soft);
-    padding:12px;
-    font-family:var(--sans);
-    font-weight:600;
-    font-size:14px;
-    border-radius:3px;
-    cursor:pointer;
-    margin-top:8px;
-  }
-  button.small{
-    background:var(--paper);
-    border:1px solid var(--steel-line);
-    color:var(--ink-soft);
-    padding:8px 10px;
-    font-family:var(--body);
-    font-size:12.5px;
-    font-weight:600;
-    border-radius:2px;
-    cursor:pointer;
-  }
+.dropzone{
+  border:1.5px dashed var(--edge);border-radius:var(--radius);padding:22px;text-align:center;
+  background:rgba(255,255,255,0.03);margin-top:14px;transition:border-color .15s, box-shadow .15s;
+}
+.dropzone.drag{border-color:var(--cyan);background:rgba(255,255,255,0.06);box-shadow:0 0 0 3px rgba(255,255,255,0.12);}
+.dropzone input[type=file]{display:none;}
+.dz-btn{
+  display:inline-block;padding:9px 20px;background:linear-gradient(120deg, var(--cyan), var(--violet));color:#0A0A0A;border:none;
+  border-radius:var(--radius-sm);font-size:12.5px;font-weight:700;margin-top:8px;box-shadow:0 4px 18px rgba(255,255,255,0.25);
+}
+.dz-hint{font-size:11.5px;color:var(--ink-faint);margin-top:6px;}
 
-  .log-item{
-    background:var(--paper-raised);
-    border:1px solid var(--steel-line);
-    border-radius:3px;
-    padding:14px;
-    margin-bottom:10px;
-    display:flex;
-    gap:12px;
-  }
-  .log-item img{width:72px; height:72px; object-fit:cover; border-radius:2px; flex-shrink:0; background:var(--steel-line);}
-  .log-item .li-noimg{width:72px; height:72px; border-radius:2px; flex-shrink:0; background:var(--paper); border:1px dashed var(--steel-line); display:flex; align-items:center; justify-content:center; font-size:20px; color:var(--steel-line);}
-  .log-item .li-body{flex:1; min-width:0;}
-  .log-item .li-title{font-family:var(--sans); font-weight:600; font-size:16px; color:var(--ink);}
-  .log-item .li-dims{font-family:var(--mono); font-size:13px; color:var(--orange-dark); margin-top:2px;}
-  .log-item .li-meta{font-size:11.5px; color:var(--steel); margin-top:4px; line-height:1.5;}
-  .li-del{background:none; border:none; color:var(--steel); font-size:18px; cursor:pointer; padding:0 4px; align-self:flex-start;}
+/* column mapper */
+.colmap-row{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:center;padding:6px 0;}
+.colmap-row label{font-size:12.5px;font-weight:600;color:var(--ink-soft);}
+.colmap-req{color:var(--danger);}
 
-  .empty-state{
-    text-align:center;
-    padding:40px 20px;
-    color:var(--steel);
-  }
-  .empty-state .es-icon{font-size:32px; margin-bottom:8px;}
-  .empty-state .es-text{font-size:14px;}
+/* ---------- Form elements ---------- */
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin-bottom:5px;}
+.field input[type=text],.field input[type=number],.field input[type=date],.field select,.field textarea{
+  width:100%;padding:9px 11px;border:1px solid var(--edge);border-radius:var(--radius-sm);
+  background:rgba(0,0,0,0.45);color:var(--ink);font-size:13.5px;transition:border-color .15s, box-shadow .15s;
+}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(255,255,255,0.16);}
+.field .hint{font-size:11px;color:var(--ink-faint);margin-top:4px;}
+.field.mono input{font-family:var(--font-mono);}
+.field.readonly input{background:rgba(255,255,255,0.05);color:var(--ink-soft);}
+.inline-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;}
 
-  .export-bar{padding:4px 0 14px;}
-  .count-strip{
-    font-family:var(--mono);
-    font-size:12px;
-    color:var(--steel);
-    padding:0 2px 10px;
-  }
-  .toast{
-    position:fixed;
-    bottom:20px; left:50%;
-    transform:translateX(-50%);
-    background:var(--ink);
-    color:var(--paper);
-    padding:11px 20px;
-    border-radius:3px;
-    font-size:13.5px;
-    font-family:var(--body);
-    opacity:0;
-    pointer-events:none;
-    transition:opacity 0.25s;
-    z-index:999;
-    white-space:nowrap;
-    max-width:88vw;
-    overflow:hidden;
-    text-overflow:ellipsis;
-  }
-  .toast.show{opacity:1;}
+/* ---------- Buttons ---------- */
+.btn{
+  padding:10px 18px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;border:1px solid var(--edge);
+  background:var(--panel-3);color:var(--ink);display:inline-flex;align-items:center;gap:7px;
+  position:relative;overflow:hidden;transition:border-color .15s, transform .1s, box-shadow .15s;
+}
+.btn:hover{border-color:rgba(255,255,255,0.4);box-shadow:0 0 16px rgba(255,255,255,0.18);transform:translateY(-1px);}
+.btn:active{transform:translateY(0);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;transform:none;box-shadow:none;}
+.btn.secondary{background:transparent;color:var(--ink-soft);}
+.btn.secondary:hover{background:rgba(255,255,255,0.07);color:var(--ink);}
+.btn.accent{background:linear-gradient(120deg, var(--cyan), var(--violet));border-color:transparent;color:#0A0A0A;font-weight:700;box-shadow:0 6px 22px rgba(255,255,255,0.28);}
+.btn.accent:hover{box-shadow:0 8px 28px rgba(255,255,255,0.42);transform:translateY(-1px);}
+.btn.danger{background:linear-gradient(120deg, var(--danger), #B23A5C);border-color:transparent;color:#fff;}
+.btn.small{padding:6px 12px;font-size:12px;}
+.btn.wide{width:100%;justify-content:center;}
+.icon-btn{background:transparent;border:1px solid var(--edge);border-radius:var(--radius-sm);width:30px;height:30px;display:flex;align-items:center;justify-content:center;color:var(--ink-soft);transition:border-color .15s, color .15s;}
+.icon-btn:hover{border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 10px rgba(255,255,255,0.25);}
 
-  /* method toggle */
-  .method-toggle{
-    display:flex;
-    border:1px solid var(--steel-line);
-    border-radius:3px;
-    overflow:hidden;
-    margin-bottom:14px;
-  }
-  .method-toggle button{
-    flex:1;
-    padding:10px 4px;
-    background:var(--paper);
-    border:none;
-    font-family:var(--body);
-    font-size:11.5px;
-    font-weight:600;
-    color:var(--steel);
-    cursor:pointer;
-    border-right:1px solid var(--steel-line);
-  }
-  .method-toggle button:last-child{border-right:none;}
-  .method-toggle button.active{
-    background:var(--ink);
-    color:var(--paper);
-  }
+/* ---------- Tables ---------- */
+.table-wrap{overflow-x:auto;border:1px solid var(--edge);border-radius:var(--radius);background:rgba(8,8,9,0.6);}
+table{width:100%;border-collapse:collapse;font-size:12.8px;}
+thead th{
+  text-align:left;padding:10px 12px;background:var(--panel-3);color:var(--ink-soft);
+  font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;
+  position:sticky;top:0;border-bottom:1px solid rgba(255,255,255,0.25);
+}
+tbody td{padding:9px 12px;border-bottom:1px solid var(--edge-soft);vertical-align:middle;white-space:nowrap;color:var(--ink);}
+tbody tr:last-child td{border-bottom:none;}
+tbody tr:hover{background:rgba(255,255,255,0.05);}
+td.num,th.num{font-family:var(--font-mono);text-align:right;}
+td.wrap{white-space:normal;}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:100px;font-size:11px;font-weight:600;}
+.badge.over{background:var(--danger-soft);color:var(--danger);animation:alertPulse 1.8s ease-in-out infinite;}
+.badge.under{background:var(--warn-soft);color:var(--warn);}
+.badge.match{background:var(--success-soft);color:var(--success);}
+.badge::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 5px currentColor;}
+@keyframes alertPulse{0%,100%{box-shadow:0 0 0 rgba(255,77,116,0);}50%{box-shadow:0 0 10px rgba(255,77,116,0.55);}}
+.row-over{background:rgba(255,77,116,0.05);}
+.row-over:hover{background:rgba(255,77,116,0.09) !important;}
 
-  /* calibration canvas */
-  .calib-wrap{position:relative; border:1px solid var(--steel-line); border-radius:3px; overflow:hidden; background:#000;}
-  #calibCanvas{display:block; width:100%; touch-action:none; cursor:crosshair;}
-  .calib-instruction{
-    background:var(--ink);
-    color:var(--paper);
-    font-size:13px;
-    padding:10px 12px;
-    border-radius:3px 3px 0 0;
-    font-family:var(--body);
-  }
-  .calib-instruction b{color:var(--orange);}
-  .ref-presets{display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;}
-  .ref-presets button{flex:1; min-width:80px;}
-  .ref-presets button.selected{background:var(--orange); color:#fff; border-color:var(--orange);}
-  .custom-ref-input{display:none; margin-top:10px;}
-  .calib-actions{display:flex; gap:8px; margin-top:10px;}
-  .calib-actions button{flex:1;}
-  .accuracy-note{
-    font-size:11.5px;
-    color:var(--steel);
-    line-height:1.5;
-    margin-top:10px;
-    padding:10px;
-    background:var(--paper);
-    border-left:2px solid var(--orange);
-  }
-  .result-row{display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--steel-line); font-size:14px;}
-  .result-row:last-child{border-bottom:none;}
-  .result-row .rl{color:var(--steel); font-size:12.5px;}
-  .result-row .rv{font-family:var(--mono); font-weight:600; color:var(--ink);}
+.empty-state{padding:50px 20px;text-align:center;color:var(--ink-faint);}
+.empty-state .em-icon{font-size:30px;margin-bottom:10px;opacity:.6;}
+.empty-state h3{color:var(--ink-soft);font-size:15px;margin-bottom:6px;}
+.empty-state p{font-size:12.5px;max-width:40ch;margin:0 auto;}
 
-  /* AR ruler */
-  .ar-support-note{
-    font-size:12px; color:var(--steel); line-height:1.6;
-    background:var(--paper); border-left:2px solid var(--blue);
-    padding:10px 12px; margin-bottom:12px;
-  }
-  .ar-status-line{font-size:12.5px; font-family:var(--mono); margin-top:8px; color:var(--steel);}
-  .ar-status-line.ok{color:var(--green);}
-  .ar-status-line.bad{color:var(--orange-dark);}
-  #arCanvas{display:none;}
-  #arOverlay{
-    display:none;
-    position:fixed; inset:0; z-index:1000;
-    font-family:var(--body);
-    pointer-events:none; /* let taps fall through to the AR session by default */
-  }
-  #arOverlay .ar-top{
-    position:absolute; top:0; left:0; right:0;
-    padding:14px 16px calc(14px + env(safe-area-inset-top));
-    background:linear-gradient(to bottom, rgba(0,0,0,0.55), transparent);
-    color:#fff;
-  }
-  #arOverlay .ar-instruction{font-size:14px; font-weight:600;}
-  #arOverlay .ar-sub{font-size:12px; opacity:0.85; margin-top:2px;}
-  #arOverlay .ar-crosshair{
-    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
-    width:22px; height:22px; border:2px solid #fff; border-radius:50%;
-    box-shadow:0 0 0 2px rgba(0,0,0,0.4);
-  }
-  #arOverlay .ar-crosshair.hit{border-color:var(--green);}
-  #arOverlay .ar-crosshair.wait{border-color:#F2B33D;}
-  #arOverlay .ar-crosshair::after{
-    content:""; position:absolute; top:50%; left:50%; width:4px; height:4px;
-    background:#fff; border-radius:50%; transform:translate(-50%,-50%);
-  }
-  #arOverlay .ar-labels{
-    position:absolute; top:calc(72px + env(safe-area-inset-top)); left:16px; right:16px;
-    display:flex; gap:6px;
-    pointer-events:auto;
-  }
-  #arOverlay .ar-labels button{
-    flex:1; padding:8px 4px; font-size:12px; font-weight:600;
-    background:rgba(0,0,0,0.45); color:#fff; border:1px solid rgba(255,255,255,0.3);
-    border-radius:3px;
-  }
-  #arOverlay .ar-labels button.active{ background:var(--orange); border-color:var(--orange); }
-  #arOverlay .ar-list{
-    position:absolute; bottom:100px; left:16px; right:16px;
-    max-height:120px; overflow-y:auto;
-    background:rgba(0,0,0,0.55); border-radius:3px; padding:8px 10px;
-    color:#fff; font-family:var(--mono); font-size:12.5px;
-    pointer-events:auto;
-  }
-  #arOverlay .ar-list .ar-list-row{display:flex; justify-content:space-between; padding:3px 0;}
-  #arOverlay .ar-bottom{
-    position:absolute; bottom:0; left:0; right:0;
-    padding:14px 16px calc(14px + env(safe-area-inset-bottom));
-    background:linear-gradient(to top, rgba(0,0,0,0.6), transparent);
-    display:flex; gap:8px;
-    pointer-events:auto;
-  }
-  #arOverlay .ar-bottom button{
-    flex:1; padding:12px; border-radius:3px; font-weight:600; font-size:14px; border:none;
-  }
-  #arBtnUndo{ background:rgba(255,255,255,0.15); color:#fff; }
-  #arBtnFinish{ background:var(--orange); color:#fff; }
+/* filters bar */
+.filterbar{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px;align-items:flex-end;}
+.filterbar .field{margin-bottom:0;min-width:150px;}
+.filterbar .field.grow{flex:1;min-width:200px;}
+
+/* search combobox */
+.combo{position:relative;}
+.combo-results{
+  position:absolute;top:100%;left:0;right:0;background:var(--panel-2);border:1px solid rgba(255,255,255,0.3);
+  border-radius:var(--radius-sm);max-height:260px;overflow-y:auto;z-index:40;box-shadow:0 12px 30px rgba(0,0,0,0.5), 0 0 20px rgba(255,255,255,0.12);margin-top:3px;
+}
+.combo-item{padding:9px 12px;border-bottom:1px solid var(--edge-soft);font-size:12.5px;}
+.combo-item:hover,.combo-item.hl{background:rgba(255,255,255,0.08);}
+.combo-item .ci-name{font-weight:600;color:var(--ink);}
+.combo-item .ci-meta{font-family:var(--font-mono);font-size:11px;color:var(--ink-soft);margin-top:2px;}
+.combo-empty{padding:12px;color:var(--ink-faint);font-size:12px;}
+
+/* line items grid */
+.li-table{width:100%;border-collapse:collapse;margin-top:8px;}
+.li-table th{font-size:10.5px;text-transform:uppercase;color:var(--ink-soft);text-align:left;padding:6px 8px;border-bottom:1px solid var(--edge);}
+.li-table td{padding:6px 8px;border-bottom:1px solid var(--edge-soft);}
+.li-table input{width:100%;border:1px solid var(--edge);border-radius:3px;padding:6px 8px;font-size:12.5px;font-family:var(--font-mono);background:rgba(0,0,0,0.45);color:var(--ink);}
+.li-table input.prodsearch{font-family:var(--font-body);}
+
+.tag{font-family:var(--font-mono);font-size:10.5px;background:rgba(255,255,255,0.1);color:var(--cyan);padding:2px 7px;border-radius:4px;border:1px solid rgba(255,255,255,0.2);}
+
+.section-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:26px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--edge);display:flex;align-items:center;gap:8px;}
+.section-title::before{content:'';width:7px;height:7px;flex:none;background:var(--cyan);box-shadow:0 0 6px var(--cyan);border-radius:2px;}
+.section-title:first-child{margin-top:0;}
+
+.toast-wrap{position:fixed;bottom:22px;right:22px;z-index:200;display:flex;flex-direction:column;gap:10px;}
+.toast{
+  background:var(--panel-2);color:var(--ink);padding:12px 18px;border-radius:var(--radius-sm);font-size:13px;
+  border:1px solid var(--edge);border-left:3px solid var(--cyan);
+  box-shadow:0 14px 34px rgba(0,0,0,0.5), 0 0 20px rgba(255,255,255,0.14);display:flex;align-items:center;gap:10px;min-width:220px;
+  animation:toastin .25s cubic-bezier(.2,.8,.2,1);
+}
+.toast.err{border-left-color:var(--danger);box-shadow:0 14px 34px rgba(0,0,0,0.5), 0 0 20px rgba(255,77,116,0.18);}
+.toast.ok{border-left-color:var(--success);box-shadow:0 14px 34px rgba(0,0,0,0.5), 0 0 20px rgba(51,240,180,0.16);}
+@keyframes toastin{from{opacity:0;transform:translateX(24px);}to{opacity:1;transform:translateX(0);}}
+
+.stamp-note{
+  font-family:var(--font-mono);font-size:11px;color:var(--ink-faint);border-left:2px solid var(--edge);padding-left:10px;
+}
+.pill-group{display:flex;gap:8px;flex-wrap:wrap;}
+.pill-opt{padding:7px 14px;border:1px solid var(--edge);border-radius:100px;font-size:12.5px;font-weight:600;color:var(--ink-soft);background:var(--panel-2);transition:border-color .15s, color .15s;}
+.pill-opt.sel{border-color:transparent;background:linear-gradient(120deg, var(--cyan), var(--violet));color:#0A0A0A;box-shadow:0 0 14px rgba(255,255,255,0.3);}
+
+.divider{height:1px;background:linear-gradient(90deg,transparent,var(--edge),transparent);margin:22px 0;}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;}
+.modal{background:var(--panel);border-radius:12px;max-width:640px;width:100%;max-height:85vh;overflow-y:auto;padding:24px 26px;border:1px solid var(--edge);box-shadow:var(--shadow-card);}
+.modal h3{margin-bottom:14px;}
+.close-x{position:absolute;top:14px;right:16px;background:none;border:none;font-size:18px;color:var(--ink-soft);}
+.small-muted{font-size:11.5px;color:var(--ink-faint);}
+.kbd{font-family:var(--font-mono);background:var(--panel-2);border:1px solid var(--edge);padding:1px 6px;border-radius:3px;font-size:10.5px;color:var(--ink-soft);}
+.loader{width:14px;height:14px;border:2px solid rgba(255,255,255,.2);border-top-color:var(--cyan);border-radius:50%;animation:spin .7s linear infinite;box-shadow:0 0 8px rgba(255,255,255,0.4);}
+@keyframes spin{to{transform:rotate(360deg);}}
+.progress-bar{height:5px;background:var(--panel-2);border-radius:4px;overflow:hidden;margin-top:8px;}
+.progress-bar > div{height:100%;background:linear-gradient(90deg, var(--cyan), var(--violet));box-shadow:0 0 10px rgba(255,255,255,0.5);transition:width .2s;}
+footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-top:26px;}
 </style>
 </head>
 <body>
-<div class="wrap">
+<canvas id="bgfx"></canvas>
+<div id="app"></div>
+<div class="toast-wrap" id="toastWrap"></div>
+<script id="app-script">
+/* ============================================================
+   RATE LEDGER — Overinvoicing Audit
+   Single-file client-side app. No data leaves the browser.
+   ============================================================ */
 
-  <header>
-    <div class="brand">Site<span class="accent">Scale</span></div>
-    <div class="tagline">Field measurement capture for walls & hoardings — logged with GPS.</div>
-  </header>
+/* ---------------- Global state ---------------- */
+const STATE = {
+  dbMaster: [],        // {code, name, pg, pgName, active, beatCode, beatName, so, asm, rsm}
+  dbMasterFile: null,
+  priceGroupMap: [],   // {location, pg} — auto-filled from DB Master's Price Group + Price Group Name columns, or upload Step 2 to override
+  pgMapFile: null,
+  pgMapAuto: false,     // true when priceGroupMap came from the DB Master upload, not a separate Step 2 file
+  rateRows: [],        // {location, category, gstPct, productName, sku, productCode, rate, effDate(Date), effDateStr, sourceFile}
+  rateFiles: [],        // {fileName, location, matchedLocation, effDateStr, rowCount, status}
+  beatSoMap: {},        // code -> {name, beat, beatName, so, asm, rsm} — manual Step 4 override only
+  beatSoFile: null,
+  beatSoAuto: false,    // true when the DB Master upload itself carried Beat/SO/ASM/RSM columns (routing then lives on STATE.dbMaster records)
+  uomMap: {},            // productCode -> {name, category, packSize, kgPerPc, kgPerBag} — UOM conversion master
+  uomMapFile: null,
+  bills: [],            // flattened report rows
+  billFiles: {},        // billUid -> {fileName, ext, dataUrl, savedName} — attached bill photo/PDF copy
+  currentTab: 'dashboard',
+  billForm: null,       // in-progress bill header + line items
+};
 
-  <div class="tab-row">
-    <button class="tab-btn active" data-tab="capture">New Entry</button>
-    <button class="tab-btn" data-tab="log">Log</button>
-  </div>
+let BILL_SEQ = 1;
 
-  <main>
-    <section id="capture" class="active">
-
-      <div class="card">
-        <span class="field-label">Measurement method</span>
-        <div class="method-toggle">
-          <button id="modeManualBtn" class="active">Manual</button>
-          <button id="modePhotoBtn">Photo-calibrated</button>
-          <button id="modeArBtn">AR Ruler (Beta)</button>
-        </div>
-
-        <!-- Photo calibration UI -->
-        <div id="calibBlock" style="display:none;">
-          <div id="refPresetBlock">
-            <span class="field-label">Reference object used in photo</span>
-            <div class="ref-presets">
-              <button class="small" data-cm="21">A4 short (21cm)</button>
-              <button class="small" data-cm="29.7">A4 long (29.7cm)</button>
-              <button class="small" data-cm="8.56">Card (8.56cm)</button>
-              <button class="small" data-cm="0">Custom</button>
-            </div>
-            <div class="custom-ref-input" id="customRefWrap">
-              <input type="number" id="customRefCm" placeholder="Reference length in cm" step="0.1">
-            </div>
-          </div>
-
-          <div style="margin-top:12px;">
-            <div class="calib-instruction" id="calibInstruction">Pehle photo capture karo neeche, fir reference size select karo.</div>
-            <div class="calib-wrap">
-              <canvas id="calibCanvas"></canvas>
-            </div>
-            <div class="calib-actions">
-              <button class="small" id="undoPointBtn">Undo point</button>
-              <button class="small" id="resetCalibBtn">Reset</button>
-            </div>
-          </div>
-
-          <div class="accuracy-note">Photo perpendicular honi chahiye wall ke, aur reference object wall ke same plane me hona chahiye — tabhi accuracy achi milegi. Ye estimate hai.</div>
-
-          <div id="calibResultBlock" style="display:none; margin-top:12px;">
-            <div class="result-row"><span class="rl">Scale</span><span class="rv" id="scaleOut">—</span></div>
-            <div class="result-row"><span class="rl">Estimated width</span><span class="rv" id="estWidthOut">—</span></div>
-            <div class="result-row"><span class="rl">Estimated height</span><span class="rv" id="estHeightOut">—</span></div>
-          </div>
-        </div>
-
-        <!-- AR ruler UI -->
-        <div id="arBlock" style="display:none;">
-          <div class="ar-support-note">
-            <b>Requires:</b> Android phone, Chrome browser, ARCore support, aur ye page HTTPS pe hosted hona chahiye. No reference object needed.<br><br>
-            <b>Accuracy ke liye zaroori:</b> Start karte hi phone ko 2-3 second side-to-side/thoda circular move karo (jab tak blue tracked-surface overlay na dikhe) — tabhi tap karo. Bilkul plain/blank painted wall pe tracking weak padti hai; agar possible ho to wall ke corner, ground, ya kisi texture/edge ko bhi frame me rakho taaki phone ko reference points milein.
-          </div>
-          <button class="primary" id="arSupportCheckBtn">Check AR support & Start</button>
-          <div class="ar-status-line" id="arStatusLine"></div>
-          <div id="arResultsList" style="margin-top:10px;"></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <span class="field-label">Photo (optional)</span>
-        <div class="camera-zone" id="camZone">
-          <div class="cam-icon">📷</div>
-          <div class="cam-text">Tap to add photo</div>
-          <div class="cam-sub">Optional — for visual record only</div>
-        </div>
-        <input type="file" id="photoInput" accept="image/*" capture="environment">
-        <button class="photo-remove" id="removePhotoBtn" style="display:none;">Remove photo</button>
-      </div>
-
-      <div class="card">
-        <span class="field-label">Location tag</span>
-        <div class="field">
-          <input type="text" id="siteName" placeholder="Site / market / address label">
-        </div>
-        <div class="gps-chip" id="gpsChip">
-          <div class="gps-dot"></div>
-          <span id="gpsText">Waiting for GPS lock…</span>
-        </div>
-      </div>
-
-      <div class="card">
-        <span class="field-label">Measurement (feet)</span>
-        <div class="row2">
-          <div class="field">
-            <label class="field-label" style="margin-bottom:4px;">Width</label>
-            <input type="number" id="widthIn" inputmode="decimal" placeholder="0.0" step="0.1">
-          </div>
-          <div class="field">
-            <label class="field-label" style="margin-bottom:4px;">Height</label>
-            <input type="number" id="heightIn" inputmode="decimal" placeholder="0.0" step="0.1">
-          </div>
-        </div>
-        <div class="measure-readout">
-          <span id="areaOut" class="num">0.0</span>
-          <span class="unit">sq. ft area</span>
-        </div>
-        <div class="field" style="margin-bottom:0;">
-          <label class="field-label" style="margin-bottom:4px;">Notes (optional)</label>
-          <textarea id="notesIn" placeholder="Structure type, surface condition, brand on wall, etc."></textarea>
-        </div>
-      </div>
-
-      <button class="primary" id="saveBtn">Save entry</button>
-    </section>
-
-    <section id="log">
-      <div class="count-strip" id="countStrip">0 entries logged</div>
-      <div id="logList"></div>
-      <div class="export-bar">
-        <button class="primary" id="exportBtn">Export to Excel</button>
-        <button class="ghost" id="clearBtn">Clear all entries</button>
-      </div>
-    </section>
-  </main>
-</div>
-
-<div class="toast" id="toast"></div>
-
-<!-- AR full-screen overlay -->
-<canvas id="arCanvas"></canvas>
-<div id="arOverlay">
-  <div class="ar-top">
-    <div class="ar-instruction" id="arInstruction">Phone ko dheere se move karo, surface detect hone do…</div>
-    <div class="ar-sub" id="arSub">Tap anywhere to place a point once the ring turns green</div>
-  </div>
-  <div class="ar-labels">
-    <button class="active" data-label="Width">Width</button>
-    <button data-label="Height">Height</button>
-    <button data-label="Diagonal">Diagonal</button>
-  </div>
-  <div class="ar-crosshair" id="arCrosshair"></div>
-  <div class="ar-list" id="arList"></div>
-  <div class="ar-bottom">
-    <button id="arBtnUndo">Undo point</button>
-    <button id="arBtnFinish">Finish & use these</button>
-  </div>
-</div>
-
-<script>
-let currentPhoto = null;
-let currentLat = null;
-let currentLng = null;
-let currentAccuracy = null;
-let entries = [];
-let measureMode = 'manual'; // 'manual' | 'photo' | 'ar'
-
-const camZone = document.getElementById('camZone');
-const photoInput = document.getElementById('photoInput');
-const removePhotoBtn = document.getElementById('removePhotoBtn');
-const gpsChip = document.getElementById('gpsChip');
-const gpsText = document.getElementById('gpsText');
-const widthIn = document.getElementById('widthIn');
-const heightIn = document.getElementById('heightIn');
-const areaOut = document.getElementById('areaOut');
-const toast = document.getElementById('toast');
-const modeManualBtn = document.getElementById('modeManualBtn');
-const modePhotoBtn = document.getElementById('modePhotoBtn');
-const modeArBtn = document.getElementById('modeArBtn');
-const calibBlock = document.getElementById('calibBlock');
-const arBlock = document.getElementById('arBlock');
-
-function showToast(msg){
-  toast.textContent = msg;
-  toast.classList.add('show');
-  setTimeout(()=>toast.classList.remove('show'), 2400);
+/* ---------------- Small utils ---------------- */
+function $(sel, root){ return (root||document).querySelector(sel); }
+function $all(sel, root){ return Array.from((root||document).querySelectorAll(sel)); }
+function el(html){ const t=document.createElement('template'); t.innerHTML=html.trim(); return t.content.firstElementChild; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function uid(prefix){ return (prefix||'id')+'_'+Math.random().toString(36).slice(2,9); }
+function fmtMoney(n){ if(n==null||isNaN(n)) return '—'; return n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtInt(n){ return (n==null||isNaN(n))?'—':n.toLocaleString('en-IN'); }
+function clamp2(n){ return Math.round((n+Number.EPSILON)*100)/100; }
+function prefersReducedMotion(){ return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+/* Animated readout — counts a stat-value node up from 0 to target on render. */
+function countUp(el, target, opts){
+  if(!el) return;
+  opts = opts || {};
+  const prefix = opts.prefix||'', suffix = opts.suffix||'', decimals = opts.decimals||0, duration = opts.duration||700;
+  const finalText = prefix + (decimals ? target.toLocaleString('en-IN',{minimumFractionDigits:decimals,maximumFractionDigits:decimals}) : Math.round(target).toLocaleString('en-IN')) + suffix;
+  if(prefersReducedMotion() || !isFinite(target)){ el.textContent = finalText; return; }
+  const t0 = performance.now();
+  function frame(now){
+    const p = Math.min(1, (now-t0)/duration);
+    const eased = 1 - Math.pow(1-p, 3);
+    const val = target*eased;
+    el.textContent = prefix + (decimals ? val.toLocaleString('en-IN',{minimumFractionDigits:decimals,maximumFractionDigits:decimals}) : Math.round(val).toLocaleString('en-IN')) + suffix;
+    if(p<1) requestAnimationFrame(frame); else el.textContent = finalText;
+  }
+  requestAnimationFrame(frame);
 }
 
-// tabs
-document.querySelectorAll('.tab-btn').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-    document.querySelectorAll('main section').forEach(s=>s.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(btn.dataset.tab).classList.add('active');
-    if(btn.dataset.tab === 'log') renderLog();
+function toast(msg, type){
+  const wrap = $('#toastWrap');
+  const t = el(`<div class="toast ${type==='err'?'err':(type==='ok'?'ok':'')}">${esc(msg)}</div>`);
+  wrap.appendChild(t);
+  setTimeout(()=>{ t.style.opacity='0'; t.style.transition='opacity .3s'; setTimeout(()=>t.remove(),300); }, 3400);
+}
+
+/* date helpers: business dates are DD-MM-YYYY */
+function parseDMY(str){
+  if(!str) return null;
+  const m = String(str).trim().match(/(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})/);
+  if(!m) return null;
+  let [_,d,mo,y] = m;
+  if(y.length===2) y = '20'+y;
+  const dt = new Date(Number(y), Number(mo)-1, Number(d));
+  if(isNaN(dt.getTime())) return null;
+  return dt;
+}
+function fmtDMY(dt){
+  if(!dt) return '—';
+  const d = String(dt.getDate()).padStart(2,'0');
+  const m = String(dt.getMonth()+1).padStart(2,'0');
+  const y = dt.getFullYear();
+  return `${d}-${m}-${y}`;
+}
+function todayISO(){ const d=new Date(); return d.toISOString().slice(0,10); }
+function isoToDMYDate(iso){ if(!iso) return null; const [y,m,d]=iso.split('-').map(Number); return new Date(y,m-1,d); }
+
+/* location normalization + alias matching */
+const LOCATION_ALIASES = {
+  'wb':'west bengal', 'w.b.':'west bengal', 'west bengal':'west bengal',
+  'kol':'kolkata', 'kolkata':'kolkata', 'cal':'kolkata', 'calcutta':'kolkata',
+  'nb':'north bengal', 'north bengal':'north bengal', 'n.bengal':'north bengal', 'nbengal':'north bengal',
+  'jhk':'jharkhand', 'jharkhand':'jharkhand',
+  'ods':'odisha', 'odisha':'odisha', 'orissa':'odisha',
+  'bihar':'bihar', 'patna':'patna',
+  'up':'uttar pradesh',
+  'guwahati':'guwahati', 'assam':'guwahati', 'guw':'guwahati',
+  'delhi':'delhi',
+  'abp':'abp',
+  'and':'andaman', 'andaman':'andaman',
+};
+function normLoc(s){
+  if(!s) return '';
+  let x = String(s).toLowerCase().trim().replace(/[._]/g,' ').replace(/\s+/g,' ');
+  x = x.replace(/^location\s*-?\s*/,'').trim();
+  return LOCATION_ALIASES[x] || x;
+}
+function locEq(a,b){
+  const na = normLoc(a), nb = normLoc(b);
+  if(!na || !nb) return false;
+  if(na===nb) return true;
+  return na.includes(nb) || nb.includes(na);
+}
+function normPG(v){
+  if(v==null) return '';
+  let s = String(v).trim();
+  if(/^\d+$/.test(s) && s.length===1) s = '0'+s;
+  return s;
+}
+
+/* ---------------- App shell ---------------- */
+const TABS = [
+  {id:'dashboard', label:'Dashboard', num:'00'},
+  {id:'setup', label:'Data Setup', num:'01'},
+  {id:'ratemaster', label:'Rate Master', num:'02'},
+  {id:'ratecheck', label:'Rate Check', num:'03'},
+  {id:'reports', label:'Reports', num:'04'},
+];
+
+function setupComplete(){ return STATE.dbMaster.length>0 && STATE.priceGroupMap.length>0 && STATE.rateRows.length>0; }
+
+function renderShell(){
+  const app = $('#app');
+  app.innerHTML = `
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">RL</div>
+        <div class="brand-text">
+          <h1>Rate Ledger</h1>
+          <p>Overinvoicing audit for the DB → retailer network</p>
+        </div>
+      </div>
+      <div class="status-strip" id="statusStrip"></div>
+    </header>
+    <nav class="tabstrip" id="tabStrip"><div id="tabButtons" style="display:flex;gap:4px;"></div><span class="tab-indicator" id="tabIndicator"></span></nav>
+    <main>
+      <section class="view" id="view-dashboard"></section>
+      <section class="view" id="view-setup"></section>
+      <section class="view" id="view-ratemaster"></section>
+      <section class="view" id="view-ratecheck"></section>
+      <section class="view" id="view-reports"></section>
+    </main>
+    <footer class="appfoot">All data stays in this browser tab — nothing is uploaded to a server. Refreshing the page clears it, so export your report before you close the tab.</footer>
+  `;
+  renderTabs();
+  renderStatusStrip();
+}
+
+function renderTabs(){
+  const strip = $('#tabStrip');
+  const btnHost = $('#tabButtons');
+  btnHost.innerHTML = TABS.map(t=>{
+    const locked = (t.id==='ratemaster' || t.id==='ratecheck' || t.id==='reports') && !setupComplete();
+    return `<button class="tab-btn ${STATE.currentTab===t.id?'active':''}" data-tab="${t.id}" ${locked?'disabled title="Finish Data Setup first"':''}>
+      <span class="tab-num">${t.num}</span> ${t.label}
+    </button>`;
+  }).join('');
+  $all('.tab-btn', btnHost).forEach(b=>b.addEventListener('click', ()=>switchTab(b.dataset.tab)));
+  requestAnimationFrame(positionTabIndicator);
+}
+function positionTabIndicator(){
+  const strip = $('#tabStrip');
+  const ind = $('#tabIndicator');
+  const active = $('.tab-btn.active', strip);
+  if(!strip || !ind || !active) return;
+  const sRect = strip.getBoundingClientRect(), aRect = active.getBoundingClientRect();
+  ind.style.left = (aRect.left - sRect.left) + 'px';
+  ind.style.width = aRect.width + 'px';
+}
+window.addEventListener('resize', ()=> positionTabIndicator());
+
+function renderStatusStrip(){
+  const s = $('#statusStrip');
+  const chips = [
+    {label:`${STATE.dbMaster.length} DBs`, ready: STATE.dbMaster.length>0},
+    {label:`${STATE.priceGroupMap.length} Price Groups`, ready: STATE.priceGroupMap.length>0},
+    {label:`${new Set(STATE.rateRows.map(r=>r.location)).size} Locations rated`, ready: STATE.rateRows.length>0},
+    {label:`${STATE.bills.length} lines checked`, ready: STATE.bills.length>0},
+  ];
+  s.innerHTML = chips.map(c=>`<div class="status-chip ${c.ready?'ready':''}"><span class="status-dot"></span>${c.label}</div>`).join('');
+}
+
+function switchTab(id){
+  if((id==='ratemaster'||id==='ratecheck'||id==='reports') && !setupComplete()){
+    toast('Finish Data Setup (Steps 1–3) first', 'err');
+    id = 'setup';
+  }
+  STATE.currentTab = id;
+  $all('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===id));
+  $all('.view').forEach(v=>v.classList.remove('active'));
+  $('#view-'+id).classList.add('active');
+  if(id==='dashboard') renderDashboard();
+  if(id==='setup') renderSetup();
+  if(id==='ratemaster') renderRateMaster();
+  if(id==='ratecheck') renderRateCheck();
+  if(id==='reports') renderReports();
+  renderTabs();
+}
+
+/* ---------------- Dashboard ---------------- */
+function renderDashboard(){
+  const view = $('#view-dashboard');
+  const overRows = STATE.bills.filter(b=>b.status==='over');
+  const underRows = STATE.bills.filter(b=>b.status==='under');
+  const overAmt = overRows.reduce((s,b)=> s + (isNaN(b.overchargeAmt)?0:b.overchargeAmt), 0);
+  const underAmt = underRows.reduce((s,b)=> s + (isNaN(b.underchargeAmt)?0:b.underchargeAmt), 0);
+  const uniqueBills = new Set(STATE.bills.map(b=>b.billUid)).size;
+  const byLoc = {};
+  STATE.bills.forEach(b=>{ byLoc[b.location]=byLoc[b.location]||{total:0,over:0}; byLoc[b.location].total++; if(b.status==='over') byLoc[b.location].over++; });
+
+  view.innerHTML = `
+    <div class="view-head">
+      <div><h2>Dashboard</h2><p class="sub">Snapshot of your rate master coverage and market bill checks so far.</p></div>
+    </div>
+    <div class="grid-4">
+      <div class="stat-card"><div class="stat-label">DB Master</div><div class="stat-value" id="cuDbMaster">0</div><div class="stat-note">distributors loaded</div></div>
+      <div class="stat-card"><div class="stat-label">Rate Master SKUs</div><div class="stat-value" id="cuRateSkus">0</div><div class="stat-note">across ${new Set(STATE.rateRows.map(r=>r.location)).size} location(s)</div></div>
+      <div class="stat-card"><div class="stat-label">Bills Checked</div><div class="stat-value" id="cuBillsChecked">0</div><div class="stat-note">${fmtInt(STATE.bills.length)} product lines</div></div>
+      <div class="stat-card ${overRows.length?'danger':''}"><div class="stat-label">Overcharge Instances</div><div class="stat-value" id="cuOverInst">0</div><div class="stat-note">₹${fmtMoney(overAmt)} total overcharge</div></div>
+      <div class="stat-card ${underRows.length?'warn':''}"><div class="stat-label">Undercharge Instances</div><div class="stat-value" id="cuUnderInst">0</div><div class="stat-note">₹${fmtMoney(underAmt)} total undercharge</div></div>
+    </div>
+
+    <div class="section-title">Setup checklist</div>
+    <div class="grid-4">
+      ${checklistCard('1 · DB Master', STATE.dbMaster.length? `${STATE.dbMaster.length} DBs loaded`:'Not uploaded', STATE.dbMaster.length>0)}
+      ${checklistCard('2 · Price Group ↔ Location', STATE.priceGroupMap.length? `${STATE.priceGroupMap.length} mappings${STATE.pgMapAuto?' (auto)':''}`:'Not uploaded', STATE.priceGroupMap.length>0)}
+      ${checklistCard('3 · Rate Files', STATE.rateRows.length? `${STATE.rateFiles.length} PDF(s), ${STATE.rateRows.length} SKU rows`:'Not uploaded', STATE.rateRows.length>0)}
+      ${checklistCard('4 · Beat/SO/ASM/RSM', STATE.beatSoAuto ? `Aligned from DB Master` : (Object.keys(STATE.beatSoMap).length? `${Object.keys(STATE.beatSoMap).length} DB mapped` : 'Optional — not uploaded'), STATE.beatSoAuto || Object.keys(STATE.beatSoMap).length>0, true)}
+      ${checklistCard('5 · UOM Conversion', Object.keys(STATE.uomMap).length? `${Object.keys(STATE.uomMap).length} products mapped` : 'Optional — not uploaded', Object.keys(STATE.uomMap).length>0, true)}
+    </div>
+
+    ${!setupComplete() ? `<div class="card dashed" style="margin-top:20px;text-align:center;">
+        <p style="margin-bottom:10px;color:var(--ink-soft);">Upload Steps 1–3 to unlock Rate Master, Rate Check and Reports.</p>
+        <button class="btn accent" id="goSetup">Go to Data Setup →</button>
+      </div>` : ''}
+
+    ${Object.keys(byLoc).length ? `
+    <div class="section-title">Overcharge by location</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Location</th><th class="num">Lines checked</th><th class="num">Overcharge lines</th><th class="num">Overcharge rate</th></tr></thead>
+      <tbody>
+        ${Object.entries(byLoc).map(([loc,v])=>`<tr><td>${esc(loc)}</td><td class="num">${v.total}</td><td class="num">${v.over}</td><td class="num">${((v.over/v.total)*100).toFixed(0)}%</td></tr>`).join('')}
+      </tbody>
+    </table></div>` : ''}
+  `;
+  const gs = $('#goSetup'); if(gs) gs.addEventListener('click', ()=>switchTab('setup'));
+  countUp($('#cuDbMaster'), STATE.dbMaster.length);
+  countUp($('#cuRateSkus'), STATE.rateRows.length);
+  countUp($('#cuBillsChecked'), uniqueBills);
+  countUp($('#cuOverInst'), overRows.length);
+  countUp($('#cuUnderInst'), underRows.length);
+}
+function checklistCard(title, note, done, optional){
+  return `<div class="stat-card" style="border-left:3px solid ${done?'var(--success)':(optional?'var(--edge)':'var(--warn)')}">
+    <div class="stat-label">${esc(title)}</div>
+    <div style="font-size:13px;margin-top:8px;color:${done?'var(--success)':'var(--ink-soft)'};font-weight:600;">${done?'✓ ':''}${esc(note)}</div>
+  </div>`;
+}
+
+/* ---------------- Generic column-mapper (used by uploaders) ---------------- */
+/* Given headerRow (array of strings) + guesses [{key,label,required,patterns:[regex]}]
+   renders a mapper block into container and calls onConfirm(map) where map[key]=colIndex */
+function autoGuessColumn(headers, patterns){
+  for(let i=0;i<headers.length;i++){
+    const h = String(headers[i]||'').toLowerCase();
+    if(patterns.some(p=>p.test(h))) return i;
+  }
+  return -1;
+}
+function renderColumnMapper(container, headers, previewRows, fields, onConfirm){
+  const guesses = {};
+  fields.forEach(f=>{ guesses[f.key] = autoGuessColumn(headers, f.patterns); });
+  const colOptions = (sel)=> `<option value="-1">— none —</option>` + headers.map((h,i)=>`<option value="${i}" ${sel===i?'selected':''}>${esc(h || '(col '+(i+1)+')')}</option>`).join('');
+  container.innerHTML = `
+    <div class="card" style="background:var(--panel);">
+      <div style="font-size:12.5px;font-weight:700;color:var(--ink-soft);margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em;">Match columns</div>
+      ${fields.map(f=>`
+        <div class="colmap-row">
+          <label>${esc(f.label)} ${f.required?'<span class="colmap-req">*</span>':''}</label>
+          <select data-key="${f.key}">${colOptions(guesses[f.key])}</select>
+          <span class="small-muted">${f.hint||''}</span>
+        </div>`).join('')}
+    </div>
+    <div class="table-wrap" style="margin-top:14px;max-height:220px;overflow:auto;">
+      <table><thead><tr>${headers.map(h=>`<th>${esc(h||'')}</th>`).join('')}</tr></thead>
+      <tbody>${previewRows.slice(0,6).map(r=>`<tr>${headers.map((_,i)=>`<td>${esc(r[i]==null?'':r[i])}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:10px;">
+      <button class="btn accent" id="confirmMapBtn">Confirm & load</button>
+      <span class="small-muted" id="mapErr" style="color:var(--danger);"></span>
+    </div>
+  `;
+  $('#confirmMapBtn', container).addEventListener('click', ()=>{
+    const map = {};
+    fields.forEach(f=>{ const v = $(`select[data-key="${f.key}"]`, container).value; map[f.key] = Number(v); });
+    const missing = fields.filter(f=>f.required && map[f.key]===-1);
+    if(missing.length){ $('#mapErr',container).textContent = 'Please map: '+missing.map(m=>m.label).join(', '); return; }
+    onConfirm(map);
   });
-});
-
-// camera (optional now)
-camZone.addEventListener('click', ()=>photoInput.click());
-photoInput.addEventListener('change', (e)=>{
-  const file = e.target.files[0];
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev)=>{
-    currentPhoto = ev.target.result;
-    camZone.classList.add('has-photo');
-    camZone.innerHTML = '';
-    const img = document.createElement('img');
-    img.src = currentPhoto;
-    camZone.appendChild(img);
-    removePhotoBtn.style.display = 'block';
-    if(measureMode === 'photo') loadCalibImage();
-  };
-  reader.readAsDataURL(file);
-});
-removePhotoBtn.addEventListener('click', ()=>{
-  currentPhoto = null;
-  camZone.classList.remove('has-photo');
-  camZone.innerHTML = '<div class="cam-icon">📷</div><div class="cam-text">Tap to add photo</div><div class="cam-sub">Optional — for visual record only</div>';
-  removePhotoBtn.style.display = 'none';
-  photoInput.value = '';
-});
-
-// mode toggle
-function setMode(mode){
-  measureMode = mode;
-  [modeManualBtn, modePhotoBtn, modeArBtn].forEach(b=>b.classList.remove('active'));
-  calibBlock.style.display = 'none';
-  arBlock.style.display = 'none';
-  if(mode === 'manual'){ modeManualBtn.classList.add('active'); }
-  if(mode === 'photo'){
-    modePhotoBtn.classList.add('active');
-    calibBlock.style.display = 'block';
-    if(currentPhoto) loadCalibImage();
-  }
-  if(mode === 'ar'){ modeArBtn.classList.add('active'); arBlock.style.display = 'block'; }
 }
-modeManualBtn.addEventListener('click', ()=>setMode('manual'));
-modePhotoBtn.addEventListener('click', ()=>setMode('photo'));
-modeArBtn.addEventListener('click', ()=>setMode('ar'));
 
-// GPS
-function lockGPS(){
-  if(!navigator.geolocation){
-    gpsChip.classList.add('error');
-    gpsText.textContent = 'GPS not supported on this device';
-    return;
-  }
-  gpsText.textContent = 'Waiting for GPS lock…';
-  navigator.geolocation.getCurrentPosition(
-    (pos)=>{
-      currentLat = pos.coords.latitude;
-      currentLng = pos.coords.longitude;
-      currentAccuracy = pos.coords.accuracy;
-      gpsChip.classList.remove('error');
-      gpsChip.classList.add('locked');
-      gpsText.textContent = currentLat.toFixed(6) + ', ' + currentLng.toFixed(6) + ' (±' + Math.round(currentAccuracy) + 'm)';
-    },
-    (err)=>{
-      gpsChip.classList.add('error');
-      gpsText.textContent = 'Location denied — enable GPS permission';
-    },
-    { enableHighAccuracy:true, timeout:15000 }
-  );
-}
-lockGPS();
-
-// area calc
-function updateArea(){
-  const w = parseFloat(widthIn.value) || 0;
-  const h = parseFloat(heightIn.value) || 0;
-  const area = w * h;
-  areaOut.textContent = area.toFixed(1);
-}
-widthIn.addEventListener('input', updateArea);
-heightIn.addEventListener('input', updateArea);
-
-/* ---------- Photo calibration (reference-object measurement) ---------- */
-const calibCanvas = document.getElementById('calibCanvas');
-const cctx = calibCanvas.getContext('2d');
-let calibImg = new Image();
-let calibPoints = [];
-let refCm = null;
-const calibInstruction = document.getElementById('calibInstruction');
-const calibResultBlock = document.getElementById('calibResultBlock');
-
-document.querySelectorAll('.ref-presets button').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    document.querySelectorAll('.ref-presets button').forEach(b=>b.classList.remove('selected'));
-    btn.classList.add('selected');
-    const cm = parseFloat(btn.dataset.cm);
-    if(cm === 0){
-      document.getElementById('customRefWrap').style.display = 'block';
-      refCm = null;
-    }else{
-      document.getElementById('customRefWrap').style.display = 'none';
-      refCm = cm;
-    }
-    resetCalibPoints();
+function readWorkbookFile(file){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload = (e)=>{
+      try{
+        const wb = XLSX.read(e.target.result, {type:'array', cellDates:false});
+        resolve(wb);
+      }catch(err){ reject(err); }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
   });
-});
-document.getElementById('customRefCm').addEventListener('input', (e)=>{
-  refCm = parseFloat(e.target.value) || null;
-  resetCalibPoints();
-});
+}
+function sheetToRows(ws){
+  return XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+}
+function findHeaderRowIndex(rows, mustHave){
+  for(let i=0;i<Math.min(rows.length,8);i++){
+    const row = rows[i].map(c=>String(c||'').toLowerCase());
+    if(mustHave.some(pat=>row.some(c=>pat.test(c)))) return i;
+  }
+  return -1; // no confident header row found — caller should treat the sheet as headerless
+}
+/* ---------------- Setup view ---------------- */
+let SETUP_OPEN_STEP = 1;
 
-function loadCalibImage(){
-  if(!currentPhoto) return;
-  calibImg = new Image();
-  calibImg.onload = ()=>{
-    const maxW = calibCanvas.parentElement.clientWidth || 480;
-    const scale = maxW / calibImg.width;
-    calibCanvas.width = maxW;
-    calibCanvas.height = calibImg.height * scale;
-    drawCalib();
-  };
-  calibImg.src = currentPhoto;
+function renderSetup(){
+  const view = $('#view-setup');
+  view.innerHTML = `
+    <div class="view-head">
+      <div><h2>Data Setup</h2><p class="sub">Upload your DB Master in Step 1 — if it's the consolidated format with Beat/Price Group Name/ASM/RSM columns, Steps 2 and 4 fill themselves in automatically. Only Steps 1 and 3 are required to run rate checks.</p></div>
+    </div>
+    <div id="step1"></div>
+    <div id="step2"></div>
+    <div id="step3"></div>
+    <div id="step4"></div>
+    <div id="step5"></div>
+  `;
+  renderStep1();
+  renderStep2();
+  renderStep3();
+  renderStep4();
+  renderStep5();
 }
 
-function drawCalib(){
-  cctx.clearRect(0,0,calibCanvas.width, calibCanvas.height);
-  cctx.drawImage(calibImg, 0, 0, calibCanvas.width, calibCanvas.height);
-  const colors = ['#E8622C','#E8622C','#2F8F5B','#2F8F5B','#4C8DFF','#4C8DFF'];
-  const labels = ['Ref','Ref','W','W','H','H'];
-  calibPoints.forEach((p, i)=>{
-    cctx.fillStyle = colors[i];
-    cctx.beginPath();
-    cctx.arc(p.x, p.y, 6, 0, Math.PI*2);
-    cctx.fill();
-    cctx.fillStyle = '#fff';
-    cctx.font = '10px sans-serif';
-    cctx.fillText(labels[i], p.x+8, p.y-8);
+function stepShell(container, num, title, desc, done, statusText, bodyHtml){
+  container.innerHTML = `
+    <div class="setup-step ${done?'done':''}">
+      <div class="setup-step-head" data-toggle="${num}">
+        <div class="setup-step-num">${done?'✓':num}</div>
+        <div class="setup-step-title">${esc(title)}<div class="setup-step-desc">${esc(desc)}</div></div>
+        <div class="setup-step-status">${esc(statusText)}</div>
+      </div>
+      <div class="setup-step-body ${SETUP_OPEN_STEP===num?'':'collapsed'}" id="step${num}body">${bodyHtml}</div>
+    </div>
+  `;
+  $(`[data-toggle="${num}"]`, container).addEventListener('click', ()=>{
+    SETUP_OPEN_STEP = (SETUP_OPEN_STEP===num) ? 0 : num;
+    const body = $(`#step${num}body`, container);
+    body.classList.toggle('collapsed');
   });
-  for(let i=0; i+1 < calibPoints.length; i+=2){
-    cctx.strokeStyle = colors[i];
-    cctx.lineWidth = 2;
-    cctx.beginPath();
-    cctx.moveTo(calibPoints[i].x, calibPoints[i].y);
-    cctx.lineTo(calibPoints[i+1].x, calibPoints[i+1].y);
-    cctx.stroke();
-  }
-  updateInstruction();
 }
 
-function updateInstruction(){
-  const n = calibPoints.length;
-  if(!currentPhoto){ calibInstruction.innerHTML = 'Pehle photo capture karo neeche.'; return; }
-  if(!refCm){ calibInstruction.innerHTML = 'Reference size select karo (upar).'; return; }
-  if(n===0) calibInstruction.innerHTML = '<b>Step 1/3</b> — Reference object ke known edge ke 2 corner tap karo.';
-  else if(n===1) calibInstruction.innerHTML = '<b>Step 1/3</b> — Reference edge ka doosra corner tap karo.';
-  else if(n===2) calibInstruction.innerHTML = '<b>Step 2/3</b> — Wall ke width ke 2 end points tap karo.';
-  else if(n===3) calibInstruction.innerHTML = '<b>Step 2/3</b> — Width ka doosra point tap karo.';
-  else if(n===4) calibInstruction.innerHTML = '<b>Step 3/3</b> — Wall ke height ke 2 end points tap karo.';
-  else if(n===5) calibInstruction.innerHTML = '<b>Step 3/3</b> — Height ka doosra point tap karo.';
-  else calibInstruction.innerHTML = '✓ Calculated — neeche result check karo.';
+/* ===== STEP 1: DB Master ===== */
+function renderStep1(){
+  const c = $('#step1');
+  const done = STATE.dbMaster.length>0;
+  const status = done ? `${STATE.dbMaster.length} DBs loaded${STATE.pgMapAuto||STATE.beatSoAuto?' + auto-mapped':''}` : 'Pending';
+  const body = `
+    <p class="small-muted">Upload the Distributor/DB Master. This now works with the consolidated <strong>DB Master + Routes</strong> format — one file carrying DB Code, DB Name, Beat Code, Beat Name, Active/Inactive Status, Price Group, Price Group Name, ASM, RSM (Sales Head) and SO (TSO/RSO). As soon as it's uploaded, all of that mapping is aligned automatically — Step 2 (Price Group ↔ Location) and Step 4 (Beat/SO mapping) fill themselves in from this one file, no separate upload needed. (The older 3-column DB Code / DB Name / Price Group format still works too.)</p>
+    <div id="s1zone"></div>
+    <div id="s1mapper" style="margin-top:14px;"></div>
+    ${done ? `<div style="margin-top:12px;"><button class="btn secondary small" id="s1redo">Replace file</button> <span class="small-muted">Loaded from ${esc(STATE.dbMasterFile||'')}</span></div>` : ''}
+  `;
+  stepShell(c, 1, 'DB Master', 'DB Code, DB Name, Price Group — or the full DB Master + Routes format', done, status, body);
+  if(!done) wireDropzone($('#s1zone'), '.xlsx,.xls,.csv', handleDbMasterFile);
+  else { const btn=$('#s1redo'); if(btn) btn.addEventListener('click', ()=>{
+    STATE.dbMaster=[]; STATE.dbMasterFile=null;
+    if(STATE.pgMapAuto){ STATE.priceGroupMap=[]; STATE.pgMapFile=null; STATE.pgMapAuto=false; }
+    if(STATE.beatSoAuto){ STATE.beatSoMap={}; STATE.beatSoFile=null; STATE.beatSoAuto=false; }
+    renderSetup(); renderStatusStrip(); renderTabs();
+  }); }
 }
-
-function dist2(a,b){ return Math.sqrt(Math.pow(a.x-b.x,2) + Math.pow(a.y-b.y,2)); }
-
-function computeCalib(){
-  if(calibPoints.length < 6 || !refCm) return;
-  const refPx = dist2(calibPoints[0], calibPoints[1]);
-  const wPx = dist2(calibPoints[2], calibPoints[3]);
-  const hPx = dist2(calibPoints[4], calibPoints[5]);
-  const cmPerPx = refCm / refPx;
-  const wFt = (wPx * cmPerPx) / 30.48;
-  const hFt = (hPx * cmPerPx) / 30.48;
-
-  document.getElementById('scaleOut').textContent = cmPerPx.toFixed(3) + ' cm/px';
-  document.getElementById('estWidthOut').textContent = wFt.toFixed(2) + ' ft';
-  document.getElementById('estHeightOut').textContent = hFt.toFixed(2) + ' ft';
-  calibResultBlock.style.display = 'block';
-
-  widthIn.value = wFt.toFixed(2);
-  heightIn.value = hFt.toFixed(2);
-  updateArea();
-  showToast('Measurement filled from photo — check before saving');
-}
-
-calibCanvas.addEventListener('click', (e)=>{
-  if(!currentPhoto){ showToast('Pehle photo capture karo'); return; }
-  if(!refCm){ showToast('Pehle reference size select karo'); return; }
-  if(calibPoints.length >= 6) return;
-  const rect = calibCanvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-  calibPoints.push({x,y});
-  drawCalib();
-  if(calibPoints.length === 6) computeCalib();
-});
-
-document.getElementById('undoPointBtn').addEventListener('click', ()=>{
-  calibPoints.pop();
-  calibResultBlock.style.display = 'none';
-  drawCalib();
-});
-document.getElementById('resetCalibBtn').addEventListener('click', resetCalibPoints);
-function resetCalibPoints(){
-  calibPoints = [];
-  calibResultBlock.style.display = 'none';
-  if(calibImg.src) drawCalib();
-}
-
-/* ---------- AR Ruler (WebXR hit-test) ---------- */
-const arSupportCheckBtn = document.getElementById('arSupportCheckBtn');
-const arStatusLine = document.getElementById('arStatusLine');
-const arResultsList = document.getElementById('arResultsList');
-const arOverlay = document.getElementById('arOverlay');
-const arCanvas = document.getElementById('arCanvas');
-const arCrosshair = document.getElementById('arCrosshair');
-const arInstruction = document.getElementById('arInstruction');
-const arSub = document.getElementById('arSub');
-const arList = document.getElementById('arList');
-
-let arSession = null, arRenderer = null, arScene = null, arCamera = null;
-let arReticle = null, arHitTestSource = null, arRefSpace = null;
-let arCurrentLabel = 'Width';
-let arPendingPoints = [];
-let arMeasurements = [];
-let arLastHitPose = null;
-let THREE = null;
-let arPlaneGroup = null;      // visual mesh of detected surfaces
-let arHitStableSince = null;  // timestamp when current unbroken hit streak began
-const AR_STABLE_MS = 450;     // require this much continuous tracking before a tap counts
-
-document.querySelectorAll('.ar-labels button').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    document.querySelectorAll('.ar-labels button').forEach(b=>b.classList.remove('active'));
-    btn.classList.add('active');
-    arCurrentLabel = btn.dataset.label;
+function wireDropzone(container, accept, onFile, multiple){
+  container.innerHTML = `
+    <div class="dropzone" id="dz">
+      <div style="font-size:24px;">📄</div>
+      <div style="font-weight:600;margin-top:6px;">Drop file${multiple?'s':''} here</div>
+      <div class="dz-hint">or</div>
+      <label class="dz-btn">Choose file${multiple?'s':''}<input type="file" accept="${accept}" ${multiple?'multiple':''}></label>
+    </div>
+  `;
+  const dz = $('#dz', container);
+  const input = $('input[type=file]', container);
+  input.addEventListener('change', e=>{
+    if(!e.target.files.length) return;
+    multiple ? onFile(Array.from(e.target.files)) : onFile(e.target.files[0]);
   });
-});
+  dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', ()=> dz.classList.remove('drag'));
+  dz.addEventListener('drop', e=>{
+    e.preventDefault(); dz.classList.remove('drag');
+    if(!e.dataTransfer.files.length) return;
+    multiple ? onFile(Array.from(e.dataTransfer.files)) : onFile(e.dataTransfer.files[0]);
+  });
+}
 
-arSupportCheckBtn.addEventListener('click', startARFlow);
-
-async function startARFlow(){
-  arStatusLine.className = 'ar-status-line';
-  arStatusLine.textContent = 'Checking device support…';
-
-  if(location.protocol !== 'https:' && location.hostname !== 'localhost'){
-    arStatusLine.className = 'ar-status-line bad';
-    arStatusLine.textContent = 'Ye page HTTPS pe hosted nahi hai — AR camera access sirf secure (https://) page pe milta hai. Is file ko kisi web host pe upload karke wahan se kholo.';
-    return;
-  }
-  if(!navigator.xr){
-    arStatusLine.className = 'ar-status-line bad';
-    arStatusLine.textContent = 'WebXR is browser me support nahi hai. Android Chrome (latest) use karo.';
-    return;
-  }
-  const supported = await navigator.xr.isSessionSupported('immersive-ar').catch(()=>false);
-  if(!supported){
-    arStatusLine.className = 'ar-status-line bad';
-    arStatusLine.textContent = 'Is device/browser pe AR support nahi mila. ARCore-compatible Android phone + Chrome chahiye.';
-    return;
-  }
-  arStatusLine.className = 'ar-status-line ok';
-  arStatusLine.textContent = 'AR supported — starting…';
-
+async function handleDbMasterFile(file){
   try{
-    if(!THREE){
-      THREE = await import('https://unpkg.com/three@0.160.0/build/three.module.js');
-    }
-    await launchARSession();
-  }catch(err){
-    arStatusLine.className = 'ar-status-line bad';
-    arStatusLine.textContent = 'AR start fail hua: ' + (err && err.message ? err.message : err);
-  }
-}
+    const wb = await readWorkbookFile(file);
+    const shName = wb.SheetNames[0];
+    const rows = sheetToRows(wb.Sheets[shName]);
+    let headerIdx = findHeaderRowIndex(rows, [/customer|db\s*code|distributor\s*code|sap/i, /name/i]);
+    let headers, dataRows;
+    if(headerIdx===-1){ headers = rows[0].map(()=>''); dataRows = rows.filter(r=>r.some(c=>String(c).trim()!=='')); }
+    else { headers = rows[headerIdx]; dataRows = rows.slice(headerIdx+1).filter(r=>r.some(c=>String(c).trim()!=='')); }
+    const mapDiv = $('#s1mapper');
+    renderColumnMapper(mapDiv, headers, dataRows, [
+      {key:'code', label:'DB Code', required:true, patterns:[/distributor\s*code/i,/customer/i,/db\s*code/i,/sap/i,/code/i]},
+      {key:'name', label:'DB Name', required:true, patterns:[/distributor\s*name/i,/^name$/i,/customer name/i,/db name/i,/party/i]},
+      {key:'pg', label:'Price Group', required:true, patterns:[/^price\s*group$/i,/price\s*group\s*code/i,/^pg$/i]},
+      {key:'pgName', label:'Price Group Name', required:false, patterns:[/price\s*group\s*name/i], hint:'Used as Location — auto-fills Step 2'},
+      {key:'beatCode', label:'Beat Code', required:false, patterns:[/beat\s*code/i,/^beat$/i]},
+      {key:'beatName', label:'Beat Name', required:false, patterns:[/beat\s*name/i]},
+      {key:'active', label:'Active / Inactive', required:false, patterns:[/active/i,/status/i]},
+      {key:'rsm', label:'RSM Name (Sales Head)', required:false, patterns:[/sales\s*head/i,/rsm/i]},
+      {key:'asm', label:'ASM Name', required:false, patterns:[/^asm$/i,/asm\s*name/i,/\basm\b/i]},
+      {key:'so', label:'SO Name (TSO/RSO)', required:false, patterns:[/tso\s*\/?\s*rso/i,/\btso\b/i,/\brso\b/i,/so\s*name/i]},
+    ], (map)=>{
+      const g = (r,k)=> map[k]>=0 ? String(r[map[k]]==null?'':r[map[k]]).trim() : '';
+      const rawRows = dataRows.map(r=>({
+        code: String(r[map.code]).trim(),
+        name: String(r[map.name]).trim(),
+        pg: normPG(r[map.pg]),
+        pgName: g(r,'pgName'),
+        active: g(r,'active'),
+        beatCode: g(r,'beatCode'),
+        beatName: g(r,'beatName'),
+        rsm: g(r,'rsm'),
+        asm: g(r,'asm'),
+        so: g(r,'so'),
+      })).filter(x=>x.code && x.code!=='undefined');
 
-async function launchARSession(){
-  arMeasurements = [];
-  arPendingPoints = [];
-  arCurrentLabel = 'Width';
-  document.querySelectorAll('.ar-labels button').forEach(b=>b.classList.toggle('active', b.dataset.label==='Width'));
-  updateArList();
-
-  arScene = new THREE.Scene();
-  arCamera = new THREE.PerspectiveCamera();
-
-  arRenderer = new THREE.WebGLRenderer({ canvas: arCanvas, alpha:true, antialias:true });
-  arRenderer.setPixelRatio(window.devicePixelRatio);
-  arRenderer.setSize(window.innerWidth, window.innerHeight);
-  arRenderer.xr.enabled = true;
-
-  const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
-  arScene.add(light);
-
-  const ringGeo = new THREE.RingGeometry(0.045, 0.06, 32).rotateX(-Math.PI/2);
-  const ringMat = new THREE.MeshBasicMaterial({ color: 0x2F8F5B });
-  arReticle = new THREE.Mesh(ringGeo, ringMat);
-  arReticle.matrixAutoUpdate = false;
-  arReticle.visible = false;
-  arScene.add(arReticle);
-
-  arPlaneGroup = new THREE.Group();
-  arScene.add(arPlaneGroup);
-  arHitStableSince = null;
-
-  arSession = await navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['hit-test'],
-    optionalFeatures: ['dom-overlay', 'plane-detection'],
-    domOverlay: { root: arOverlay }
-  });
-
-  arCanvas.style.display = 'block';
-  arOverlay.style.display = 'block';
-
-  // three.js manages this session's own reference space internally —
-  // reuse the SAME instance for hit-test pose math instead of requesting
-  // a second independent 'local' space, so reticle + rendering never drift apart.
-  arRenderer.xr.setReferenceSpaceType('local');
-  await arRenderer.xr.setSession(arSession);
-  arRefSpace = arRenderer.xr.getReferenceSpace();
-
-  const viewerSpace = await arSession.requestReferenceSpace('viewer');
-  arHitTestSource = await arSession.requestHitTestSource({ space: viewerSpace });
-
-  arSession.addEventListener('select', onARSelect);
-  arSession.addEventListener('end', onARSessionEnd);
-  arInstruction.textContent = 'Phone ko dheere-dheere side-to-side move karo…';
-  arSub.textContent = 'Tracking build ho rahi hai — jaldi tap mat karo';
-
-  document.getElementById('arBtnUndo').onclick = onARUndo;
-  document.getElementById('arBtnFinish').onclick = ()=>{ if(arSession) arSession.end(); };
-
-  arRenderer.setAnimationLoop(onARFrame);
-}
-
-function updateDetectedPlanes(frame){
-  if(!frame.detectedPlanes || !arPlaneGroup) return;
-  // rebuild each frame — plane count/shape is small, simplest way to stay in sync
-  while(arPlaneGroup.children.length) arPlaneGroup.remove(arPlaneGroup.children[0]);
-  frame.detectedPlanes.forEach(plane=>{
-    try{
-      const pose = frame.getPose(plane.planeSpace, arRefSpace);
-      if(!pose || !plane.polygon || plane.polygon.length < 3) return;
-      const shape = new THREE.Shape();
-      plane.polygon.forEach((pt, i)=>{
-        if(i===0) shape.moveTo(pt.x, pt.z); else shape.lineTo(pt.x, pt.z);
+      // This file is often "one row per DB-beat" (a distributor covers many beats/routes),
+      // so dedupe into one DB Master record per DB code, collecting its distinct beats.
+      const byCode = {}; const order = [];
+      rawRows.forEach(x=>{
+        if(!byCode[x.code]){
+          byCode[x.code] = { code:x.code, name:x.name, pg:x.pg, pgName:x.pgName, active:x.active, rsm:x.rsm, asm:x.asm, so:x.so, beats:[] };
+          order.push(x.code);
+        }
+        if(x.beatCode || x.beatName){
+          const rec = byCode[x.code];
+          if(!rec.beats.some(b=>b.code===x.beatCode && b.name===x.beatName)) rec.beats.push({code:x.beatCode, name:x.beatName});
+        }
       });
-      const geo = new THREE.ShapeGeometry(shape);
-      geo.rotateX(Math.PI/2);
-      const mat = new THREE.MeshBasicMaterial({ color:0x4C8DFF, transparent:true, opacity:0.16, side:THREE.DoubleSide, depthWrite:false });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.matrixAutoUpdate = false;
-      mesh.matrix.fromArray(pose.transform.matrix);
-      arPlaneGroup.add(mesh);
+      const list = order.map(c=>byCode[c]);
+      STATE.dbMaster = list;
+      STATE.dbMasterFile = file.name;
 
-      // faint outline so the edge of the tracked surface is visible too
-      const edges = new THREE.EdgesGeometry(geo);
-      const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color:0x4C8DFF, transparent:true, opacity:0.5 }));
-      line.matrixAutoUpdate = false;
-      line.matrix.fromArray(pose.transform.matrix);
-      arPlaneGroup.add(line);
-    }catch(e){ /* a plane can go stale mid-frame — skip it */ }
-  });
-}
-
-function onARFrame(timestamp, frame){
-  if(!frame){ arRenderer.render(arScene, arCamera); return; }
-
-  updateDetectedPlanes(frame);
-
-  if(arHitTestSource){
-    const results = frame.getHitTestResults(arHitTestSource);
-    if(results.length > 0){
-      const pose = results[0].getPose(arRefSpace);
-      arReticle.visible = true;
-      arReticle.matrix.fromArray(pose.transform.matrix);
-      arLastHitPose = pose;
-
-      if(arHitStableSince === null) arHitStableSince = timestamp;
-      const stableFor = timestamp - arHitStableSince;
-      const isStable = stableFor >= AR_STABLE_MS;
-
-      arCrosshair.classList.toggle('hit', isStable);
-      arCrosshair.classList.toggle('wait', !isStable);
-
-      if(!isStable){
-        arSub.textContent = 'Tracking stabilize ho raha hai, ek second ruko…';
-      }else if(arPendingPoints.length === 1){
-        const p = new THREE.Vector3().setFromMatrixPosition(arReticle.matrix);
-        const d = arPendingPoints[0].distanceTo(p);
-        arSub.textContent = 'Live: ' + (d*3.28084).toFixed(2) + ' ft — tap to confirm ' + arCurrentLabel;
-      }else{
-        arSub.textContent = 'Tap anywhere to place a point';
+      // Consolidated format: align Price Group ↔ Location (Step 2) straight from this file.
+      if(map.pgName>=0){
+        const pgSeen = {};
+        list.forEach(x=>{ if(x.pg && x.pgName && !pgSeen[x.pg]) pgSeen[x.pg]=x.pgName; });
+        STATE.priceGroupMap = Object.entries(pgSeen).map(([pg,location])=>({pg, location}));
+        STATE.pgMapFile = file.name;
+        STATE.pgMapAuto = true;
       }
-    }else{
-      arReticle.visible = false;
-      arLastHitPose = null;
-      arHitStableSince = null;
-      arCrosshair.classList.remove('hit','wait');
-      arSub.textContent = 'Move phone slowly — looking for a surface…';
+      // Consolidated format: routing (Beat/SO/ASM/RSM) now lives directly on each DB Master
+      // record above — clear any stale manual Step 4 override so it doesn't shadow fresh data.
+      STATE.beatSoMap = {}; STATE.beatSoFile = null;
+      STATE.beatSoAuto = (map.beatCode>=0 || map.beatName>=0 || map.so>=0 || map.asm>=0 || map.rsm>=0);
+
+      const multiBeatDbs = list.filter(x=>x.beats.length>1).length;
+      const bits = [`${list.length} DBs`];
+      if(STATE.pgMapAuto) bits.push(`${STATE.priceGroupMap.length} price-group→location`);
+      if(STATE.beatSoAuto) bits.push('beat/SO/ASM/RSM aligned'+(multiBeatDbs?` (${multiBeatDbs} DBs span multiple beats)`:''));
+      toast(`Loaded — ${bits.join(', ')}`, 'ok');
+      SETUP_OPEN_STEP = STATE.priceGroupMap.length ? 0 : 2;
+      renderSetup(); renderStatusStrip(); renderTabs();
+    });
+  }catch(err){ console.error(err); toast('Could not read file: '+err.message, 'err'); }
+}
+
+/* ===== STEP 2: Price Group ↔ Location mapping ===== */
+function renderStep2(){
+  const c = $('#step2');
+  const done = STATE.priceGroupMap.length>0;
+  const status = done ? `${STATE.priceGroupMap.length} mappings${STATE.pgMapAuto?' (auto)':''}` : (STATE.dbMaster.length ? 'Waiting — DB Master had no Price Group Name column' : 'Auto-fills once Step 1 is uploaded');
+  const body = `
+    <p class="small-muted">Upload the Price Group ↔ Location mapping — one column with the <strong>Location</strong> (matches the location word in your rate-file names, e.g. Kolkata, WB, ABP) and one with the <strong>Price Group</strong> code (matches the DB Master's Price Group, e.g. 01, 02…). Skip this step entirely if your DB Master upload already carried a Price Group Name column — it's filled in for you.</p>
+    ${STATE.pgMapAuto ? `<p class="small-muted" style="color:var(--success);">✓ Auto-aligned from the DB Master's Price Group + Price Group Name columns. Upload a file here only if you need to override it.</p>` : ''}
+    <div id="s2zone"></div>
+    <div id="s2mapper" style="margin-top:14px;"></div>
+    ${done ? `<div style="margin-top:12px;"><button class="btn secondary small" id="s2redo">Replace / override</button> <span class="small-muted">${STATE.pgMapAuto?'Auto-filled from '+esc(STATE.pgMapFile||''):'Loaded from '+esc(STATE.pgMapFile||'')}</span></div>` : ''}
+  `;
+  stepShell(c, 2, 'Price Group ↔ Location Mapping', 'Links each DB\'s price group to a rate-file location', done, status, body);
+  if(!done) wireDropzone($('#s2zone'), '.xlsx,.xls,.csv', handlePgMapFile);
+  else { const btn=$('#s2redo'); if(btn) btn.addEventListener('click', ()=>{ STATE.priceGroupMap=[]; STATE.pgMapFile=null; STATE.pgMapAuto=false; renderStep2(); renderStatusStrip(); renderTabs(); }); }
+}
+async function handlePgMapFile(file){
+  try{
+    const wb = await readWorkbookFile(file);
+    const shName = wb.SheetNames[0];
+    const rows = sheetToRows(wb.Sheets[shName]);
+    let headerIdx = findHeaderRowIndex(rows, [/location|zone|city|state/i, /price\s*group/i]);
+    let headers, dataRows;
+    if(headerIdx===-1){ headers = rows[0].map(()=>''); dataRows = rows.filter(r=>r.some(c=>String(c).trim()!=='')); }
+    else { headers = rows[headerIdx]; dataRows = rows.slice(headerIdx+1).filter(r=>r.some(c=>String(c).trim()!=='')); }
+    const mapDiv = $('#s2mapper');
+    renderColumnMapper(mapDiv, headers, dataRows, [
+      {key:'location', label:'Location', required:true, patterns:[/location/i,/zone/i,/city/i,/state/i]},
+      {key:'pg', label:'Price Group', required:true, patterns:[/price\s*group/i,/^pg$/i]},
+    ], (map)=>{
+      const list = dataRows.map(r=>({
+        location: String(r[map.location]).trim(),
+        pg: normPG(r[map.pg]),
+      })).filter(x=>x.location && x.pg);
+      STATE.priceGroupMap = list;
+      STATE.pgMapFile = file.name;
+      STATE.pgMapAuto = false;
+      toast(`Loaded ${list.length} price-group mappings`, 'ok');
+      SETUP_OPEN_STEP = STATE.rateRows.length ? 0 : 3;
+      renderSetup(); renderStatusStrip(); renderTabs();
+    });
+  }catch(err){ console.error(err); toast('Could not read file: '+err.message, 'err'); }
+}
+function locationForPG(pg){
+  const npg = normPG(pg);
+  const hit = STATE.priceGroupMap.find(m=>normPG(m.pg)===npg);
+  return hit ? hit.location : null;
+}
+
+/* ===== STEP 3: Rate File ZIP (multi-PDF) ===== */
+const CATEGORY_GST_ZERO = ['papad'];
+function gstForCategory(cat){
+  const c = (cat||'').toLowerCase();
+  return CATEGORY_GST_ZERO.some(k=>c.includes(k)) ? 0 : 5;
+}
+
+function renderStep3(){
+  const c = $('#step3');
+  const done = STATE.rateRows.length>0;
+  const status = done ? `${STATE.rateFiles.length} file(s), ${STATE.rateRows.length} SKU rows` : 'Pending';
+  const body = `
+    <p class="small-muted">Upload location-wise rate PDFs as ZIP(s) (WhatsApp rate circulars) — select or drop <strong>multiple ZIP files at once</strong> if the month had several rate revisions (e.g. 10 rate changes = 10 ZIPs), and they'll all be parsed together into one review list. Each filename should carry the <strong>location</strong> and the <strong>effective date</strong> (e.g. <span class="tag">Kolkata Current Rate 06-09-2026.pdf</span>) — that date becomes the rate's effective-from date. When you check a bill, the correct rate for that bill's date is picked automatically — no need to pick a date yourself. Rates already include GST; every category is 5% GST except Papad, which is 0%. You can also upload more ZIPs later (e.g. next month's revision) — new dates simply add on top.</p>
+    <div id="s3zone"></div>
+    <div id="s3progress"></div>
+    <div id="s3review" style="margin-top:16px;"></div>
+    ${STATE.rateFiles.length ? renderRateFilesTable() : ''}
+  `;
+  stepShell(c, 3, 'Rate File ZIP', 'Location-wise rate PDFs — multiple ZIPs at once', done, status, body);
+  wireDropzone($('#s3zone'), '.zip', handleRateZips, true);
+  const rf = $('#rateFilesTable');
+  if(rf) wireRateFilesTableEvents();
+}
+function renderRateFilesTable(){
+  return `
+    <div class="section-title" style="margin-top:20px;">Rate files loaded</div>
+    <div class="table-wrap" id="rateFilesTable"><table>
+      <thead><tr><th>File</th><th>Matched Location</th><th>Effective Date</th><th class="num">SKU rows</th><th></th></tr></thead>
+      <tbody>
+        ${STATE.rateFiles.map((f,i)=>`<tr>
+          <td class="wrap">${esc(f.fileName)}</td>
+          <td>${esc(f.matchedLocation||'—')}${!f.matchedLocation?' <span class="badge over">unmatched</span>':''}</td>
+          <td>${esc(f.effDateStr||'—')}</td>
+          <td class="num">${f.rowCount}</td>
+          <td><button class="icon-btn" data-remove-rate="${i}" title="Remove">✕</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>
+  `;
+}
+function wireRateFilesTableEvents(){
+  $all('[data-remove-rate]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const idx = Number(btn.dataset.removeRate);
+    const removed = STATE.rateFiles[idx];
+    STATE.rateFiles.splice(idx,1);
+    STATE.rateRows = STATE.rateRows.filter(r=>r.sourceFile!==removed.fileName);
+    renderSetup(); renderStatusStrip(); renderTabs();
+  }));
+}
+
+async function handleRateZips(files){
+  const progDiv = $('#s3progress');
+  const allItems = [];
+  try{
+    for(let fi=0; fi<files.length; fi++){
+      const file = files[fi];
+      progDiv.innerHTML = `<div class="small-muted" style="margin-top:10px;">Reading ${esc(file.name)} (ZIP ${fi+1}/${files.length})…</div><div class="progress-bar"><div style="width:${Math.round(((fi)/files.length)*100)}%"></div></div>`;
+      let zip;
+      try{ zip = await JSZip.loadAsync(file); }
+      catch(e){ toast(`Could not read ${file.name} — skipped`, 'err'); continue; }
+      const pdfEntries = Object.values(zip.files).filter(f=>!f.dir && /\.pdf$/i.test(f.name));
+      if(!pdfEntries.length){ toast(`No PDFs found inside ${file.name}`, 'err'); continue; }
+      for(let i=0;i<pdfEntries.length;i++){
+        const entry = pdfEntries[i];
+        const pct = Math.round(((fi + (i+1)/pdfEntries.length) / files.length) * 100);
+        progDiv.innerHTML = `<div class="small-muted" style="margin-top:10px;">Parsing ${esc(entry.name)} — ZIP ${fi+1}/${files.length}, file ${i+1}/${pdfEntries.length}…</div><div class="progress-bar"><div style="width:${pct}%"></div></div>`;
+        const buf = await entry.async('arraybuffer');
+        const meta = parseRateFilename(entry.name.split('/').pop());
+        let rows = [];
+        try{ rows = await parseRatePdf(buf); }
+        catch(e){ console.error('PDF parse failed for', entry.name, e); }
+        const matched = matchLocation(meta.location);
+        allItems.push({ fileName: entry.name.split('/').pop(), detectedLocation: meta.location, effDateStr: meta.dateStr, matchedLocation: matched, rows });
+      }
+    }
+    progDiv.innerHTML = '';
+    if(!allItems.length){ toast('No PDF rate files found in the selected ZIP(s)', 'err'); return; }
+    renderRateReview(allItems);
+  }catch(err){
+    console.error(err); toast('Could not read ZIP(s): '+err.message, 'err'); progDiv.innerHTML='';
+  }
+}
+
+function parseRateFilename(name){
+  const base = name.replace(/\.pdf$/i,'');
+  const dm = base.match(/(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})/);
+  let dateStr = null;
+  let locPart = base;
+  if(dm){
+    dateStr = `${dm[1].padStart(2,'0')}-${dm[2].padStart(2,'0')}-${dm[3].length===2?'20'+dm[3]:dm[3]}`;
+    locPart = base.slice(0, dm.index);
+  }
+  locPart = locPart.replace(/current\s*rate/i,'').replace(/[-_]/g,' ').trim();
+  return { location: locPart, dateStr };
+}
+function matchLocation(detected){
+  if(!STATE.priceGroupMap.length) return null;
+  const uniqueLocs = Array.from(new Set(STATE.priceGroupMap.map(m=>m.location)));
+  const hit = uniqueLocs.find(l=>locEq(l, detected));
+  return hit || null;
+}
+
+/* known category headers on this rate-sheet template, used to tell a real
+   category header apart from a bare product-name line (see below) */
+const KNOWN_CATEGORIES = [
+  'ATTA','MAIDA','SOOJI','DALIA','SATTU','CHANA BESAN','MATAR BESAN','BESAN','INSTANT MIX',
+  'PAPAD','RICE & SUGAR','RICE','SUGAR','MILLET FLOUR','ETHNIC FLOUR','PULSES','SPICES',
+  'OTHERS','SNACKS','MUMMYS OWN', "MUMMY'S OWN",
+];
+function isKnownCategory(text){
+  const t = text.toUpperCase().replace(/[().]/g,'').trim();
+  return KNOWN_CATEGORIES.some(k=> t===k || t.startsWith(k+' '));
+}
+
+/* PDF table parser using pdf.js — column positions are consistent across
+   this rate-sheet template: Name(<242) | SKU(242-268) | Code(268-305) | Rate(>305) */
+async function parseRatePdf(arrayBuffer){
+  const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+  const rows = [];
+  let currentCategory = '';
+  let lastProductName = '';
+  let lastCode = null;
+  let pending = []; // leading data rows with no name yet, waiting for the merged-cell name to appear
+  function flushPending(nameForThem){
+    pending.forEach(pr=>{ pr.productName = nameForThem || lastProductName || ''; rows.push(pr); });
+    pending = [];
+  }
+  for(let pageNum=1; pageNum<=pdf.numPages; pageNum++){
+    const page = await pdf.getPage(pageNum);
+    const content = await page.getTextContent();
+    const items = content.items.map(it=>({ text: it.str, x: it.transform[4], y: Math.round(it.transform[5]*10)/10 }))
+      .filter(it=>it.text.trim()!=='');
+    // Cluster into visual lines with a tight y-tolerance. Some rows on this
+    // template render two SKU variants of one product on baselines only ~2.4pt
+    // apart (with the shared name on its own line between them), so a loose
+    // tolerance silently merges/loses rows — keep this tight.
+    const lines = [];
+    items.forEach(it=>{
+      let line = lines.find(l=>Math.abs(l.y-it.y)<1.1);
+      if(!line){ line = {y: it.y, items:[]}; lines.push(line); }
+      line.items.push(it);
+    });
+    lines.sort((a,b)=> b.y - a.y);
+    for(const line of lines){
+      line.items.sort((a,b)=>a.x-b.x);
+      const nameWords=[], skuWords=[], codeWords=[], rateWords=[];
+      line.items.forEach(it=>{
+        if(it.x < 242) nameWords.push(it.text);
+        else if(it.x < 268) skuWords.push(it.text);
+        else if(it.x < 306) codeWords.push(it.text);
+        else rateWords.push(it.text);
+      });
+      const nameText = nameWords.join(' ').replace(/\s+/g,' ').trim();
+      const skuText = skuWords.join(' ').replace(/\s+/g,' ').trim();
+      const codeText = codeWords.join('').trim();
+      const rateText = rateWords.join('').trim();
+      if(nameText==='Product' && skuText==='SKU') continue;
+      const rateNum = parseFloat(rateText.replace(/[^0-9.]/g,''));
+      const isDataRow = /^\d{3,}$/.test(codeText) && !isNaN(rateNum) && rateNum>0;
+      if(isDataRow){
+        const codeNum = parseInt(codeText, 10);
+        if(nameText){
+          flushPending(nameText);
+          lastProductName = nameText; lastCode = codeNum;
+          rows.push({ category: currentCategory, productName: nameText, sku: skuText, productCode: codeText, rate: rateNum });
+        } else if(pending.length===0 && lastCode!=null && !isNaN(codeNum) && Math.abs(codeNum-lastCode)<=20){
+          // No name on this row, but its code closely follows the last resolved
+          // row — a trailing pack-size variant of that same product.
+          lastCode = codeNum;
+          rows.push({ category: currentCategory, productName: lastProductName, sku: skuText, productCode: codeText, rate: rateNum });
+        } else {
+          // Leading edge of a product whose name hasn't rendered yet — hold it.
+          pending.push({ category: currentCategory, productName: null, sku: skuText, productCode: codeText, rate: rateNum });
+        }
+        continue;
+      }
+      const combined = [nameText,skuText,codeText,rateText].join(' ').trim();
+      if(!combined) continue;
+      if(/^location\b/i.test(combined)) continue;
+      const noDigits = !/\d/.test(combined.replace(/[().&,]/g,''));
+      if(noDigits && combined.length < 60 && combined === combined.toUpperCase()){
+        if(isKnownCategory(combined)){
+          flushPending();
+          currentCategory = combined.trim();
+          lastProductName = '';
+          lastCode = null;
+        } else {
+          // A bare all-caps line that isn't a known category header is a product
+          // name that landed on its own baseline — declare it without starting
+          // a new category.
+          flushPending(combined);
+          lastProductName = combined;
+        }
+      }
     }
   }
-  arRenderer.render(arScene, arCamera);
+  flushPending();
+  return rows;
 }
 
-function onARSelect(){
-  if(!arLastHitPose){ showToast('Surface detect nahi hui, phone thoda move karo'); return; }
-  if(arHitStableSince === null || (performance.now() - arHitStableSince) < AR_STABLE_MS){
-    showToast('Thoda ruko — tracking abhi stabilize ho rahi hai');
-    return;
-  }
-  const point = new THREE.Vector3().setFromMatrixPosition(arReticle.matrix);
-
-  const dotGeo = new THREE.SphereGeometry(0.012, 16, 16);
-  const dotMat = new THREE.MeshBasicMaterial({ color: 0xE8622C });
-  const dot = new THREE.Mesh(dotGeo, dotMat);
-  dot.position.copy(point);
-  arScene.add(dot);
-
-  arPendingPoints.push(point);
-
-  if(arPendingPoints.length === 2){
-    const p1 = arPendingPoints[0], p2 = arPendingPoints[1];
-    const distM = p1.distanceTo(p2);
-    const distFt = distM * 3.28084;
-
-    const lineGeo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
-    const lineMat = new THREE.LineBasicMaterial({ color: 0x2F8F5B, linewidth:2 });
-    const line = new THREE.Line(lineGeo, lineMat);
-    arScene.add(line);
-
-    arMeasurements.push({ label: arCurrentLabel, ft: distFt });
-    arPendingPoints = [];
-    updateArList();
-
-    const order = ['Width','Height','Diagonal'];
-    const doneLabels = arMeasurements.map(m=>m.label);
-    const next = order.find(l=>!doneLabels.includes(l));
-    if(next){
-      arCurrentLabel = next;
-      document.querySelectorAll('.ar-labels button').forEach(b=>b.classList.toggle('active', b.dataset.label===next));
-    }
-    arInstruction.textContent = arCurrentLabel + ' ke 2 points tap karo';
-  }else{
-    arInstruction.textContent = arCurrentLabel + ' ka doosra point tap karo';
-  }
-}
-
-function onARUndo(){
-  if(arPendingPoints.length > 0){
-    arPendingPoints.pop();
-    arInstruction.textContent = arCurrentLabel + ' ke points tap karo';
-    showToast('Last point removed');
-  }else if(arMeasurements.length > 0){
-    arMeasurements.pop();
-    updateArList();
-    showToast('Last measurement removed');
-  }
-}
-
-function updateArList(){
-  if(arMeasurements.length === 0){
-    arList.innerHTML = '<div style="opacity:0.7;">No measurements yet</div>';
-    return;
-  }
-  arList.innerHTML = arMeasurements.map(m=>
-    '<div class="ar-list-row"><span>' + m.label + '</span><span>' + m.ft.toFixed(2) + ' ft</span></div>'
-  ).join('');
-}
-
-function onARSessionEnd(){
-  arCanvas.style.display = 'none';
-  arOverlay.style.display = 'none';
-  if(arRenderer) arRenderer.setAnimationLoop(null);
-  arHitTestSource = null;
-  arSession = null;
-
-  const wM = arMeasurements.find(m=>m.label==='Width');
-  const hM = arMeasurements.find(m=>m.label==='Height');
-  const others = arMeasurements.filter(m=>m.label!=='Width' && m.label!=='Height');
-
-  if(wM){ widthIn.value = wM.ft.toFixed(2); }
-  if(hM){ heightIn.value = hM.ft.toFixed(2); }
-  updateArea();
-
-  if(others.length){
-    const notesEl = document.getElementById('notesIn');
-    const extra = others.map(m=>m.label + ': ' + m.ft.toFixed(2) + ' ft').join(', ');
-    notesEl.value = (notesEl.value ? notesEl.value + ' | ' : '') + 'AR: ' + extra;
-  }
-
-  arResultsList.innerHTML = arMeasurements.length
-    ? '<div class="accuracy-note">AR se mila: ' + arMeasurements.map(m=>m.label+' '+m.ft.toFixed(2)+'ft').join(', ') + ' — width/height fields me bhar diya gaya hai, save se pehle check kar lo.</div>'
-    : '';
-  arStatusLine.className = 'ar-status-line';
-  arStatusLine.textContent = arMeasurements.length ? 'Done — measurements form me bhar diye gaye.' : 'Session ended, koi measurement nahi liya gaya.';
-  showToast('AR session ended');
-}
-
-window.addEventListener('resize', ()=>{
-  if(arRenderer){
-    arRenderer.setSize(window.innerWidth, window.innerHeight);
-  }
-});
-
-/* ---------- storage ---------- */
-async function loadEntries(){
-  try{
-    const res = await window.storage.get('wall-entries', false);
-    entries = res && res.value ? JSON.parse(res.value) : [];
-  }catch(e){
-    entries = [];
-  }
-  renderLog();
-}
-async function persistEntries(){
-  try{
-    await window.storage.set('wall-entries', JSON.stringify(entries), false);
-  }catch(e){
-    showToast('Could not save — storage error');
-  }
-}
-
-// save entry
-document.getElementById('saveBtn').addEventListener('click', ()=>{
-  const site = document.getElementById('siteName').value.trim();
-  const w = parseFloat(widthIn.value);
-  const h = parseFloat(heightIn.value);
-  const notes = document.getElementById('notesIn').value.trim();
-
-  if(!site){ showToast('Add a location label first'); return; }
-  if(!w || !h){ showToast('Enter width and height'); return; }
-  if(currentLat === null){ showToast('Still waiting on GPS — try again in a moment'); return; }
-
-  const entry = {
-    id: Date.now(),
-    site, width:w, height:h, area:(w*h),
-    notes, photo: currentPhoto,
-    method: measureMode,
-    lat: currentLat, lng: currentLng, accuracy: currentAccuracy,
-    timestamp: new Date().toISOString()
-  };
-  entries.unshift(entry);
-  persistEntries();
-
-  // reset form
-  document.getElementById('siteName').value = '';
-  widthIn.value = ''; heightIn.value = ''; updateArea();
-  document.getElementById('notesIn').value = '';
-  currentPhoto = null;
-  camZone.classList.remove('has-photo');
-  camZone.innerHTML = '<div class="cam-icon">📷</div><div class="cam-text">Tap to add photo</div><div class="cam-sub">Optional — for visual record only</div>';
-  removePhotoBtn.style.display = 'none';
-  setMode('manual');
-  resetCalibPoints();
-  arResultsList.innerHTML = '';
-  arStatusLine.textContent = '';
-  lockGPS();
-
-  showToast('Entry saved');
-});
-
-// render log
-function renderLog(){
-  const list = document.getElementById('logList');
-  const count = document.getElementById('countStrip');
-  count.textContent = entries.length + (entries.length === 1 ? ' entry logged' : ' entries logged');
-
-  if(entries.length === 0){
-    list.innerHTML = '<div class="empty-state"><div class="es-icon">📐</div><div class="es-text">No measurements yet. Capture your first entry from New Entry.</div></div>';
-    return;
-  }
-  list.innerHTML = '';
-  entries.forEach(en=>{
-    const div = document.createElement('div');
-    div.className = 'log-item';
-    const d = new Date(en.timestamp);
-    const methodLabel = en.method === 'photo' ? 'Photo-calibrated' : (en.method === 'ar' ? 'AR Ruler' : 'Manual');
-    div.innerHTML = `
-      ${en.photo ? '<img src="'+en.photo+'">' : '<div class="li-noimg">—</div>'}
-      <div class="li-body">
-        <div class="li-title">${escapeHtml(en.site)}</div>
-        <div class="li-dims">${en.width} × ${en.height} ft — ${en.area.toFixed(1)} sq.ft</div>
-        <div class="li-meta">${en.lat.toFixed(5)}, ${en.lng.toFixed(5)}<br>${d.toLocaleDateString()} ${d.toLocaleTimeString()} · ${methodLabel}</div>
-      </div>
-      <button class="li-del" data-id="${en.id}">✕</button>
-    `;
-    list.appendChild(div);
+function renderRateReview(items){
+  const div = $('#s3review');
+  const uniqueLocs = Array.from(new Set(STATE.priceGroupMap.map(m=>m.location)));
+  div.innerHTML = `
+    <div class="section-title">Review before adding</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>File</th><th>Detected</th><th>Matches to</th><th>Effective Date</th><th class="num">Rows parsed</th></tr></thead>
+      <tbody>
+        ${items.map((it,i)=>`<tr>
+          <td class="wrap">${esc(it.fileName)}</td>
+          <td>${esc(it.detectedLocation)}</td>
+          <td><select data-review-loc="${i}">
+              <option value="">— unmatched, skip —</option>
+              ${uniqueLocs.map(l=>`<option value="${esc(l)}" ${l===it.matchedLocation?'selected':''}>${esc(l)}</option>`).join('')}
+            </select></td>
+          <td><input type="text" data-review-date="${i}" value="${esc(it.effDateStr||'')}" style="width:110px;font-family:var(--font-mono);padding:6px 8px;border:1px solid var(--edge);border-radius:3px;" placeholder="DD-MM-YYYY"></td>
+          <td class="num">${it.rows.length}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>
+    <div style="margin-top:14px;"><button class="btn accent" id="confirmRateBtn">Add to Rate Master</button></div>
+  `;
+  $('#confirmRateBtn').addEventListener('click', ()=>{
+    let added = 0, skipped = 0;
+    items.forEach((it,i)=>{
+      const loc = $(`select[data-review-loc="${i}"]`).value;
+      const dateStr = $(`input[data-review-date="${i}"]`).value.trim();
+      if(!loc || !dateStr || !it.rows.length){ skipped++; return; }
+      const effDate = parseDMY(dateStr);
+      if(!effDate){ skipped++; return; }
+      // remove any previous rows for same location+file+date to avoid dup on re-upload
+      STATE.rateRows = STATE.rateRows.filter(r=> !(r.location===loc && r.effDateStr===dateStr));
+      it.rows.forEach(r=>{
+        STATE.rateRows.push({
+          location: loc, category: r.category, gstPct: gstForCategory(r.category),
+          productName: r.productName, sku: r.sku, productCode: r.productCode, rate: r.rate,
+          effDate, effDateStr: dateStr, sourceFile: it.fileName,
+        });
+      });
+      const existingIdx = STATE.rateFiles.findIndex(f=>f.fileName===it.fileName);
+      const rec = {fileName: it.fileName, matchedLocation: loc, effDateStr: dateStr, rowCount: it.rows.length};
+      if(existingIdx>=0) STATE.rateFiles[existingIdx]=rec; else STATE.rateFiles.push(rec);
+      added++;
+    });
+    toast(`Added ${added} file(s) to Rate Master${skipped?`, skipped ${skipped}`:''}`, added?'ok':'err');
+    SETUP_OPEN_STEP = 0;
+    renderSetup(); renderStatusStrip(); renderTabs();
   });
-  document.querySelectorAll('.li-del').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const id = Number(btn.dataset.id);
-      entries = entries.filter(e=>e.id !== id);
-      persistEntries();
-      renderLog();
+}
+
+/* ===== STEP 4: DB–Beat–SO mapping (optional) ===== */
+function renderStep4(){
+  const c = $('#step4');
+  const manualDone = Object.keys(STATE.beatSoMap).length>0;
+  const done = manualDone || STATE.beatSoAuto;
+  const status = STATE.beatSoAuto ? 'Aligned from DB Master' : (manualDone ? `${Object.keys(STATE.beatSoMap).length} DBs mapped` : (STATE.dbMaster.length ? 'Optional — DB Master had no Beat/SO/ASM/RSM columns' : 'Auto-fills once Step 1 is uploaded'));
+  const body = `
+    <p class="small-muted">Upload the current DB ↔ Beat ↔ SO/ASM/RSM mapping. If your file has one column-block per month, we automatically use the right-most (most recent) block as the "current" mapping. Skip this entirely if your DB Master upload already carried Beat Code, Beat Name, ASM, RSM and SO columns — it's filled in for you. This only enriches your export — it's not required to run rate checks.</p>
+    ${STATE.beatSoAuto ? `<p class="small-muted" style="color:var(--success);">✓ Beat/SO/ASM/RSM are already aligned straight from the DB Master upload. Upload a file here only if you need to override specific DBs.</p>` : ''}
+    <div id="s4zone"></div>
+    <div id="s4mapper" style="margin-top:14px;"></div>
+    ${manualDone ? `<div style="margin-top:12px;"><button class="btn secondary small" id="s4redo">Clear override</button> <span class="small-muted">Loaded from ${esc(STATE.beatSoFile||'')}</span></div>` : ''}
+  `;
+  stepShell(c, 4, 'DB ↔ Beat ↔ SO Mapping', 'Optional — enriches the exported report', done, status, body);
+  wireDropzone($('#s4zone'), '.xlsx,.xls,.csv', handleBeatSoFile);
+  const btn=$('#s4redo'); if(btn) btn.addEventListener('click', ()=>{ STATE.beatSoMap={}; STATE.beatSoFile=null; renderStep4(); renderStatusStrip(); });
+}
+
+async function handleBeatSoFile(file){
+  try{
+    const wb = await readWorkbookFile(file);
+    // let user pick sheet if multiple non-trivial sheets
+    const mapDiv = $('#s4mapper');
+    if(wb.SheetNames.length>1){
+      mapDiv.innerHTML = `<div class="field"><label>Choose sheet</label><select id="s4sheet">${wb.SheetNames.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select></div>
+        <button class="btn secondary small" id="s4sheetGo">Use this sheet</button>`;
+      $('#s4sheetGo').addEventListener('click', ()=> processBeatSoSheet(wb.Sheets[$('#s4sheet').value], file.name, mapDiv));
+    } else {
+      processBeatSoSheet(wb.Sheets[wb.SheetNames[0]], file.name, mapDiv);
+    }
+  }catch(err){ console.error(err); toast('Could not read file: '+err.message, 'err'); }
+}
+
+function processBeatSoSheet(ws, fileName, mapDiv){
+  const rows = sheetToRows(ws);
+  // detect repeated "code" header columns -> month-block mode
+  let headerRowIdx = -1, codeColIdxs = [];
+  for(let r=0;r<Math.min(rows.length,6);r++){
+    const hits = [];
+    rows[r].forEach((cell,ci)=>{ if(/code/i.test(String(cell||'')) ) hits.push(ci); });
+    if(hits.length>=1){ headerRowIdx=r; codeColIdxs=hits; break; }
+  }
+  if(headerRowIdx===-1){ toast('Could not find a header row with a Code column', 'err'); return; }
+  const header = rows[headerRowIdx];
+
+  if(codeColIdxs.length>1){
+    // block mode: figure block width from spacing between consecutive code columns
+    const blocks = codeColIdxs.map((startCol, bi)=>{
+      const endCol = bi+1<codeColIdxs.length ? codeColIdxs[bi+1] : header.length;
+      const nameCol = findInRange(header, startCol, endCol, /name|party/i);
+      const asmCol = findInRange(header, startCol, endCol, /asm|bd/i);
+      const soCol = findInRange(header, startCol, endCol, /tso|rso|so\b|ase/i);
+      const beatCol = findInRange(header, startCol, endCol, /beat/i);
+      return {startCol, endCol, codeCol:startCol, nameCol, asmCol, soCol, beatCol};
+    });
+    const map = {};
+    for(let r=headerRowIdx+1;r<rows.length;r++){
+      const row = rows[r];
+      let code=null, name=null, asm=null, so=null, beat=null;
+      blocks.forEach(b=>{
+        const cd = row[b.codeCol];
+        if(cd!=null && String(cd).trim()!==''){
+          code = String(cd).trim();
+          if(b.nameCol>=0 && row[b.nameCol]) name = String(row[b.nameCol]).trim();
+          if(b.asmCol>=0 && row[b.asmCol]) asm = String(row[b.asmCol]).trim();
+          if(b.soCol>=0 && row[b.soCol]) so = String(row[b.soCol]).trim();
+          if(b.beatCol>=0 && row[b.beatCol]) beat = String(row[b.beatCol]).trim();
+        }
+      });
+      if(code) map[code] = {name: name||'', asm: asm||'', so: so||'', beat: beat||''};
+    }
+    STATE.beatSoMap = map; STATE.beatSoFile = fileName; STATE.beatSoAuto = false;
+    toast(`Loaded Beat/SO mapping for ${Object.keys(map).length} DBs (${blocks.length} month-blocks detected, using latest)`, 'ok');
+    renderStep4(); renderStatusStrip();
+  } else {
+    // flat mode: use column mapper UI
+    const dataRows = rows.slice(headerRowIdx+1).filter(r=>r.some(c=>String(c).trim()!==''));
+    renderColumnMapper(mapDiv, header, dataRows, [
+      {key:'code', label:'DB Code', required:true, patterns:[/code/i]},
+      {key:'name', label:'DB Name', required:false, patterns:[/name|party/i]},
+      {key:'beat', label:'Beat', required:false, patterns:[/beat/i]},
+      {key:'so', label:'SO / ASM / ASE', required:false, patterns:[/tso|rso|so\b|ase/i]},
+      {key:'asm', label:'ASM / BD', required:false, patterns:[/asm|bd/i]},
+    ], (map)=>{
+      const out = {};
+      dataRows.forEach(r=>{
+        const code = map.code>=0 ? String(r[map.code]).trim() : '';
+        if(!code) return;
+        out[code] = {
+          name: map.name>=0 ? String(r[map.name]||'').trim() : '',
+          beat: map.beat>=0 ? String(r[map.beat]||'').trim() : '',
+          so: map.so>=0 ? String(r[map.so]||'').trim() : '',
+          asm: map.asm>=0 ? String(r[map.asm]||'').trim() : '',
+        };
+      });
+      STATE.beatSoMap = out; STATE.beatSoFile = fileName; STATE.beatSoAuto = false;
+      toast(`Loaded Beat/SO mapping for ${Object.keys(out).length} DBs`, 'ok');
+      renderStep4(); renderStatusStrip();
+    });
+  }
+}
+function findInRange(header, start, end, pattern){
+  for(let i=start;i<end;i++){ if(pattern.test(String(header[i]||''))) return i; }
+  return -1;
+}
+
+/* ===== STEP 5: UOM Conversion (optional) — KG per PC / per BAG, product-wise ===== */
+function renderStep5(){
+  const c = $('#step5');
+  const done = Object.keys(STATE.uomMap).length>0;
+  const status = done ? `${Object.keys(STATE.uomMap).length} products mapped` : 'Optional — skip if not available';
+  const body = `
+    <p class="small-muted">Upload the UOM Conversion / product-wise pack-size master — Product Code, Pack Size, and how many KG make up 1 PC and 1 BAG (e.g. Maida 1kg: 1 PC = 1 kg, 1 BAG = 30 kg). Rate Master rates always stay per KG; this lets field staff enter quantities in PC or BAG on the Rate Check screen and still get the correct total overcharge/undercharge value.</p>
+    <div id="s5zone"></div>
+    <div id="s5mapper" style="margin-top:14px;"></div>
+    ${done ? `<div style="margin-top:12px;"><button class="btn secondary small" id="s5redo">Replace file</button> <span class="small-muted">Loaded from ${esc(STATE.uomMapFile||'')}</span></div>` : ''}
+  `;
+  stepShell(c, 5, 'UOM Conversion', 'Optional — enables PC/BAG quantity entry', done, status, body);
+  if(!done) wireDropzone($('#s5zone'), '.xlsx,.xls,.csv', handleUomFile);
+  else { const btn=$('#s5redo'); if(btn) btn.addEventListener('click', ()=>{ STATE.uomMap={}; STATE.uomMapFile=null; renderStep5(); renderStatusStrip(); }); }
+}
+async function handleUomFile(file){
+  try{
+    const wb = await readWorkbookFile(file);
+    const shName = wb.SheetNames[0];
+    const rows = sheetToRows(wb.Sheets[shName]);
+    let headerIdx = findHeaderRowIndex(rows, [/product\s*code/i, /pack\s*size/i]);
+    let headers, dataRows;
+    if(headerIdx===-1){ headers = rows[0].map(()=>''); dataRows = rows.filter(r=>r.some(c=>String(c).trim()!=='')); }
+    else { headers = rows[headerIdx]; dataRows = rows.slice(headerIdx+1).filter(r=>r.some(c=>String(c).trim()!=='')); }
+    const mapDiv = $('#s5mapper');
+    renderColumnMapper(mapDiv, headers, dataRows, [
+      {key:'code', label:'Product Code', required:true, patterns:[/product\s*code/i,/\bcode\b/i]},
+      {key:'name', label:'Product Name', required:false, patterns:[/product\s*name/i,/\bname\b/i]},
+      {key:'category', label:'Category', required:false, patterns:[/category/i]},
+      {key:'packSize', label:'Pack Size', required:false, patterns:[/pack\s*size/i]},
+      {key:'kgPerPc', label:'1 PC = ? KG', required:true, patterns:[/pc\s*kg/i,/per\s*pc/i,/1\s*pc/i]},
+      {key:'kgPerBag', label:'1 BAG = ? KG', required:false, patterns:[/bag\s*kg/i,/per\s*bag/i,/1\s*bag/i]},
+    ], (map)=>{
+      const g = (r,k)=> map[k]>=0 ? String(r[map[k]]==null?'':r[map[k]]).trim() : '';
+      const out = {};
+      dataRows.forEach(r=>{
+        const code = String(r[map.code]==null?'':r[map.code]).trim();
+        if(!code || code==='undefined') return;
+        const kgPerPc = parseFloat(g(r,'kgPerPc'));
+        const kgPerBag = parseFloat(g(r,'kgPerBag'));
+        out[code] = {
+          name: g(r,'name'), category: g(r,'category'), packSize: g(r,'packSize'),
+          kgPerPc: isNaN(kgPerPc)?null:kgPerPc,
+          kgPerBag: isNaN(kgPerBag)?null:kgPerBag,
+        };
+      });
+      STATE.uomMap = out; STATE.uomMapFile = file.name;
+      toast(`Loaded UOM conversion for ${Object.keys(out).length} products`, 'ok');
+      renderStep5(); renderStatusStrip();
+    });
+  }catch(err){ console.error(err); toast('Could not read file: '+err.message, 'err'); }
+}
+/* Available quantity units for a product: KG always; PC/BAG only when the UOM master defines them. */
+function uomOptionsForProduct(productCode){
+  const opts = [{value:'KG', label:'KG', factor:1}];
+  const u = STATE.uomMap[productCode];
+  if(u){
+    if(u.kgPerPc) opts.push({value:'PC', label:`PC (${u.kgPerPc} kg)`, factor:u.kgPerPc});
+    if(u.kgPerBag) opts.push({value:'BAG', label:`BAG (${u.kgPerBag} kg)`, factor:u.kgPerBag});
+  }
+  return opts;
+}
+function qtyToKg(li){
+  if(li.qty===''||li.qty==null||isNaN(Number(li.qty))) return null;
+  const opts = uomOptionsForProduct(li.productCode);
+  const opt = opts.find(o=>o.value===(li.uom||'KG')) || opts[0];
+  return clamp2(Number(li.qty) * (opt?opt.factor:1));
+}
+/* ---------------- Rate Master view ---------------- */
+let RM_FILTERS = {location:'', category:'', effDate:'', q:''};
+
+function renderRateMaster(){
+  const view = $('#view-ratemaster');
+  const locs = Array.from(new Set(STATE.rateRows.map(r=>r.location))).sort();
+  const cats = Array.from(new Set(STATE.rateRows.map(r=>r.category))).sort();
+  const dates = Array.from(new Set(STATE.rateRows.map(r=>r.effDateStr))).sort((a,b)=>parseDMY(a)-parseDMY(b));
+
+  view.innerHTML = `
+    <div class="view-head">
+      <div><h2>Rate Master</h2><p class="sub">Auto-arranged by location and effective date from the rate files you uploaded.</p></div>
+    </div>
+    <div class="filterbar">
+      <div class="field"><label>Location</label><select id="rmLoc"><option value="">All</option>${locs.map(l=>`<option ${RM_FILTERS.location===l?'selected':''}>${esc(l)}</option>`).join('')}</select></div>
+      <div class="field"><label>Category</label><select id="rmCat"><option value="">All</option>${cats.map(c=>`<option ${RM_FILTERS.category===c?'selected':''}>${esc(c)}</option>`).join('')}</select></div>
+      <div class="field"><label>Effective Date</label><select id="rmDate"><option value="">All</option>${dates.map(d=>`<option ${RM_FILTERS.effDate===d?'selected':''}>${esc(d)}</option>`).join('')}</select></div>
+      <div class="field grow"><label>Search product / code</label><input type="text" id="rmSearch" placeholder="Type product name or code…" value="${esc(RM_FILTERS.q)}"></div>
+    </div>
+    <div id="rmTableWrap"></div>
+  `;
+  $('#rmLoc').addEventListener('change', e=>{ RM_FILTERS.location=e.target.value; renderRMTable(); });
+  $('#rmCat').addEventListener('change', e=>{ RM_FILTERS.category=e.target.value; renderRMTable(); });
+  $('#rmDate').addEventListener('change', e=>{ RM_FILTERS.effDate=e.target.value; renderRMTable(); });
+  $('#rmSearch').addEventListener('input', e=>{ RM_FILTERS.q=e.target.value; renderRMTable(); });
+  renderRMTable();
+}
+function renderRMTable(){
+  const wrap = $('#rmTableWrap');
+  let rows = STATE.rateRows;
+  if(RM_FILTERS.location) rows = rows.filter(r=>r.location===RM_FILTERS.location);
+  if(RM_FILTERS.category) rows = rows.filter(r=>r.category===RM_FILTERS.category);
+  if(RM_FILTERS.effDate) rows = rows.filter(r=>r.effDateStr===RM_FILTERS.effDate);
+  if(RM_FILTERS.q){
+    const q = RM_FILTERS.q.toLowerCase();
+    rows = rows.filter(r=> r.productName.toLowerCase().includes(q) || r.productCode.includes(q));
+  }
+  rows = rows.slice().sort((a,b)=> a.location.localeCompare(b.location) || a.category.localeCompare(b.category) || a.productName.localeCompare(b.productName));
+  if(!rows.length){ wrap.innerHTML = emptyState('📋','No rate rows match','Try clearing filters, or upload rate files in Data Setup → Step 3.'); return; }
+  wrap.innerHTML = `<p class="small-muted" style="margin-bottom:8px;">Product names are auto-extracted from PDF and occasionally need a fix on tightly-packed rows (common in Spices/Sattu) — click a name or rate to edit it in place. Product Code and Rate are what the overcharge check actually relies on.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Location</th><th>Category</th><th>Product</th><th>SKU</th><th>Code</th><th class="num">GST%</th><th class="num">Rate (incl. GST)</th><th>Effective From</th></tr></thead>
+    <tbody>${rows.slice(0,600).map((r)=>{
+      const rid = r._rid || (r._rid = uid('rr'));
+      return `<tr>
+      <td>${esc(r.location)}</td><td>${esc(r.category)}</td>
+      <td class="wrap" contenteditable="true" spellcheck="false" data-edit-name="${rid}">${esc(r.productName)}</td>
+      <td>${esc(r.sku)}</td>
+      <td style="font-family:var(--font-mono);">${esc(r.productCode)}</td><td class="num">${r.gstPct}%</td>
+      <td class="num" contenteditable="true" spellcheck="false" data-edit-rate="${rid}">${fmtMoney(r.rate)}</td>
+      <td style="font-family:var(--font-mono);">${esc(r.effDateStr)}</td>
+    </tr>`;}).join('')}</tbody>
+  </table></div>${rows.length>600?`<p class="small-muted" style="margin-top:8px;">Showing first 600 of ${rows.length} rows — narrow with filters to see more precisely.</p>`:''}`;
+
+  $all('[data-edit-name]', wrap).forEach(cell=>{
+    cell.addEventListener('blur', ()=>{
+      const rr = STATE.rateRows.find(r=>r._rid===cell.dataset.editName);
+      if(rr){ rr.productName = cell.textContent.trim(); }
+    });
+    cell.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); cell.blur(); } });
+  });
+  $all('[data-edit-rate]', wrap).forEach(cell=>{
+    cell.addEventListener('blur', ()=>{
+      const rr = STATE.rateRows.find(r=>r._rid===cell.dataset.editRate);
+      const v = parseFloat(String(cell.textContent).replace(/[^0-9.]/g,''));
+      if(rr && !isNaN(v)){ rr.rate = v; cell.textContent = fmtMoney(v); }
+      else if(rr){ cell.textContent = fmtMoney(rr.rate); }
+    });
+    cell.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); cell.blur(); } });
+  });
+}
+function emptyState(icon,title,body){
+  return `<div class="empty-state"><div class="em-icon">${icon}</div><h3>${esc(title)}</h3><p>${esc(body)}</p></div>`;
+}
+
+/* ---------------- Rate Check view ---------------- */
+function freshBillForm(){
+  return {
+    dbCode:'', dbName:'', pg:'', location:'', beatCode:'', beatName:'', beats:[], so:'', asm:'', rsm:'', active:'',
+    billType:'Tax Invoice', retailer:'', billNo:'', billDateISO: todayISO(), submissionISO: todayISO(), collectedBy:'',
+    lineItems: [], // {productCode, productName, sku, category, companyRate, gstPct, invoiceRate, qty}
+    billCopy: null, // {fileName, ext, dataUrl} — attached bill photo/PDF, optional
+  };
+}
+
+function renderRateCheck(){
+  if(!STATE.billForm) STATE.billForm = freshBillForm();
+  const view = $('#view-ratecheck');
+  const f = STATE.billForm;
+  const resolvedLocWarning = f.dbCode && !f.location;
+
+  view.innerHTML = `
+    <div class="view-head">
+      <div><h2>Rate Check</h2><p class="sub">Enter what's on the market invoice; the company rate is pulled automatically for the bill date.</p></div>
+    </div>
+
+    <div class="section-title">DB details</div>
+    <div class="inline-fields">
+      <div class="field combo">
+        <label>DB Code <span class="colmap-req">*</span></label>
+        <input type="text" id="rcDbCode" placeholder="Search DB code or name…" value="${esc(f.dbCode)}" autocomplete="off">
+        <div id="rcDbResults" class="combo-host"></div>
+      </div>
+      <div class="field readonly"><label>DB Name</label><input type="text" value="${esc(f.dbName)}" readonly></div>
+      <div class="field readonly"><label>Price Group</label><input type="text" value="${esc(f.pg)}" readonly></div>
+      <div class="field readonly"><label>Location</label><input type="text" value="${esc(f.location)}" readonly></div>
+      ${f.beats && f.beats.length>1 ? `
+      <div class="field">
+        <label>Beat <span class="colmap-req">*</span></label>
+        <select id="rcBeatSelect">
+          ${f.beats.map((b,i)=>`<option value="${i}" ${b.code===f.beatCode&&b.name===f.beatName?'selected':''}>${esc(b.code)}${b.name?(' — '+esc(b.name)):''}</option>`).join('')}
+        </select>
+      </div>` : `
+      <div class="field readonly"><label>Beat Code</label><input type="text" value="${esc(f.beatCode)}" readonly></div>
+      <div class="field readonly"><label>Beat Name</label><input type="text" value="${esc(f.beatName)}" readonly></div>`}
+      <div class="field readonly"><label>SO Name</label><input type="text" value="${esc(f.so)}" readonly></div>
+      <div class="field readonly"><label>ASM Name</label><input type="text" value="${esc(f.asm)}" readonly></div>
+      <div class="field readonly"><label>RSM Name</label><input type="text" value="${esc(f.rsm)}" readonly></div>
+      <div class="field readonly"><label>DB Status</label><input type="text" value="${esc(f.active||'—')}" readonly style="${isInactiveStatus(f.active)?'color:var(--danger);font-weight:700;':''}"></div>
+    </div>
+    ${f.beats && f.beats.length>1 ? `<p class="small-muted">This distributor covers ${f.beats.length} beats — pick the one this bill's retailer belongs to.</p>` : ''}
+    ${resolvedLocWarning ? `<p class="small-muted" style="color:var(--danger);">This DB's Price Group (${esc(f.pg)}) has no matching location in your Price Group Mapping — add it in Data Setup → Step 2 before checking rates.</p>` : ''}
+    ${isInactiveStatus(f.active) ? `<p class="small-muted" style="color:var(--danger);">⚠ This DB is marked Inactive in the DB Master.</p>` : ''}
+
+    <div class="section-title">Bill details</div>
+    <div class="field">
+      <label>Bill Type</label>
+      <div class="pill-group" id="rcBillType">
+        ${['Tax Invoice','Hand Bill','Other'].map(t=>`<div class="pill-opt ${f.billType===t?'sel':''}" data-billtype="${esc(t)}">${esc(t)}</div>`).join('')}
+      </div>
+    </div>
+    <div class="inline-fields">
+      <div class="field"><label>Retailer / Outlet Name <span class="colmap-req">*</span></label><input type="text" id="rcRetailer" value="${esc(f.retailer)}"></div>
+      <div class="field"><label>Bill Number</label><input type="text" id="rcBillNo" value="${esc(f.billNo)}"></div>
+      <div class="field"><label>Bill Date <span class="colmap-req">*</span></label><input type="date" id="rcBillDate" value="${f.billDateISO}"></div>
+      <div class="field"><label>Collected By</label><input type="text" id="rcCollectedBy" value="${esc(f.collectedBy)}"></div>
+      <div class="field"><label>Submission Date</label><input type="date" id="rcSubDate" value="${f.submissionISO}"></div>
+    </div>
+    <div class="field" style="max-width:420px;">
+      <label>Bill Copy (photo / PDF) <span class="small-muted" style="text-transform:none;font-weight:400;">— optional, becomes a link in the exported report</span></label>
+      ${f.billCopy ? `
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--edge);border-radius:var(--radius-sm);background:var(--panel-2);">
+          <span class="tag">📎 ${esc(f.billCopy.fileName)}</span>
+          <button type="button" class="icon-btn" id="rcBillCopyClear" title="Remove attachment">✕</button>
+        </div>` : `
+        <div class="dropzone" id="rcBillCopyZone" style="padding:14px;">
+          <label class="dz-btn" style="margin-top:0;">Attach bill copy<input type="file" id="rcBillCopyInput" accept="image/*,.pdf"></label>
+          <div class="dz-hint">Photo or scan of this invoice/hand bill</div>
+        </div>`}
+    </div>
+
+    <div class="section-title">Products on this bill</div>
+    <div id="rcLineItems"></div>
+    <button class="btn secondary small" id="rcAddLine" style="margin-top:10px;">+ Add product</button>
+
+    <div class="divider"></div>
+    <div style="display:flex;gap:12px;align-items:center;">
+      <button class="btn accent" id="rcSaveBill">Save bill to report</button>
+      <button class="btn secondary" id="rcResetBill">Clear form</button>
+      <span class="small-muted" id="rcSaveErr" style="color:var(--danger);"></span>
+    </div>
+  `;
+
+  wireDbCombo();
+  const beatSel = $('#rcBeatSelect');
+  if(beatSel) beatSel.addEventListener('change', e=>{
+    const b = f.beats[Number(e.target.value)];
+    if(b){ f.beatCode = b.code; f.beatName = b.name; }
+  });
+  $all('#rcBillType .pill-opt').forEach(p=>p.addEventListener('click', ()=>{ f.billType=p.dataset.billtype; renderRateCheck(); }));
+  $('#rcRetailer').addEventListener('input', e=> f.retailer=e.target.value);
+  $('#rcBillNo').addEventListener('input', e=> f.billNo=e.target.value);
+  $('#rcBillDate').addEventListener('change', e=>{ f.billDateISO=e.target.value; recomputeAllLineRates(); renderLineItems(); });
+  $('#rcCollectedBy').addEventListener('input', e=> f.collectedBy=e.target.value);
+  $('#rcSubDate').addEventListener('change', e=> f.submissionISO=e.target.value);
+  const bcInput = $('#rcBillCopyInput');
+  if(bcInput) bcInput.addEventListener('change', e=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    if(file.size > 8*1024*1024){ toast('Bill copy is larger than 8MB — please attach a smaller file', 'err'); return; }
+    const reader = new FileReader();
+    reader.onload = ev=>{
+      const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
+      f.billCopy = { fileName: file.name, ext, dataUrl: ev.target.result };
+      renderRateCheck();
+    };
+    reader.onerror = ()=> toast('Could not read that file', 'err');
+    reader.readAsDataURL(file);
+  });
+  const bcClear = $('#rcBillCopyClear');
+  if(bcClear) bcClear.addEventListener('click', ()=>{ f.billCopy = null; renderRateCheck(); });
+  $('#rcAddLine').addEventListener('click', ()=>{ f.lineItems.push(emptyLineItem()); renderLineItems(); });
+  $('#rcSaveBill').addEventListener('click', saveBill);
+  $('#rcResetBill').addEventListener('click', ()=>{ STATE.billForm = freshBillForm(); renderRateCheck(); });
+
+  renderLineItems();
+  if(f.lineItems.length===0){ f.lineItems.push(emptyLineItem()); renderLineItems(); }
+}
+
+function emptyLineItem(){ return {productCode:'', productName:'', sku:'', category:'', companyRate:null, gstPct:null, invoiceRate:'', qty:'', uom:'KG'}; }
+
+function wireDbCombo(){
+  const input = $('#rcDbCode');
+  const results = $('#rcDbResults');
+  function showResults(q){
+    if(!q){ results.innerHTML=''; return; }
+    const ql = q.toLowerCase();
+    const hits = STATE.dbMaster.filter(d=> d.code.toLowerCase().includes(ql) || d.name.toLowerCase().includes(ql)).slice(0,25);
+    if(!hits.length){ results.innerHTML = `<div class="combo-results"><div class="combo-empty">No DB matches "${esc(q)}"</div></div>`; return; }
+    results.innerHTML = `<div class="combo-results">${hits.map(h=>`<div class="combo-item" data-pick="${esc(h.code)}"><div class="ci-name">${esc(h.name)} ${isInactiveStatus(h.active)?'<span class="tag" style="background:var(--danger-soft);color:var(--danger);">Inactive</span>':''}</div><div class="ci-meta">Code ${esc(h.code)} · PG ${esc(h.pg)}${h.beats&&h.beats.length?(' · '+h.beats.length+' beat'+(h.beats.length>1?'s':'')):''}</div></div>`).join('')}</div>`;
+    $all('[data-pick]', results).forEach(item=>item.addEventListener('click', ()=>{
+      pickDb(item.dataset.pick); results.innerHTML='';
+    }));
+  }
+  input.addEventListener('input', e=> showResults(e.target.value));
+  input.addEventListener('focus', e=> showResults(e.target.value));
+}
+function pickDb(code){
+  const f = STATE.billForm;
+  const db = STATE.dbMaster.find(d=>d.code===code);
+  if(!db) return;
+  f.dbCode = db.code; f.dbName = db.name; f.pg = db.pg;
+  f.location = locationForPG(db.pg) || '';
+  f.active = db.active || '';
+  const override = STATE.beatSoMap[db.code];
+  if(override){
+    f.so = override.so||''; f.asm = override.asm||''; f.rsm = override.rsm||'';
+    f.beats = (override.beat||override.beatName) ? [{code:override.beat||'', name:override.beatName||''}] : [];
+  } else {
+    f.so = db.so||''; f.asm = db.asm||''; f.rsm = db.rsm||'';
+    f.beats = db.beats || [];
+  }
+  const defaultBeat = f.beats[0] || {code:'', name:''};
+  f.beatCode = defaultBeat.code; f.beatName = defaultBeat.name;
+  recomputeAllLineRates();
+  renderRateCheck();
+}
+function isInactiveStatus(v){ return /inactive/i.test(String(v||'')); }
+function dbStatusBadge(v){
+  if(!v) return '<span class="small-muted">—</span>';
+  return isInactiveStatus(v) ? `<span class="badge under">Inactive</span>` : `<span class="badge match">Active</span>`;
+}
+
+function applicableRateRow(productCode){
+  const f = STATE.billForm;
+  if(!f.location || !f.billDateISO) return null;
+  const billDate = isoToDMYDate(f.billDateISO);
+  const candidates = STATE.rateRows.filter(r=> r.location===f.location && r.productCode===productCode && r.effDate<=billDate);
+  if(!candidates.length) return null;
+  candidates.sort((a,b)=> b.effDate - a.effDate);
+  return candidates[0];
+}
+function recomputeAllLineRates(){
+  const f = STATE.billForm;
+  f.lineItems.forEach(li=>{
+    if(!li.productCode) return;
+    const rr = applicableRateRow(li.productCode);
+    li.companyRate = rr ? rr.rate : null;
+    li.gstPct = rr ? rr.gstPct : null;
+    li.category = rr ? rr.category : li.category;
+  });
+}
+
+function renderLineItems(){
+  const f = STATE.billForm;
+  const div = $('#rcLineItems');
+  div.innerHTML = `
+    <table class="li-table">
+      <thead><tr><th style="width:26%;">Product</th><th>Category</th><th class="num">Company Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th class="num">Invoice Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th>Qty</th><th class="num">Diff<br><span class="small-muted" style="text-transform:none;">₹/kg</span></th><th>Status</th><th class="num">Total ₹</th><th></th></tr></thead>
+      <tbody>
+        ${f.lineItems.map((li,i)=>renderLineRow(li,i)).join('')}
+      </tbody>
+    </table>
+  `;
+  f.lineItems.forEach((li,i)=>{
+    const searchInput = $(`#liSearch${i}`);
+    const resultsDiv = $(`#liResults${i}`);
+    if(!searchInput) return;
+    searchInput.addEventListener('input', e=> showProductResults(i, e.target.value));
+    searchInput.addEventListener('focus', e=> showProductResults(i, e.target.value));
+    const invRate = $(`#liInvRate${i}`);
+    if(invRate) invRate.addEventListener('input', e=>{ li.invoiceRate = e.target.value; updateLineDiff(i); });
+    const qty = $(`#liQty${i}`);
+    if(qty) qty.addEventListener('input', e=>{ li.qty = e.target.value; updateLineDiff(i); });
+    const uomSel = $(`#liUom${i}`);
+    if(uomSel) uomSel.addEventListener('change', e=>{ li.uom = e.target.value; updateLineDiff(i); });
+    const rm = $(`#liRemove${i}`);
+    if(rm) rm.addEventListener('click', ()=>{ f.lineItems.splice(i,1); renderLineItems(); });
+  });
+}
+function renderLineRow(li,i){
+  const diff = lineDiff(li);
+  const status = lineStatus(li);
+  const qtyKg = qtyToKg(li);
+  const total = lineTotal(li);
+  const uomOpts = uomOptionsForProduct(li.productCode);
+  const totalColor = total==null?'inherit':(total>0.004?'var(--danger)':(total<-0.004?'var(--warn)':'var(--success)'));
+  return `<tr>
+    <td class="combo">
+      <input type="text" class="prodsearch" id="liSearch${i}" placeholder="Search product name or code…" value="${esc(li.productName ? li.productName+(li.sku?(' — '+li.sku):'') : '')}">
+      <div id="liResults${i}" class="combo-host"></div>
+    </td>
+    <td>${esc(li.category||'—')}</td>
+    <td class="num">${li.companyRate!=null?fmtMoney(li.companyRate):'—'}</td>
+    <td><input type="number" step="0.01" id="liInvRate${i}" value="${esc(li.invoiceRate)}" placeholder="0.00" ${!li.productCode?'disabled':''}></td>
+    <td>
+      <div style="display:flex;gap:4px;">
+        <input type="number" step="0.01" id="liQty${i}" value="${esc(li.qty)}" placeholder="qty" style="width:64px;">
+        ${uomOpts.length>1 ? `<select id="liUom${i}" style="width:auto;">${uomOpts.map(o=>`<option value="${esc(o.value)}" ${(li.uom||'KG')===o.value?'selected':''}>${esc(o.value)}</option>`).join('')}</select>` : `<span class="small-muted" style="align-self:center;">kg</span>`}
+      </div>
+      <div class="small-muted" id="liQtyKgHint${i}">${(qtyKg!=null && (li.uom||'KG')!=='KG') ? ('= '+qtyKg+' kg') : ''}</div>
+    </td>
+    <td class="num" id="liDiff${i}" style="font-weight:700;color:${diff==null?'inherit':(diff>0.004?'var(--danger)':(diff<-0.004?'var(--warn)':'var(--success)'))}">${diff==null?'—':(diff>0?'+':'')+clamp2(diff)}</td>
+    <td id="liStatus${i}">${statusBadge(status)}</td>
+    <td class="num" id="liTotal${i}" style="font-weight:700;color:${totalColor};">${total==null?'—':(total>0?'+':(total<0?'-':''))+'₹'+fmtMoney(Math.abs(total))}</td>
+    <td><button class="icon-btn" id="liRemove${i}" title="Remove">✕</button></td>
+  </tr>`;
+}
+function lineDiff(li){
+  if(li.companyRate==null || li.invoiceRate===''||li.invoiceRate==null) return null;
+  return clamp2(Number(li.invoiceRate) - Number(li.companyRate));
+}
+function lineStatus(li){
+  const d = lineDiff(li);
+  if(d==null) return null;
+  if(d>0.004) return 'over'; if(d<-0.004) return 'under'; return 'match';
+}
+function lineTotal(li){
+  const d = lineDiff(li);
+  const qkg = qtyToKg(li);
+  if(d==null || qkg==null) return null;
+  return clamp2(d*qkg);
+}
+function statusBadge(status){
+  if(!status) return '<span class="small-muted">—</span>';
+  if(status==='over') return '<span class="badge over">Overcharge</span>';
+  if(status==='under') return '<span class="badge under">Undercharge</span>';
+  return '<span class="badge match">Match</span>';
+}
+function updateLineDiff(i){
+  const f = STATE.billForm;
+  // re-render just this row's computed cells without losing focus on whichever input the user is typing in.
+  const li = f.lineItems[i];
+  const d = lineDiff(li); const status = lineStatus(li);
+  const qtyKg = qtyToKg(li); const total = lineTotal(li);
+  const diffCell = $(`#liDiff${i}`);
+  const statusCell = $(`#liStatus${i}`);
+  const totalCell = $(`#liTotal${i}`);
+  const hintEl = $(`#liQtyKgHint${i}`);
+  if(diffCell){
+    diffCell.textContent = d==null?'—':(d>0?'+':'')+clamp2(d);
+    diffCell.style.color = d==null?'inherit':(d>0.004?'var(--danger)':(d<-0.004?'var(--warn)':'var(--success)'));
+  }
+  if(statusCell) statusCell.innerHTML = statusBadge(status);
+  if(totalCell){
+    totalCell.textContent = total==null?'—':(total>0?'+':(total<0?'-':''))+'₹'+fmtMoney(Math.abs(total));
+    totalCell.style.color = total==null?'inherit':(total>0.004?'var(--danger)':(total<-0.004?'var(--warn)':'var(--success)'));
+  }
+  if(hintEl) hintEl.textContent = (qtyKg!=null && (li.uom||'KG')!=='KG') ? ('= '+qtyKg+' kg') : '';
+}
+
+
+function showProductResults(i, q){
+  const f = STATE.billForm;
+  const resultsDiv = $(`#liResults${i}`);
+  if(!f.location){ resultsDiv.innerHTML = `<div class="combo-results"><div class="combo-empty">Pick a DB first so we know the location</div></div>`; return; }
+  if(!q){ resultsDiv.innerHTML=''; return; }
+  const billDate = isoToDMYDate(f.billDateISO);
+  const ql = q.toLowerCase();
+  let pool = STATE.rateRows.filter(r=> r.location===f.location && r.effDate<=billDate);
+  // keep only the latest effective row per product code
+  const latestByCode = {};
+  pool.forEach(r=>{ if(!latestByCode[r.productCode] || r.effDate>latestByCode[r.productCode].effDate) latestByCode[r.productCode]=r; });
+  let hits = Object.values(latestByCode).filter(r=> r.productName.toLowerCase().includes(ql) || r.productCode.includes(q));
+  hits = hits.slice(0,25);
+  if(!hits.length){ resultsDiv.innerHTML = `<div class="combo-results"><div class="combo-empty">No product matches "${esc(q)}" for ${esc(f.location)} on this bill date</div></div>`; return; }
+  resultsDiv.innerHTML = `<div class="combo-results">${hits.map(h=>{
+    const u = STATE.uomMap[h.productCode];
+    const packInfo = u ? ` · Pack ${esc(u.packSize||(u.kgPerPc+' kg'))}${u.kgPerBag?(' · 1 BAG='+u.kgPerBag+'kg'):''}` : '';
+    return `<div class="combo-item" data-pickprod="${esc(h.productCode)}"><div class="ci-name">${esc(h.productName)} <span class="tag">${esc(h.sku)}</span></div><div class="ci-meta">Code ${esc(h.productCode)} · ₹${fmtMoney(h.rate)}/kg incl. GST${h.gstPct}% · ${esc(h.category)}${packInfo}</div></div>`;
+  }).join('')}</div>`;
+  $all('[data-pickprod]', resultsDiv).forEach(item=>item.addEventListener('click', ()=>{
+    const code = item.dataset.pickprod;
+    const rr = latestByCode[code];
+    const li = f.lineItems[i];
+    li.productCode = rr.productCode; li.productName = rr.productName; li.sku = rr.sku; li.category = rr.category;
+    li.companyRate = rr.rate; li.gstPct = rr.gstPct; li.uom = 'KG';
+    resultsDiv.innerHTML = '';
+    renderLineItems();
+  }));
+}
+
+function saveBill(){
+  const f = STATE.billForm;
+  const errEl = $('#rcSaveErr');
+  errEl.textContent = '';
+  if(!f.dbCode){ errEl.textContent = 'Pick a DB code first.'; return; }
+  if(!f.location){ errEl.textContent = "This DB's location could not be resolved — fix the Price Group Mapping."; return; }
+  if(!f.retailer.trim()){ errEl.textContent = 'Retailer / outlet name is required.'; return; }
+  if(!f.billDateISO){ errEl.textContent = 'Bill date is required.'; return; }
+  const validLines = f.lineItems.filter(li=> li.productCode && li.invoiceRate!=='' && li.invoiceRate!=null);
+  if(!validLines.length){ errEl.textContent = 'Add at least one product with an invoice rate.'; return; }
+
+  const billUid = uid('bill');
+  const billDate = isoToDMYDate(f.billDateISO);
+  const subDate = isoToDMYDate(f.submissionISO);
+  if(f.billCopy){
+    const savedName = `Bill_${billUid.replace('bill_','')}.${f.billCopy.ext.replace(/[^a-z0-9]/gi,'')||'jpg'}`;
+    STATE.billFiles[billUid] = { fileName: f.billCopy.fileName, ext: f.billCopy.ext, dataUrl: f.billCopy.dataUrl, savedName };
+  }
+  validLines.forEach(li=>{
+    const diff = lineDiff(li);
+    const status = lineStatus(li);
+    const qty = li.qty!=='' && li.qty!=null ? Number(li.qty) : null;
+    const uom = li.uom || 'KG';
+    const qtyKg = qtyToKg(li);
+    const chargeAmt = qtyKg!=null ? clamp2(diff*qtyKg) : diff;
+    STATE.bills.push({
+      sl: BILL_SEQ++, billUid,
+      dbCode: f.dbCode, dbName: f.dbName, pg: f.pg, location: f.location,
+      beatCode: f.beatCode, beatName: f.beatName, so: f.so, asm: f.asm, rsm: f.rsm, dbActive: f.active,
+      billType: f.billType, retailer: f.retailer, billNo: f.billNo, billDateStr: fmtDMY(billDate),
+      productName: li.productName, productCode: li.productCode, sku: li.sku, category: li.category,
+      companyRate: li.companyRate, invoiceRate: Number(li.invoiceRate), gstPct: li.gstPct,
+      diff, status, qty, uom, qtyKg, chargeAmt,
+      overchargeAmt: status==='over' ? chargeAmt : 0,
+      underchargeAmt: status==='under' ? clamp2(Math.abs(chargeAmt)) : 0,
+      collectedBy: f.collectedBy, submissionStr: fmtDMY(subDate),
     });
   });
+  toast(`Saved bill with ${validLines.length} product line(s)`, 'ok');
+  const keepHeader = { ...f, lineItems: [] };
+  keepHeader.retailer=''; keepHeader.billNo=''; keepHeader.lineItems=[emptyLineItem()]; keepHeader.billCopy=null;
+  STATE.billForm = keepHeader;
+  renderRateCheck();
+  renderStatusStrip();
 }
-function escapeHtml(s){
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
+/* ---------------- Reports view ---------------- */
+let REP_FILTERS = {location:'', db:'', billType:'', status:'', from:'', to:'', q:''};
 
-// clear all
-document.getElementById('clearBtn').addEventListener('click', ()=>{
-  if(entries.length === 0) return;
-  if(!confirm('Delete all logged entries? This cannot be undone.')) return;
-  entries = [];
-  persistEntries();
-  renderLog();
-});
+function renderReports(){
+  const view = $('#view-reports');
+  const locs = Array.from(new Set(STATE.bills.map(b=>b.location))).sort();
+  const dbs = Array.from(new Set(STATE.bills.map(b=>b.dbName))).sort();
 
-// export to excel
-document.getElementById('exportBtn').addEventListener('click', ()=>{
-  if(entries.length === 0){ showToast('No entries to export'); return; }
-  const rows = entries.map(en=>{
-    const d = new Date(en.timestamp);
-    const methodLabel = en.method === 'photo' ? 'Photo-calibrated' : (en.method === 'ar' ? 'AR Ruler' : 'Manual');
-    return {
-      'Site / Location Label': en.site,
-      'Width (ft)': en.width,
-      'Height (ft)': en.height,
-      'Area (sq.ft)': Number(en.area.toFixed(2)),
-      'Method': methodLabel,
-      'Notes': en.notes,
-      'Latitude': en.lat,
-      'Longitude': en.lng,
-      'GPS Accuracy (m)': en.accuracy ? Math.round(en.accuracy) : '',
-      'Date': d.toLocaleDateString(),
-      'Time': d.toLocaleTimeString(),
-      'Maps Link': 'https://maps.google.com/?q=' + en.lat + ',' + en.lng
-    };
+  view.innerHTML = `
+    <div class="view-head">
+      <div><h2>Reports</h2><p class="sub">Every product line checked in Rate Check, ready to filter and export.</p></div>
+      <button class="btn accent" id="repExport">⬇ Export Excel (Pro format)</button>
+    </div>
+    <div class="filterbar">
+      <div class="field"><label>Location</label><select id="repLoc"><option value="">All</option>${locs.map(l=>`<option ${REP_FILTERS.location===l?'selected':''}>${esc(l)}</option>`).join('')}</select></div>
+      <div class="field"><label>DB</label><select id="repDb"><option value="">All</option>${dbs.map(d=>`<option ${REP_FILTERS.db===d?'selected':''}>${esc(d)}</option>`).join('')}</select></div>
+      <div class="field"><label>Bill Type</label><select id="repBillType"><option value="">All</option>${['Tax Invoice','Hand Bill','Other'].map(t=>`<option ${REP_FILTERS.billType===t?'selected':''}>${esc(t)}</option>`).join('')}</select></div>
+      <div class="field"><label>Status</label><select id="repStatus">
+        <option value="">All</option>
+        <option value="over" ${REP_FILTERS.status==='over'?'selected':''}>Overcharge</option>
+        <option value="under" ${REP_FILTERS.status==='under'?'selected':''}>Undercharge</option>
+        <option value="match" ${REP_FILTERS.status==='match'?'selected':''}>Match</option>
+      </select></div>
+      <div class="field"><label>Bill Date From</label><input type="date" id="repFrom" value="${REP_FILTERS.from}"></div>
+      <div class="field"><label>Bill Date To</label><input type="date" id="repTo" value="${REP_FILTERS.to}"></div>
+      <div class="field grow"><label>Search</label><input type="text" id="repQ" placeholder="Retailer, bill no, product…" value="${esc(REP_FILTERS.q)}"></div>
+    </div>
+    <div id="repStats"></div>
+    <div id="repTableWrap"></div>
+  `;
+  $('#repExport').addEventListener('click', exportExcelPro);
+  ['repLoc','repDb','repBillType','repStatus','repFrom','repTo','repQ'].forEach(id=>{
+    $('#'+id).addEventListener(id==='repQ'?'input':'change', ()=>{
+      REP_FILTERS = {
+        location:$('#repLoc').value, db:$('#repDb').value, billType:$('#repBillType').value, status:$('#repStatus').value,
+        from:$('#repFrom').value, to:$('#repTo').value, q:$('#repQ').value,
+      };
+      renderReportTable();
+    });
   });
-  const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [{wch:26},{wch:10},{wch:10},{wch:12},{wch:16},{wch:30},{wch:12},{wch:12},{wch:14},{wch:12},{wch:10},{wch:36}];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Measurements');
-  XLSX.writeFile(wb, 'wall-hoarding-measurements.xlsx');
-  showToast('Excel file downloaded');
+  renderReportTable();
+}
+
+function filteredBills(){
+  let rows = STATE.bills;
+  if(REP_FILTERS.location) rows = rows.filter(b=>b.location===REP_FILTERS.location);
+  if(REP_FILTERS.db) rows = rows.filter(b=>b.dbName===REP_FILTERS.db);
+  if(REP_FILTERS.billType) rows = rows.filter(b=>b.billType===REP_FILTERS.billType);
+  if(REP_FILTERS.status) rows = rows.filter(b=>b.status===REP_FILTERS.status);
+  if(REP_FILTERS.from){ const f=isoToDMYDate(REP_FILTERS.from); rows = rows.filter(b=>parseDMY(b.billDateStr)>=f); }
+  if(REP_FILTERS.to){ const t=isoToDMYDate(REP_FILTERS.to); rows = rows.filter(b=>parseDMY(b.billDateStr)<=t); }
+  if(REP_FILTERS.q){
+    const q = REP_FILTERS.q.toLowerCase();
+    rows = rows.filter(b=> (b.retailer||'').toLowerCase().includes(q) || (b.billNo||'').toLowerCase().includes(q) || (b.productName||'').toLowerCase().includes(q) || (b.dbName||'').toLowerCase().includes(q));
+  }
+  return rows;
+}
+
+function qtyDisplay(b){
+  if(b.qty==null) return '—';
+  if((b.uom||'KG')==='KG') return `${b.qty} kg`;
+  return `${b.qty} ${b.uom}${b.qtyKg!=null?` (${b.qtyKg} kg)`:''}`;
+}
+function billCopyCell(b){
+  const bf = STATE.billFiles[b.billUid];
+  if(!bf) return '<span class="small-muted">—</span>';
+  return `<a href="#" class="bill-copy-link" data-view-bill="${esc(b.billUid)}" style="color:var(--cyan);font-weight:600;text-decoration:underline;">📎 View</a>`;
+}
+function renderReportTable(){
+  const rows = filteredBills();
+  const statsDiv = $('#repStats');
+  const overRows = rows.filter(b=>b.status==='over');
+  const underRows = rows.filter(b=>b.status==='under');
+  const overAmt = overRows.reduce((s,b)=>s+(b.overchargeAmt||0),0);
+  const underAmt = underRows.reduce((s,b)=>s+(b.underchargeAmt||0),0);
+  const matchCount = rows.filter(b=>b.status==='match').length;
+  statsDiv.innerHTML = `<div class="grid-4" style="margin-bottom:18px;">
+    <div class="stat-card"><div class="stat-label">Lines shown</div><div class="stat-value" id="cuLinesShown">0</div></div>
+    <div class="stat-card danger"><div class="stat-label">Overcharge · ₹${fmtMoney(overAmt)}</div><div class="stat-value" id="cuOverLines">0</div><div class="stat-note">lines overcharged</div></div>
+    <div class="stat-card warn"><div class="stat-label">Undercharge · ₹${fmtMoney(underAmt)}</div><div class="stat-value" id="cuUnderLines">0</div><div class="stat-note">lines undercharged</div></div>
+    <div class="stat-card success"><div class="stat-label">Matched lines</div><div class="stat-value" id="cuMatchLines">0</div></div>
+  </div>`;
+  countUp($('#cuLinesShown'), rows.length);
+  countUp($('#cuOverLines'), overRows.length);
+  countUp($('#cuUnderLines'), underRows.length);
+  countUp($('#cuMatchLines'), matchCount);
+  const wrap = $('#repTableWrap');
+  if(!rows.length){ wrap.innerHTML = emptyState('🧾','No bills checked yet','Run a check in the Rate Check tab, or clear filters.'); return; }
+  wrap.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr>
+      <th>SL</th><th>DB Code</th><th>DB Name</th><th>Location</th><th>Beat Code</th><th>Beat Name</th>
+      <th>SO Name</th><th>ASM Name</th><th>RSM Name</th><th>DB Status</th>
+      <th>Retailer</th><th>Bill Type</th><th>Bill No</th><th>Bill Date</th>
+      <th>Product</th><th>Code</th><th class="num">Company Rate<br><span style="text-transform:none;">₹/kg</span></th><th class="num">Invoice Rate<br><span style="text-transform:none;">₹/kg</span></th><th class="num">Difference<br><span style="text-transform:none;">₹/kg</span></th>
+      <th>Quantity</th>
+      <th>Status</th><th class="num">Overcharge Amt</th><th class="num">Undercharge Amt</th>
+      <th>Bill Copy</th><th>Collected By</th><th>Submitted</th><th></th>
+    </tr></thead>
+    <tbody>${rows.map((b,idx)=>`<tr class="${b.status==='over'?'row-over':''}">
+      <td>${b.sl}</td><td style="font-family:var(--font-mono);">${esc(b.dbCode)}</td><td class="wrap">${esc(b.dbName)}</td><td>${esc(b.location)}</td>
+      <td style="font-family:var(--font-mono);">${esc(b.beatCode||'—')}</td><td class="wrap">${esc(b.beatName||'—')}</td>
+      <td>${esc(b.so||'—')}</td><td>${esc(b.asm||'—')}</td><td>${esc(b.rsm||'—')}</td><td>${dbStatusBadge(b.dbActive)}</td>
+      <td class="wrap">${esc(b.retailer)}</td><td>${esc(b.billType)}</td>
+      <td>${esc(b.billNo||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.billDateStr)}</td>
+      <td class="wrap">${esc(b.productName)}</td><td style="font-family:var(--font-mono);">${esc(b.productCode)}</td>
+      <td class="num">${fmtMoney(b.companyRate)}</td><td class="num">${fmtMoney(b.invoiceRate)}</td>
+      <td class="num" style="font-weight:700;color:${b.diff>0.004?'var(--danger)':(b.diff<-0.004?'var(--warn)':'var(--success)')}">${b.diff>0?'+':''}${clamp2(b.diff)}</td>
+      <td style="font-family:var(--font-mono);">${esc(qtyDisplay(b))}</td>
+      <td>${statusBadge(b.status)}</td>
+      <td class="num" style="font-weight:700;color:var(--danger);">${b.status==='over'?'₹'+fmtMoney(b.overchargeAmt):'—'}</td>
+      <td class="num" style="font-weight:700;color:var(--warn);">${b.status==='under'?'₹'+fmtMoney(b.underchargeAmt):'—'}</td>
+      <td>${billCopyCell(b)}</td>
+      <td>${esc(b.collectedBy||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.submissionStr)}</td>
+      <td><button class="icon-btn" data-del-bill="${b.sl}" title="Delete line">✕</button></td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+  $all('[data-del-bill]', wrap).forEach(btn=>btn.addEventListener('click', ()=>{
+    const sl = Number(btn.dataset.delBill);
+    STATE.bills = STATE.bills.filter(b=>b.sl!==sl);
+    renderReportTable(); renderStatusStrip();
+  }));
+  $all('[data-view-bill]', wrap).forEach(a=>a.addEventListener('click', (e)=>{
+    e.preventDefault();
+    const bf = STATE.billFiles[a.dataset.viewBill];
+    if(!bf) return;
+    try{
+      const url = URL.createObjectURL(dataUrlToBlob(bf.dataUrl));
+      window.open(url, '_blank');
+    }catch(err){ toast('Could not open bill copy', 'err'); }
+  }));
+}
+function dataUrlToBlob(dataUrl){
+  const m = dataUrl.match(/^data:(.*?);base64,(.*)$/);
+  if(!m) throw new Error('bad data url');
+  const mime = m[1], b64 = m[2];
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], {type: mime||'application/octet-stream'});
+}
+
+/* ---------------- Excel export (pro formatted) ---------------- */
+async function exportExcelPro(){
+  const rows = filteredBills();
+  if(!rows.length){ toast('Nothing to export — adjust filters or check some bills first', 'err'); return; }
+  const btn = $('#repExport');
+  const origText = btn.innerHTML;
+  btn.innerHTML = `<span class="loader"></span> Building workbook…`;
+  btn.disabled = true;
+  try{
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Rate Ledger';
+    wb.created = new Date();
+
+    const INK = 'FF1E2438', ACCENT='FF2B5D50', DANGER='FFB23A2E', DANGERSOFT='FFF3DEDA',
+          SUCCESSSOFT='FFDCEBE0', WARNSOFT='FFF1E4C6', PAPER='FFEAE4D3', WHITE='FFFFFFFF';
+
+    const ws = wb.addWorksheet('Overinvoicing Report', { views:[{state:'frozen', ySplit:5}] });
+    const cols = [
+      {header:'SL', key:'sl', width:6},
+      {header:'DB Code', key:'dbCode', width:11},
+      {header:'DB Name', key:'dbName', width:26},
+      {header:'Location', key:'location', width:14},
+      {header:'Beat Code', key:'beatCode', width:12},
+      {header:'Beat Name', key:'beatName', width:22},
+      {header:'SO Name', key:'so', width:16},
+      {header:'ASM Name', key:'asm', width:16},
+      {header:'RSM Name', key:'rsm', width:16},
+      {header:'DB Status', key:'dbStatusLabel', width:11},
+      {header:'Retailer / Outlet', key:'retailer', width:24},
+      {header:'Bill Type', key:'billType', width:12},
+      {header:'Bill No', key:'billNo', width:14},
+      {header:'Bill Date', key:'billDateStr', width:12},
+      {header:'Product', key:'productName', width:34},
+      {header:'Product Code', key:'productCode', width:13},
+      {header:'GST %', key:'gstPct', width:8},
+      {header:'Company Rate', key:'companyRate', width:13},
+      {header:'Invoice Rate', key:'invoiceRate', width:13},
+      {header:'Difference', key:'diff', width:12},
+      {header:'Status', key:'statusLabel', width:13},
+      {header:'Qty', key:'qty', width:9},
+      {header:'UOM', key:'uom', width:8},
+      {header:'Qty (KG)', key:'qtyKg', width:11},
+      {header:'Overcharge Amt', key:'overchargeAmt', width:15},
+      {header:'Undercharge Amt', key:'underchargeAmt', width:16},
+      {header:'Bill Copy', key:'billCopy', width:13},
+      {header:'Collected By', key:'collectedBy', width:20},
+      {header:'Submission Date', key:'submissionStr', width:15},
+    ];
+    ws.columns = cols.map(c=>({key:c.key, width:c.width}));
+
+    // Title block
+    ws.mergeCells(1,1,1,cols.length);
+    const titleCell = ws.getCell(1,1);
+    titleCell.value = 'RATE LEDGER — OVERINVOICING AUDIT REPORT';
+    titleCell.font = {name:'Calibri', size:14, bold:true, color:{argb:WHITE}};
+    titleCell.alignment = {vertical:'middle', horizontal:'left'};
+    titleCell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:INK}};
+    ws.getRow(1).height = 26;
+
+    ws.mergeCells(2,1,2,cols.length);
+    const subCell = ws.getCell(2,1);
+    const overCount = rows.filter(r=>r.status==='over').length;
+    const overAmt = rows.filter(r=>r.status==='over').reduce((s,b)=>s+(b.overchargeAmt||0),0);
+    const underCountHdr = rows.filter(r=>r.status==='under').length;
+    const underAmtHdr = rows.filter(r=>r.status==='under').reduce((s,b)=>s+(b.underchargeAmt||0),0);
+    subCell.value = `Generated ${fmtDMY(new Date())}  ·  ${rows.length} lines  ·  ${overCount} overcharge (₹${fmtMoney(overAmt)})  ·  ${underCountHdr} undercharge (₹${fmtMoney(underAmtHdr)})`;
+    subCell.font = {name:'Calibri', size:10, italic:true, color:{argb:'FF4B5165'}};
+    subCell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:PAPER}};
+    ws.getRow(2).height = 18;
+
+    ws.getRow(3).height = 4;
+
+    // Header row (row 4)
+    const headerRow = ws.getRow(4);
+    cols.forEach((c,i)=>{ headerRow.getCell(i+1).value = c.header; });
+    headerRow.eachCell(cell=>{
+      cell.font = {name:'Calibri', size:10.5, bold:true, color:{argb:WHITE}};
+      cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:ACCENT}};
+      cell.alignment = {vertical:'middle', horizontal:'center', wrapText:true};
+      cell.border = {bottom:{style:'thin', color:{argb:INK}}};
+    });
+    headerRow.height = 24;
+
+    ws.getRow(5).height = 2;
+
+    const ACCENTINK='FF173B32';
+    // Data rows starting row 6
+    let r = 6;
+    const usedBillUids = [];
+    rows.forEach(b=>{
+      const statusLabel = b.status==='over'?'OVERCHARGE':(b.status==='under'?'UNDERCHARGE':'MATCH');
+      const dbStatusLabel = b.dbActive ? (isInactiveStatus(b.dbActive)?'INACTIVE':'ACTIVE') : '';
+      const row = ws.getRow(r);
+      const bf = STATE.billFiles[b.billUid];
+      if(bf && usedBillUids.indexOf(b.billUid)===-1) usedBillUids.push(b.billUid);
+      const vals = {
+        sl:b.sl, dbCode:b.dbCode, dbName:b.dbName, location:b.location,
+        beatCode:b.beatCode||'', beatName:b.beatName||'', so:b.so||'', asm:b.asm||'', rsm:b.rsm||'', dbStatusLabel,
+        retailer:b.retailer, billType:b.billType, billNo:b.billNo||'', billDateStr:b.billDateStr,
+        productName:b.productName, productCode:b.productCode, gstPct:b.gstPct, companyRate:b.companyRate,
+        invoiceRate:b.invoiceRate, diff:b.diff, statusLabel, qty:b.qty||'', uom:b.uom||'KG', qtyKg:b.qtyKg||'',
+        overchargeAmt: b.status==='over' ? (b.overchargeAmt||0) : '',
+        underchargeAmt: b.status==='under' ? (b.underchargeAmt||0) : '',
+        billCopy: '', collectedBy:b.collectedBy||'', submissionStr:b.submissionStr,
+      };
+      cols.forEach((c,i)=>{ if(c.key!=='billCopy') row.getCell(i+1).value = vals[c.key]; });
+      if(bf){
+        const bcCell = row.getCell(cols.findIndex(c=>c.key==='billCopy')+1);
+        bcCell.value = { text:'📎 View bill', hyperlink: `Bills/${bf.savedName}` };
+        bcCell.font = {name:'Calibri', size:10, color:{argb:ACCENTINK}, underline:true};
+      }
+      ['companyRate','invoiceRate','diff','overchargeAmt','underchargeAmt'].forEach(k=>{
+        const idx = cols.findIndex(c=>c.key===k)+1;
+        row.getCell(idx).numFmt = '#,##0.00';
+      });
+      const fillColor = b.status==='over' ? DANGERSOFT : (b.status==='under' ? WARNSOFT : SUCCESSSOFT);
+      row.eachCell({includeEmpty:true}, cell=>{
+        cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fillColor}};
+        cell.border = {bottom:{style:'hair', color:{argb:'FFD2C8AC'}}};
+        if(!cell.font || !cell.font.underline) cell.font = {name:'Calibri', size:10, color:{argb:'FF1E2438'}};
+      });
+      const statusCell = row.getCell(cols.findIndex(c=>c.key==='statusLabel')+1);
+      statusCell.font = {name:'Calibri', size:10, bold:true, color:{argb: b.status==='over'?DANGER:(b.status==='under'?'FF9C6B12':'FF1E2438')}};
+      const overCell = row.getCell(cols.findIndex(c=>c.key==='overchargeAmt')+1);
+      if(b.status==='over') overCell.font = {name:'Calibri', size:10, bold:true, color:{argb:DANGER}};
+      const underCell = row.getCell(cols.findIndex(c=>c.key==='underchargeAmt')+1);
+      if(b.status==='under') underCell.font = {name:'Calibri', size:10, bold:true, color:{argb:'FF9C6B12'}};
+      row.height = 18;
+      r++;
+    });
+
+    ws.autoFilter = { from:{row:4,column:1}, to:{row:4,column:cols.length} };
+
+    // Summary sheet
+    const ws2 = wb.addWorksheet('Summary');
+    ws2.columns = [{width:28},{width:18}];
+    ws2.getCell('A1').value = 'RATE LEDGER — SUMMARY';
+    ws2.getCell('A1').font = {size:13,bold:true,color:{argb:WHITE}};
+    ws2.mergeCells('A1:B1'); ws2.getCell('A1').fill={type:'pattern',pattern:'solid',fgColor:{argb:INK}};
+    ws2.getRow(1).height=22;
+    const underCount = rows.filter(r=>r.status==='under').length;
+    const underAmt = rows.filter(r=>r.status==='under').reduce((s,b)=>s+(b.underchargeAmt||0),0);
+    const byLoc = {};
+    rows.forEach(b=>{ byLoc[b.location]=byLoc[b.location]||{total:0,over:0,overAmt:0,under:0,underAmt:0}; byLoc[b.location].total++;
+      if(b.status==='over'){byLoc[b.location].over++; byLoc[b.location].overAmt+=(b.overchargeAmt||0);}
+      if(b.status==='under'){byLoc[b.location].under++; byLoc[b.location].underAmt+=(b.underchargeAmt||0);} });
+    let sr = 3;
+    ws2.getCell(`A${sr}`).value='Total lines checked'; ws2.getCell(`B${sr}`).value=rows.length; sr++;
+    ws2.getCell(`A${sr}`).value='Overcharge instances'; ws2.getCell(`B${sr}`).value=overCount; sr++;
+    ws2.getCell(`A${sr}`).value='Total overcharge value (₹)'; ws2.getCell(`B${sr}`).value=clamp2(overAmt); sr++;
+    ws2.getCell(`A${sr}`).value='Undercharge instances'; ws2.getCell(`B${sr}`).value=underCount; sr++;
+    ws2.getCell(`A${sr}`).value='Total undercharge value (₹)'; ws2.getCell(`B${sr}`).value=clamp2(underAmt); sr+=2;
+    ws2.getCell(`A${sr}`).value='Location'; ws2.getCell(`B${sr}`).value='Overcharge lines'; ws2.getCell(`C${sr}`).value='Undercharge lines';
+    ws2.getRow(sr).eachCell(c=>{ c.font={bold:true,color:{argb:WHITE}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:ACCENT}}; });
+    sr++;
+    Object.entries(byLoc).forEach(([loc,v])=>{ ws2.getCell(`A${sr}`).value=loc; ws2.getCell(`B${sr}`).value=v.over; ws2.getCell(`C${sr}`).value=v.under; sr++; });
+
+    const buf = await wb.xlsx.writeBuffer();
+    const stamp = new Date().toISOString().slice(0,10);
+
+    if(usedBillUids.length){
+      // Bundle the workbook with the attached bill copies as a ZIP so the
+      // "Bill Copy" hyperlinks resolve to real local files.
+      btn.innerHTML = `<span class="loader"></span> Packing bill copies…`;
+      const zip = new JSZip();
+      zip.file(`Overinvoicing_Report_${stamp}.xlsx`, buf);
+      const billsFolder = zip.folder('Bills');
+      usedBillUids.forEach(uid=>{
+        const bf = STATE.billFiles[uid];
+        const b64 = (bf.dataUrl.split(',')[1])||'';
+        billsFolder.file(bf.savedName, b64, {base64:true});
+      });
+      const zipBlob = await zip.generateAsync({type:'blob'});
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `Overinvoicing_Report_${stamp}.zip`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      toast(`Report exported as ZIP with ${usedBillUids.length} bill cop${usedBillUids.length===1?'y':'ies'} — unzip and keep the Bills folder next to the Excel file so the links open`, 'ok');
+    } else {
+      const blob = new Blob([buf], {type:'application/octet-stream'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `Overinvoicing_Report_${stamp}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      toast('Report exported', 'ok');
+    }
+  }catch(err){
+    console.error(err); toast('Export failed: '+err.message, 'err');
+  }finally{
+    btn.innerHTML = origText; btn.disabled = false;
+  }
+}
+
+/* ---------------- Background: distributor-network field ---------------- */
+/* A quiet constellation of drifting nodes with connecting lines when they're
+   close — a visual echo of the DB→beat→retailer network this tool audits.
+   Self-contained; never touches STATE. Respects prefers-reduced-motion. */
+(function(){
+  function start(){
+    const canvas = document.getElementById('bgfx');
+    if(!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let W=0, H=0, DPR = Math.min(window.devicePixelRatio||1, 2);
+    let nodes = [];
+    const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function resize(){
+      W = window.innerWidth; H = window.innerHeight;
+      canvas.width = W*DPR; canvas.height = H*DPR;
+      canvas.style.width = W+'px'; canvas.style.height = H+'px';
+      ctx.setTransform(DPR,0,0,DPR,0,0);
+      const count = Math.max(24, Math.min(70, Math.round((W*H)/26000)));
+      nodes = Array.from({length:count}, ()=>({
+        x: Math.random()*W, y: Math.random()*H,
+        vx: (Math.random()-0.5)*0.18, vy: (Math.random()-0.5)*0.18,
+        r: 1 + Math.random()*1.6,
+      }));
+    }
+    function step(){
+      ctx.clearRect(0,0,W,H);
+      const linkDist = Math.min(150, Math.max(110, W/9));
+      for(let i=0;i<nodes.length;i++){
+        const a = nodes[i];
+        if(!reduced){
+          a.x += a.vx; a.y += a.vy;
+          if(a.x<0||a.x>W) a.vx*=-1;
+          if(a.y<0||a.y>H) a.vy*=-1;
+        }
+        for(let j=i+1;j<nodes.length;j++){
+          const b = nodes[j];
+          const dx=a.x-b.x, dy=a.y-b.y;
+          const dist = Math.sqrt(dx*dx+dy*dy);
+          if(dist<linkDist){
+            const op = (1 - dist/linkDist) * 0.16;
+            ctx.strokeStyle = `rgba(255,255,255,${op})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+          }
+        }
+      }
+      for(const n of nodes){
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(230,230,235,0.6)';
+        ctx.shadowColor = 'rgba(255,255,255,0.55)';
+        ctx.shadowBlur = 4;
+        ctx.arc(n.x, n.y, n.r, 0, Math.PI*2);
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+      if(!reduced) requestAnimationFrame(step);
+    }
+    resize();
+    step();
+    window.addEventListener('resize', resize);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
+
+/* ---------------- Init ---------------- */
+document.addEventListener('DOMContentLoaded', ()=>{
+  renderShell();
+  switchTab('dashboard');
+  // one delegated listener for every combo box (DB search, product search) —
+  // closes any open results dropdown when the user clicks elsewhere.
+  document.addEventListener('click', (e)=>{
+    if(!e.target.closest('.combo')){
+      $all('.combo-host').forEach(r=>r.innerHTML='');
+    }
+  });
 });
 
-loadEntries();
 </script>
 </body>
 </html>
