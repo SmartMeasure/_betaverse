@@ -32,6 +32,8 @@
   --success-soft:rgba(51,240,180,0.14);
   --warn:#FFC24E;
   --warn-soft:rgba(255,194,78,0.16);
+  --negligible:#6C8EFF;
+  --negligible-soft:rgba(108,142,255,0.16);
   --radius-sm:4px;
   --radius:8px;
   --font-display:'Space Grotesk', 'Segoe UI', sans-serif;
@@ -67,6 +69,8 @@
   --success-soft:rgba(15,168,107,0.12);
   --warn:#B9791A;
   --warn-soft:rgba(185,121,26,0.14);
+  --negligible:#2A5FD9;
+  --negligible-soft:rgba(42,95,217,0.10);
   --shadow-card: 0 0 0 1px rgba(10,10,15,0.08), 0 10px 26px rgba(10,10,15,0.10);
   --glow-cyan: 0 0 14px rgba(16,17,20,0.18);
   --glow-violet: 0 0 12px rgba(16,17,20,0.12);
@@ -299,6 +303,7 @@ td.wrap{white-space:normal;}
 .badge.over{background:var(--danger-soft);color:var(--danger);animation:alertPulse 1.8s ease-in-out infinite;}
 .badge.under{background:var(--warn-soft);color:var(--warn);}
 .badge.match{background:var(--success-soft);color:var(--success);}
+.badge.negligible{background:var(--negligible-soft);color:var(--negligible);}
 .badge::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 5px currentColor;}
 @keyframes alertPulse{0%,100%{box-shadow:0 0 0 rgba(255,77,116,0);}50%{box-shadow:0 0 10px rgba(255,77,116,0.55);}}
 .row-over{background:rgba(255,77,116,0.05);}
@@ -657,6 +662,7 @@ function renderDashboard(){
   const view = $('#view-dashboard');
   const overRows = STATE.bills.filter(b=>b.status==='over');
   const underRows = STATE.bills.filter(b=>b.status==='under');
+  const negRows = STATE.bills.filter(b=>b.status==='negligible');
   const overAmt = overRows.reduce((s,b)=> s + (isNaN(b.overchargeAmt)?0:b.overchargeAmt), 0);
   const underAmt = underRows.reduce((s,b)=> s + (isNaN(b.underchargeAmt)?0:b.underchargeAmt), 0);
   const uniqueBills = new Set(STATE.bills.map(b=>b.billUid)).size;
@@ -671,8 +677,9 @@ function renderDashboard(){
       <div class="stat-card"><div class="stat-label">DB Master</div><div class="stat-value" id="cuDbMaster">0</div><div class="stat-note">distributors loaded</div></div>
       <div class="stat-card"><div class="stat-label">Rate Master SKUs</div><div class="stat-value" id="cuRateSkus">0</div><div class="stat-note">across ${new Set(STATE.rateRows.map(r=>r.location)).size} location(s)</div></div>
       <div class="stat-card"><div class="stat-label">Bills Checked</div><div class="stat-value" id="cuBillsChecked">0</div><div class="stat-note">${fmtInt(STATE.bills.length)} product lines</div></div>
-      <div class="stat-card ${overRows.length?'danger':''}"><div class="stat-label">Overcharge Instances</div><div class="stat-value" id="cuOverInst">0</div><div class="stat-note">₹${fmtMoney(overAmt)} total overcharge</div></div>
+      <div class="stat-card ${overRows.length?'danger':''}"><div class="stat-label">Overcharge Instances (≥1%)</div><div class="stat-value" id="cuOverInst">0</div><div class="stat-note">₹${fmtMoney(overAmt)} total overcharge</div></div>
       <div class="stat-card ${underRows.length?'warn':''}"><div class="stat-label">Undercharge Instances</div><div class="stat-value" id="cuUnderInst">0</div><div class="stat-note">₹${fmtMoney(underAmt)} total undercharge</div></div>
+      <div class="stat-card" style="${negRows.length?'border-color:var(--negligible);':''}"><div class="stat-label" style="color:var(--negligible);">Negligible (&lt;1%)</div><div class="stat-value" id="cuNegInst" style="color:var(--negligible);">0</div><div class="stat-note">within tolerance, not flagged</div></div>
     </div>
 
     <div class="section-title">Setup checklist</div>
@@ -704,6 +711,7 @@ function renderDashboard(){
   countUp($('#cuBillsChecked'), uniqueBills);
   countUp($('#cuOverInst'), overRows.length);
   countUp($('#cuUnderInst'), underRows.length);
+  countUp($('#cuNegInst'), negRows.length);
 }
 function checklistCard(title, note, done, optional){
   return `<div class="stat-card" style="border-left:3px solid ${done?'var(--success)':(optional?'var(--edge)':'var(--warn)')}">
@@ -1520,7 +1528,7 @@ function emptyState(icon,title,body){
 function freshBillForm(){
   return {
     dbCode:'', dbName:'', pg:'', location:'', beatCode:'', beatName:'', beats:[], so:'', asm:'', rsm:'', active:'',
-    billType:'Tax Invoice', retailer:'', billNo:'', billDateISO: todayISO(), submissionISO: todayISO(), collectedBy:'',
+    billType:'Tax Invoice', retailer:'', billNo:'', billDateISO: todayISO(), submissionISO: todayISO(), collectedBy:'', verifiedBy:'',
     lineItems: [], // {productCode, productName, sku, category, companyRate, gstPct, invoiceRate, qty}
     billCopy: null, // {fileName, ext, dataUrl} — attached bill photo/PDF, optional
   };
@@ -1584,6 +1592,7 @@ function renderRateCheck(){
         <div class="hint">or type DDMMYY, e.g. 260826 = 26‑08‑26</div>
       </div>
       <div class="field"><label>Collected By</label><input type="text" id="rcCollectedBy" value="${esc(f.collectedBy)}"></div>
+      <div class="field"><label>Verified By <span class="small-muted" style="text-transform:none;font-weight:400;">— stays filled for the next bill</span></label><input type="text" id="rcVerifiedBy" value="${esc(f.verifiedBy)}" placeholder="Verifier's name"></div>
       <div class="field"><label>Submission Date</label><input type="date" id="rcSubDate" value="${f.submissionISO}"></div>
     </div>
     <div class="field" style="max-width:420px;">
@@ -1638,6 +1647,7 @@ function renderRateCheck(){
     }
   });
   $('#rcCollectedBy').addEventListener('input', e=> f.collectedBy=e.target.value);
+  $('#rcVerifiedBy').addEventListener('input', e=> f.verifiedBy=e.target.value);
   $('#rcSubDate').addEventListener('change', e=> f.submissionISO=e.target.value);
   const bcInput = $('#rcBillCopyInput');
   if(bcInput) bcInput.addEventListener('change', e=>{
@@ -1740,7 +1750,7 @@ function renderLineItems(){
   const div = $('#rcLineItems');
   div.innerHTML = `
     <table class="li-table">
-      <thead><tr><th style="width:22%;">Product</th><th>Product Code</th><th>Category</th><th class="num">Company Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th class="num">Invoice Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th>Qty</th><th class="num">Diff<br><span class="small-muted" style="text-transform:none;">₹/kg</span></th><th>Status</th><th class="num">Total ₹</th><th></th></tr></thead>
+      <thead><tr><th style="width:22%;">Product</th><th>Product Code</th><th>Category</th><th class="num">Company Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th class="num">Invoice Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th>Qty</th><th class="num">Diff<br><span class="small-muted" style="text-transform:none;">₹/kg</span></th><th class="num">Variance<br><span class="small-muted" style="text-transform:none;">% of rate</span></th><th>Status</th><th class="num">Total ₹</th><th></th></tr></thead>
       <tbody>
         ${f.lineItems.map((li,i)=>renderLineRow(li,i)).join('')}
       </tbody>
@@ -1765,10 +1775,11 @@ function renderLineItems(){
 function renderLineRow(li,i){
   const diff = lineDiff(li);
   const status = lineStatus(li);
+  const pct = linePct(li);
   const qtyKg = qtyToKg(li);
   const total = lineTotal(li);
   const uomOpts = uomOptionsForProduct(li.productCode);
-  const totalColor = total==null?'inherit':(total>0.004?'var(--danger)':(total<-0.004?'var(--warn)':'var(--success)'));
+  const sColor = statusColor(status);
   return `<tr>
     <td class="combo">
       <input type="text" class="prodsearch" id="liSearch${i}" placeholder="Search product name or code…" value="${esc(li.productName ? li.productName+(li.sku?(' — '+li.sku):'') : '')}">
@@ -1785,9 +1796,10 @@ function renderLineRow(li,i){
       </div>
       <div class="small-muted" id="liQtyKgHint${i}">${(qtyKg!=null && (li.uom||'KG')!=='KG') ? ('= '+qtyKg+' kg') : ''}</div>
     </td>
-    <td class="num" id="liDiff${i}" style="font-weight:700;color:${diff==null?'inherit':(diff>0.004?'var(--danger)':(diff<-0.004?'var(--warn)':'var(--success)'))}">${diff==null?'—':(diff>0?'+':'')+clamp2(diff)}</td>
+    <td class="num" id="liDiff${i}" style="font-weight:700;color:${sColor};">${diff==null?'—':(diff>0?'+':'')+clamp2(diff)}</td>
+    <td class="num" id="liPct${i}" style="font-weight:700;color:${sColor};">${pct==null?'—':(pct>0?'+':'')+pct+'%'}</td>
     <td id="liStatus${i}">${statusBadge(status)}</td>
-    <td class="num" id="liTotal${i}" style="font-weight:700;color:${totalColor};">${total==null?'—':(total>0?'+':(total<0?'-':''))+'₹'+fmtMoney(Math.abs(total))}</td>
+    <td class="num" id="liTotal${i}" style="font-weight:700;color:${sColor};">${total==null?'—':(total>0?'+':(total<0?'-':''))+'₹'+fmtMoney(Math.abs(total))}</td>
     <td><button class="icon-btn" id="liRemove${i}" title="Remove">✕</button></td>
   </tr>`;
 }
@@ -1795,10 +1807,21 @@ function lineDiff(li){
   if(li.companyRate==null || li.invoiceRate===''||li.invoiceRate==null) return null;
   return clamp2(Number(li.invoiceRate) - Number(li.companyRate));
 }
+/* Overcharge % of the Company Rate — the basis for the Negligible/Overcharge split. */
+function linePct(li){
+  const d = lineDiff(li);
+  if(d==null || !li.companyRate) return null;
+  return clamp2((d/li.companyRate)*100);
+}
 function lineStatus(li){
   const d = lineDiff(li);
   if(d==null) return null;
-  if(d>0.004) return 'over'; if(d<-0.004) return 'under'; return 'match';
+  if(d>0.004){
+    const pct = li.companyRate ? (d/li.companyRate)*100 : null;
+    return (pct!=null && pct<1) ? 'negligible' : 'over';
+  }
+  if(d<-0.004) return 'under';
+  return 'match';
 }
 function lineTotal(li){
   const d = lineDiff(li);
@@ -1806,9 +1829,17 @@ function lineTotal(li){
   if(d==null || qkg==null) return null;
   return clamp2(d*qkg);
 }
+function statusColor(status){
+  if(status==='over') return 'var(--danger)';
+  if(status==='negligible') return 'var(--negligible)';
+  if(status==='under') return 'var(--warn)';
+  if(status==='match') return 'var(--success)';
+  return 'inherit';
+}
 function statusBadge(status){
   if(!status) return '<span class="small-muted">—</span>';
   if(status==='over') return '<span class="badge over">Overcharge</span>';
+  if(status==='negligible') return '<span class="badge negligible">Negligible</span>';
   if(status==='under') return '<span class="badge under">Undercharge</span>';
   return '<span class="badge match">Match</span>';
 }
@@ -1816,20 +1847,26 @@ function updateLineDiff(i){
   const f = STATE.billForm;
   // re-render just this row's computed cells without losing focus on whichever input the user is typing in.
   const li = f.lineItems[i];
-  const d = lineDiff(li); const status = lineStatus(li);
+  const d = lineDiff(li); const status = lineStatus(li); const pct = linePct(li);
   const qtyKg = qtyToKg(li); const total = lineTotal(li);
+  const sColor = statusColor(status);
   const diffCell = $(`#liDiff${i}`);
+  const pctCell = $(`#liPct${i}`);
   const statusCell = $(`#liStatus${i}`);
   const totalCell = $(`#liTotal${i}`);
   const hintEl = $(`#liQtyKgHint${i}`);
   if(diffCell){
     diffCell.textContent = d==null?'—':(d>0?'+':'')+clamp2(d);
-    diffCell.style.color = d==null?'inherit':(d>0.004?'var(--danger)':(d<-0.004?'var(--warn)':'var(--success)'));
+    diffCell.style.color = sColor;
+  }
+  if(pctCell){
+    pctCell.textContent = pct==null?'—':(pct>0?'+':'')+pct+'%';
+    pctCell.style.color = sColor;
   }
   if(statusCell) statusCell.innerHTML = statusBadge(status);
   if(totalCell){
     totalCell.textContent = total==null?'—':(total>0?'+':(total<0?'-':''))+'₹'+fmtMoney(Math.abs(total));
-    totalCell.style.color = total==null?'inherit':(total>0.004?'var(--danger)':(total<-0.004?'var(--warn)':'var(--success)'));
+    totalCell.style.color = sColor;
   }
   if(hintEl) hintEl.textContent = (qtyKg!=null && (li.uom||'KG')!=='KG') ? ('= '+qtyKg+' kg') : '';
 }
@@ -1886,6 +1923,7 @@ function saveBill(){
   validLines.forEach(li=>{
     const diff = lineDiff(li);
     const status = lineStatus(li);
+    const pct = linePct(li);
     const qty = li.qty!=='' && li.qty!=null ? Number(li.qty) : null;
     const uom = li.uom || 'KG';
     const qtyKg = qtyToKg(li);
@@ -1897,10 +1935,11 @@ function saveBill(){
       billType: f.billType, retailer: f.retailer, billNo: f.billNo, billDateStr: fmtDMY(billDate),
       productName: li.productName, productCode: li.productCode, sku: li.sku, category: li.category,
       companyRate: li.companyRate, invoiceRate: Number(li.invoiceRate), gstPct: li.gstPct,
-      diff, status, qty, uom, qtyKg, chargeAmt,
+      diff, pct, status, qty, uom, qtyKg, chargeAmt,
       overchargeAmt: status==='over' ? chargeAmt : 0,
       underchargeAmt: status==='under' ? clamp2(Math.abs(chargeAmt)) : 0,
-      collectedBy: f.collectedBy, submissionStr: fmtDMY(subDate),
+      negligibleAmt: status==='negligible' ? chargeAmt : 0,
+      collectedBy: f.collectedBy, verifiedBy: f.verifiedBy, submissionStr: fmtDMY(subDate),
     });
   });
   toast(`Saved bill with ${validLines.length} product line(s)`, 'ok');
@@ -1983,19 +2022,22 @@ function renderReportTable(){
   const statsDiv = $('#repStats');
   const overRows = rows.filter(b=>b.status==='over');
   const underRows = rows.filter(b=>b.status==='under');
+  const negRows = rows.filter(b=>b.status==='negligible');
   const overAmt = overRows.reduce((s,b)=>s+(b.overchargeAmt||0),0);
   const underAmt = underRows.reduce((s,b)=>s+(b.underchargeAmt||0),0);
   const matchCount = rows.filter(b=>b.status==='match').length;
   statsDiv.innerHTML = `<div class="grid-4" style="margin-bottom:18px;">
     <div class="stat-card"><div class="stat-label">Lines shown</div><div class="stat-value" id="cuLinesShown">0</div></div>
-    <div class="stat-card danger"><div class="stat-label">Overcharge · ₹${fmtMoney(overAmt)}</div><div class="stat-value" id="cuOverLines">0</div><div class="stat-note">lines overcharged</div></div>
+    <div class="stat-card danger"><div class="stat-label">Overcharge (≥1%) · ₹${fmtMoney(overAmt)}</div><div class="stat-value" id="cuOverLines">0</div><div class="stat-note">lines overcharged</div></div>
     <div class="stat-card warn"><div class="stat-label">Undercharge · ₹${fmtMoney(underAmt)}</div><div class="stat-value" id="cuUnderLines">0</div><div class="stat-note">lines undercharged</div></div>
     <div class="stat-card success"><div class="stat-label">Matched lines</div><div class="stat-value" id="cuMatchLines">0</div></div>
+    <div class="stat-card" style="border-color:var(--negligible);"><div class="stat-label" style="color:var(--negligible);">Negligible (&lt;1%)</div><div class="stat-value" id="cuNegLines" style="color:var(--negligible);">0</div><div class="stat-note">not counted as overcharge</div></div>
   </div>`;
   countUp($('#cuLinesShown'), rows.length);
   countUp($('#cuOverLines'), overRows.length);
   countUp($('#cuUnderLines'), underRows.length);
   countUp($('#cuMatchLines'), matchCount);
+  countUp($('#cuNegLines'), negRows.length);
   const wrap = $('#repTableWrap');
   if(!rows.length){ wrap.innerHTML = emptyState('🧾','No bills checked yet','Run a check in the Rate Check tab, or clear filters.'); return; }
   wrap.innerHTML = `<div class="table-wrap"><table>
@@ -2004,11 +2046,12 @@ function renderReportTable(){
       <th>SO Name</th><th>ASM Name</th><th>RSM Name</th><th>DB Status</th>
       <th>Retailer</th><th>Bill Type</th><th>Bill No</th><th>Bill Date</th>
       <th>Product</th><th>Code</th><th class="num">Company Rate<br><span style="text-transform:none;">₹/kg</span></th><th class="num">Invoice Rate<br><span style="text-transform:none;">₹/kg</span></th><th class="num">Difference<br><span style="text-transform:none;">₹/kg</span></th>
+      <th class="num">Variance<br><span style="text-transform:none;">% of rate</span></th>
       <th>Quantity</th>
       <th>Status</th><th class="num">Overcharge Amt</th><th class="num">Undercharge Amt</th>
-      <th>Bill Copy</th><th>Collected By</th><th>Submitted</th><th></th>
+      <th>Bill Copy</th><th>Collected By</th><th>Verified By</th><th>Submitted</th><th></th>
     </tr></thead>
-    <tbody>${rows.map((b,idx)=>`<tr class="${b.status==='over'?'row-over':''}">
+    <tbody>${rows.map((b,idx)=>{ const sColor = statusColor(b.status); return `<tr class="${b.status==='over'?'row-over':''}">
       <td>${b.sl}</td><td style="font-family:var(--font-mono);">${esc(b.dbCode)}</td><td class="wrap">${esc(b.dbName)}</td><td>${esc(b.location)}</td>
       <td style="font-family:var(--font-mono);">${esc(b.beatCode||'—')}</td><td class="wrap">${esc(b.beatName||'—')}</td>
       <td>${esc(b.so||'—')}</td><td>${esc(b.asm||'—')}</td><td>${esc(b.rsm||'—')}</td><td>${dbStatusBadge(b.dbActive)}</td>
@@ -2016,15 +2059,16 @@ function renderReportTable(){
       <td>${esc(b.billNo||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.billDateStr)}</td>
       <td class="wrap">${esc(b.productName)}</td><td style="font-family:var(--font-mono);">${esc(b.productCode)}</td>
       <td class="num">${fmtMoney(b.companyRate)}</td><td class="num">${fmtMoney(b.invoiceRate)}</td>
-      <td class="num" style="font-weight:700;color:${b.diff>0.004?'var(--danger)':(b.diff<-0.004?'var(--warn)':'var(--success)')}">${b.diff>0?'+':''}${clamp2(b.diff)}</td>
+      <td class="num" style="font-weight:700;color:${sColor};">${b.diff>0?'+':''}${clamp2(b.diff)}</td>
+      <td class="num" style="font-weight:700;color:${sColor};">${b.pct==null?'—':(b.pct>0?'+':'')+b.pct+'%'}</td>
       <td style="font-family:var(--font-mono);">${esc(qtyDisplay(b))}</td>
       <td>${statusBadge(b.status)}</td>
       <td class="num" style="font-weight:700;color:var(--danger);">${b.status==='over'?'₹'+fmtMoney(b.overchargeAmt):'—'}</td>
       <td class="num" style="font-weight:700;color:var(--warn);">${b.status==='under'?'₹'+fmtMoney(b.underchargeAmt):'—'}</td>
       <td>${billCopyCell(b)}</td>
-      <td>${esc(b.collectedBy||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.submissionStr)}</td>
+      <td>${esc(b.collectedBy||'—')}</td><td>${esc(b.verifiedBy||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.submissionStr)}</td>
       <td><button class="icon-btn" data-del-bill="${b.sl}" title="Delete line">✕</button></td>
-    </tr>`).join('')}</tbody>
+    </tr>`; }).join('')}</tbody>
   </table></div>`;
   $all('[data-del-bill]', wrap).forEach(btn=>btn.addEventListener('click', ()=>{
     const sl = Number(btn.dataset.delBill);
@@ -2065,7 +2109,7 @@ async function exportExcelPro(){
     wb.created = new Date();
 
     const INK = 'FF1E2438', ACCENT='FF2B5D50', DANGER='FFB23A2E', DANGERSOFT='FFF3DEDA',
-          SUCCESSSOFT='FFDCEBE0', WARNSOFT='FFF1E4C6', PAPER='FFEAE4D3', WHITE='FFFFFFFF';
+          SUCCESSSOFT='FFDCEBE0', WARNSOFT='FFF1E4C6', NEGLIGIBLESOFT='FFDCE6F5', NEGLIGIBLE='FF2A5FD9', PAPER='FFEAE4D3', WHITE='FFFFFFFF';
 
     const ws = wb.addWorksheet('Overinvoicing Report', { views:[{state:'frozen', ySplit:5}] });
     const cols = [
@@ -2089,6 +2133,7 @@ async function exportExcelPro(){
       {header:'Company Rate', key:'companyRate', width:13},
       {header:'Invoice Rate', key:'invoiceRate', width:13},
       {header:'Difference', key:'diff', width:12},
+      {header:'Variance %', key:'pctLabel', width:11},
       {header:'Status', key:'statusLabel', width:13},
       {header:'Qty', key:'qty', width:9},
       {header:'UOM', key:'uom', width:8},
@@ -2097,6 +2142,7 @@ async function exportExcelPro(){
       {header:'Undercharge Amt', key:'underchargeAmt', width:16},
       {header:'Bill Copy', key:'billCopy', width:13},
       {header:'Collected By', key:'collectedBy', width:20},
+      {header:'Verified By', key:'verifiedBy', width:20},
       {header:'Submission Date', key:'submissionStr', width:15},
     ];
     ws.columns = cols.map(c=>({key:c.key, width:c.width}));
@@ -2116,7 +2162,8 @@ async function exportExcelPro(){
     const overAmt = rows.filter(r=>r.status==='over').reduce((s,b)=>s+(b.overchargeAmt||0),0);
     const underCountHdr = rows.filter(r=>r.status==='under').length;
     const underAmtHdr = rows.filter(r=>r.status==='under').reduce((s,b)=>s+(b.underchargeAmt||0),0);
-    subCell.value = `Generated ${fmtDMY(new Date())}  ·  ${rows.length} lines  ·  ${overCount} overcharge (₹${fmtMoney(overAmt)})  ·  ${underCountHdr} undercharge (₹${fmtMoney(underAmtHdr)})`;
+    const negCountHdr = rows.filter(r=>r.status==='negligible').length;
+    subCell.value = `Generated ${fmtDMY(new Date())}  ·  ${rows.length} lines  ·  ${overCount} overcharge (₹${fmtMoney(overAmt)})  ·  ${underCountHdr} undercharge (₹${fmtMoney(underAmtHdr)})  ·  ${negCountHdr} negligible (<1%, excluded)`;
     subCell.font = {name:'Calibri', size:10, italic:true, color:{argb:'FF4B5165'}};
     subCell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:PAPER}};
     ws.getRow(2).height = 18;
@@ -2145,7 +2192,7 @@ async function exportExcelPro(){
     const billCopyColIdx = cols.findIndex(c=>c.key==='billCopy');
     const EMBEDDABLE_EXT = {jpg:'jpeg', jpeg:'jpeg', png:'png', gif:'gif'};
     rows.forEach(b=>{
-      const statusLabel = b.status==='over'?'OVERCHARGE':(b.status==='under'?'UNDERCHARGE':'MATCH');
+      const statusLabel = b.status==='over'?'OVERCHARGE':(b.status==='negligible'?'NEGLIGIBLE':(b.status==='under'?'UNDERCHARGE':'MATCH'));
       const dbStatusLabel = b.dbActive ? (isInactiveStatus(b.dbActive)?'INACTIVE':'ACTIVE') : '';
       const row = ws.getRow(r);
       const bf = STATE.billFiles[b.billUid];
@@ -2154,10 +2201,10 @@ async function exportExcelPro(){
         beatCode:b.beatCode||'', beatName:b.beatName||'', so:b.so||'', asm:b.asm||'', rsm:b.rsm||'', dbStatusLabel,
         retailer:b.retailer, billType:b.billType, billNo:b.billNo||'', billDateStr:b.billDateStr,
         productName:b.productName, productCode:b.productCode, gstPct:b.gstPct, companyRate:b.companyRate,
-        invoiceRate:b.invoiceRate, diff:b.diff, statusLabel, qty:b.qty||'', uom:b.uom||'KG', qtyKg:b.qtyKg||'',
+        invoiceRate:b.invoiceRate, diff:b.diff, pctLabel: b.pct==null?'':((b.pct>0?'+':'')+b.pct+'%'), statusLabel, qty:b.qty||'', uom:b.uom||'KG', qtyKg:b.qtyKg||'',
         overchargeAmt: b.status==='over' ? (b.overchargeAmt||0) : '',
         underchargeAmt: b.status==='under' ? (b.underchargeAmt||0) : '',
-        billCopy: '', collectedBy:b.collectedBy||'', submissionStr:b.submissionStr,
+        billCopy: '', collectedBy:b.collectedBy||'', verifiedBy:b.verifiedBy||'', submissionStr:b.submissionStr,
       };
       cols.forEach((c,i)=>{ if(c.key!=='billCopy') row.getCell(i+1).value = vals[c.key]; });
       let photoEmbedded = false;
@@ -2196,14 +2243,19 @@ async function exportExcelPro(){
         const idx = cols.findIndex(c=>c.key===k)+1;
         row.getCell(idx).numFmt = '#,##0.00';
       });
-      const fillColor = b.status==='over' ? DANGERSOFT : (b.status==='under' ? WARNSOFT : SUCCESSSOFT);
+      const fillColor = b.status==='over' ? DANGERSOFT : (b.status==='negligible' ? NEGLIGIBLESOFT : (b.status==='under' ? WARNSOFT : SUCCESSSOFT));
       row.eachCell({includeEmpty:true}, cell=>{
         cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fillColor}};
         cell.border = {bottom:{style:'hair', color:{argb:'FFD2C8AC'}}};
         if(!cell.font || !cell.font.underline) cell.font = {name:'Calibri', size:10, color:{argb:'FF1E2438'}};
       });
+      const statusColorArgb = b.status==='over'?DANGER:(b.status==='negligible'?NEGLIGIBLE:(b.status==='under'?'FF9C6B12':'FF1E2438'));
       const statusCell = row.getCell(cols.findIndex(c=>c.key==='statusLabel')+1);
-      statusCell.font = {name:'Calibri', size:10, bold:true, color:{argb: b.status==='over'?DANGER:(b.status==='under'?'FF9C6B12':'FF1E2438')}};
+      statusCell.font = {name:'Calibri', size:10, bold:true, color:{argb: statusColorArgb}};
+      const pctCell = row.getCell(cols.findIndex(c=>c.key==='pctLabel')+1);
+      pctCell.font = {name:'Calibri', size:10, bold:true, color:{argb: statusColorArgb}};
+      const diffCell = row.getCell(cols.findIndex(c=>c.key==='diff')+1);
+      diffCell.font = {name:'Calibri', size:10, bold:true, color:{argb: statusColorArgb}};
       const overCell = row.getCell(cols.findIndex(c=>c.key==='overchargeAmt')+1);
       if(b.status==='over') overCell.font = {name:'Calibri', size:10, bold:true, color:{argb:DANGER}};
       const underCell = row.getCell(cols.findIndex(c=>c.key==='underchargeAmt')+1);
@@ -2223,16 +2275,20 @@ async function exportExcelPro(){
     ws2.getRow(1).height=22;
     const underCount = rows.filter(r=>r.status==='under').length;
     const underAmt = rows.filter(r=>r.status==='under').reduce((s,b)=>s+(b.underchargeAmt||0),0);
+    const negCount = rows.filter(r=>r.status==='negligible').length;
+    const negAmt = rows.filter(r=>r.status==='negligible').reduce((s,b)=>s+(b.negligibleAmt||0),0);
     const byLoc = {};
     rows.forEach(b=>{ byLoc[b.location]=byLoc[b.location]||{total:0,over:0,overAmt:0,under:0,underAmt:0}; byLoc[b.location].total++;
       if(b.status==='over'){byLoc[b.location].over++; byLoc[b.location].overAmt+=(b.overchargeAmt||0);}
       if(b.status==='under'){byLoc[b.location].under++; byLoc[b.location].underAmt+=(b.underchargeAmt||0);} });
     let sr = 3;
     ws2.getCell(`A${sr}`).value='Total lines checked'; ws2.getCell(`B${sr}`).value=rows.length; sr++;
-    ws2.getCell(`A${sr}`).value='Overcharge instances'; ws2.getCell(`B${sr}`).value=overCount; sr++;
+    ws2.getCell(`A${sr}`).value='Overcharge instances (≥1% of rate)'; ws2.getCell(`B${sr}`).value=overCount; sr++;
     ws2.getCell(`A${sr}`).value='Total overcharge value (₹)'; ws2.getCell(`B${sr}`).value=clamp2(overAmt); sr++;
     ws2.getCell(`A${sr}`).value='Undercharge instances'; ws2.getCell(`B${sr}`).value=underCount; sr++;
-    ws2.getCell(`A${sr}`).value='Total undercharge value (₹)'; ws2.getCell(`B${sr}`).value=clamp2(underAmt); sr+=2;
+    ws2.getCell(`A${sr}`).value='Total undercharge value (₹)'; ws2.getCell(`B${sr}`).value=clamp2(underAmt); sr++;
+    ws2.getCell(`A${sr}`).value='Negligible instances (<1% of rate)'; ws2.getCell(`B${sr}`).value=negCount; sr++;
+    ws2.getCell(`A${sr}`).value='Total negligible value (₹, excluded from overcharge)'; ws2.getCell(`B${sr}`).value=clamp2(negAmt); sr+=2;
     ws2.getCell(`A${sr}`).value='Location'; ws2.getCell(`B${sr}`).value='Overcharge lines'; ws2.getCell(`C${sr}`).value='Undercharge lines';
     ws2.getRow(sr).eachCell(c=>{ c.font={bold:true,color:{argb:WHITE}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:ACCENT}}; });
     sr++;
