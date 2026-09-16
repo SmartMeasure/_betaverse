@@ -1105,37 +1105,41 @@ const KNOWN_CATEGORIES = [
   'OTHERS','SNACKS','MUMMYS OWN', "MUMMY'S OWN",
 ];
 function isKnownCategory(text){
-  const t = text.toUpperCase().replace(/[().]/g,'').trim();
-  return KNOWN_CATEGORIES.some(k=> t===k || t.startsWith(k+' '));
+  const original = text.trim();
+  const t = original.toUpperCase().replace(/[().]/g,'').trim();
+  return KNOWN_CATEGORIES.some(k=>{
+    if(t===k) return true;
+    // Categories can render with a bracketed qualifier, e.g. "ATTA (WHOLE WHEAT
+    // FLOUR)" — accept that. But do NOT accept a bare "<category> <more words>"
+    // prefix match in general: some categories (e.g. "MUMMYS OWN") are also the
+    // literal first words of every one of their own products' names ("MUMMYS OWN
+    // CHAKKI ATTA"), and a loose prefix match would wrongly treat each of those
+    // product names as a fresh category header, wiping the product name just
+    // established for them. Require the qualifier to actually be parenthesised
+    // in the original text.
+    const re = new RegExp('^'+k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\s*\\(', 'i');
+    return re.test(original);
+  });
 }
 
 /* PDF table parser using pdf.js — column positions are consistent across
    this rate-sheet template: Name(<242) | SKU(242-268) | Code(268-305) | Rate(>305) */
 async function parseRatePdf(arrayBuffer){
   const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
-  const rows = [];
-  let currentCategory = '';
-  let lastProductName = '';
-  let lastCode = null;
-  let pending = []; // leading data rows with no name yet, waiting for the merged-cell name to appear
-  // Resolves any held rows to a name, and — critically — keeps lastCode/lastProductName
-  // in sync with whatever was JUST resolved, so the next nameless row's "is this a
-  // plain continuation" check (see isDataRow below) is judged against the true last
-  // row, not a stale one. (A previous version forgot this and could let a later
-  // product's name leak backwards onto an earlier, still-unresolved row.)
-  function flushPending(nameForThem){
-    if(pending.length){
-      const nm = nameForThem || lastProductName || '';
-      pending.forEach(pr=>{ pr.productName = nm; rows.push(pr); });
-      const lastPending = pending[pending.length-1];
-      const code = parseInt(lastPending.productCode, 10);
-      if(!isNaN(code)) lastCode = code;
-      if(nameForThem) lastProductName = nameForThem;
-    } else if(nameForThem){
-      lastProductName = nameForThem;
-    }
-    pending = [];
+
+  // A "name" that is really just a bare pack-size token (e.g. "150GM") is not a
+  // genuine new product declaration — it's a SKU value whose x-position simply
+  // dipped left of the SKU column's usual start. Treating it as a real name
+  // would wrongly flush/attribute unrelated pending rows to it.
+  function looksLikeBareSkuToken(text){
+    return /^\(?\d+(\.\d+)?\s*(KG|GM|G|PC|BAG|ML|L)\)?$/i.test(text.trim());
   }
+
+  // ---------- PASS 1: resolve every visual line's fields, across all pages,
+  // into one flat sequential list. No product/continuation decisions yet —
+  // those need to see both what came before AND what comes next, which this
+  // pass makes possible.
+  const resolvedLines = [];
   for(let pageNum=1; pageNum<=pdf.numPages; pageNum++){
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
@@ -1179,46 +1183,138 @@ async function parseRatePdf(arrayBuffer){
           finalNameText = finalNameText.slice(0, m.index).trim();
         }
       }
+      // A wide-but-short SKU label (e.g. "150GM") can land ENTIRELY in the name
+      // column with nothing else beside it — that's not a name at all. Fold it
+      // back into the SKU text instead of letting it masquerade as a fresh
+      // product declaration (which would incorrectly flush/attribute any
+      // still-pending rows to it).
+      if(finalNameText && looksLikeBareSkuToken(finalNameText)){
+        skuText = (finalNameText + ' ' + skuText).trim();
+        finalNameText = '';
+      }
       const codeText = codeWords.join('').trim();
       const rateText = rateWords.join('').trim();
-      if(finalNameText==='Product' && skuText==='SKU') continue;
+      if(finalNameText==='Product' && skuText==='SKU') continue; // repeated column header
       const rateNum = parseFloat(rateText.replace(/[^0-9.]/g,''));
       const isDataRow = /^\d{3,}$/.test(codeText) && !isNaN(rateNum) && rateNum>0;
-      if(isDataRow){
-        const codeNum = parseInt(codeText, 10);
-        if(finalNameText){
-          flushPending(finalNameText);
-          lastProductName = finalNameText; lastCode = codeNum;
-          rows.push({ category: currentCategory, productName: finalNameText, sku: skuText, productCode: codeText, rate: rateNum });
-        } else if(pending.length===0 && lastCode!=null && !isNaN(codeNum) && Math.abs(codeNum-lastCode)<=20){
-          // No name on this row, but its code closely follows the last resolved
-          // row — a trailing pack-size variant of that same product.
-          lastCode = codeNum;
-          rows.push({ category: currentCategory, productName: lastProductName, sku: skuText, productCode: codeText, rate: rateNum });
-        } else {
-          // Leading edge of a product whose name hasn't rendered yet — hold it.
-          pending.push({ category: currentCategory, productName: null, sku: skuText, productCode: codeText, rate: rateNum });
-        }
-        continue;
-      }
       const combined = [finalNameText,skuText,codeText,rateText].join(' ').trim();
       if(!combined) continue;
       if(/^location\b/i.test(combined)) continue;
       const noDigits = !/\d/.test(combined.replace(/[().&,]/g,''));
-      if(noDigits && combined.length < 60 && combined === combined.toUpperCase()){
-        if(isKnownCategory(combined)){
-          flushPending();
-          currentCategory = combined.trim();
-          lastProductName = '';
-          lastCode = null;
-        } else {
-          // A bare all-caps line that isn't a known category header is a product
-          // name that landed on its own baseline — declare it without starting
-          // a new category.
-          flushPending(combined);
-          lastProductName = combined;
+      const isBareLine = !isDataRow && noDigits && combined.length < 60 && combined === combined.toUpperCase();
+      resolvedLines.push({
+        finalNameText, skuText, codeText, rateText, rateNum,
+        isDataRow, codeNum: isDataRow ? parseInt(codeText,10) : null,
+        combined, isBareLine, isCategory: isBareLine && isKnownCategory(combined),
+      });
+    }
+  }
+
+  // ---------- PASS 2: the actual state machine, now with lookahead.
+  const rows = [];
+  let currentCategory = '';
+  let lastProductName = '';
+  let lastCode = null;
+  // One-shot: true immediately after a name is freshly declared from a
+  // genuinely multi-row merge (see hadPending below), so the very next
+  // nameless row can be recognised as its continuation even when the two
+  // rows' product codes aren't close together (case-pack variants can sit far
+  // apart, e.g. 1KG=100265 vs a 10KG=100545 sibling). Consumed by the first
+  // row that uses it, and cleared at a category boundary / pending-fail so it
+  // never leaks across an unrelated product.
+  let freshName = false;
+  let pending = []; // leading data rows with no name yet, waiting for the merged-cell name to appear
+
+  function flushPending(nameForThem){
+    if(pending.length){
+      const nm = nameForThem || lastProductName || '';
+      pending.forEach(pr=>{ pr.productName = nm; rows.push(pr); });
+      const lastPending = pending[pending.length-1];
+      const code = parseInt(lastPending.productCode, 10);
+      if(!isNaN(code)) lastCode = code;
+      if(nameForThem) lastProductName = nameForThem;
+    } else if(nameForThem){
+      lastProductName = nameForThem;
+    }
+    pending = [];
+  }
+
+  // For a nameless row at index i, finds the product code of the NEXT explicit
+  // name declaration (inline-with-a-row, or the first row after a bare name
+  // line), stopping the search at a category boundary. Returns null if none
+  // found before that. This lets an ambiguous row be judged by which of the
+  // two candidate names — the one already established, or the one about to
+  // be — its own code actually sits closer to, rather than a fixed threshold
+  // that's simultaneously too loose for some products and too tight for
+  // others in a catalog with no consistent code-numbering scheme.
+  function findNextNameCode(startIdx){
+    for(let j=startIdx; j<resolvedLines.length; j++){
+      const L = resolvedLines[j];
+      if(L.isCategory) return null;
+      if(L.isDataRow && L.finalNameText) return L.codeNum;
+      if(!L.isDataRow && L.isBareLine){
+        for(let k=j+1; k<resolvedLines.length; k++){
+          const L2 = resolvedLines[k];
+          if(L2.isCategory) return null;
+          if(L2.isDataRow) return L2.codeNum;
         }
+        return null;
       }
+    }
+    return null;
+  }
+
+  for(let i=0;i<resolvedLines.length;i++){
+    const L = resolvedLines[i];
+    if(L.isDataRow){
+      const codeNum = L.codeNum;
+      if(L.finalNameText){
+        const hadPending = pending.length>0;
+        flushPending(L.finalNameText);
+        lastProductName = L.finalNameText; lastCode = codeNum;
+        // Only trust a "fresh name" bridge into the *next* row when this
+        // resolution just cleared out genuinely pending rows — i.e. we know
+        // for certain this product spans more than one row. An isolated,
+        // single-line name+data resolution (pending was already empty)
+        // could just as easily be a standalone, single-variant product, and
+        // bridging past it would wrongly attribute a *different* product's
+        // still-unresolved leading row to this one.
+        freshName = hadPending;
+        rows.push({ category: currentCategory, productName: L.finalNameText, sku: L.skuText, productCode: L.codeText, rate: L.rateNum });
+      } else if(pending.length===0 && lastProductName && (freshName || lastCode!=null)){
+        const gapPrev = freshName ? -1 : Math.abs(codeNum-lastCode);
+        const nextCode = freshName ? null : findNextNameCode(i+1);
+        const gapNext = nextCode==null ? Infinity : Math.abs(codeNum-nextCode);
+        if(freshName || gapPrev < gapNext){
+          // Closer (or freshly bridged) to the product we already know than to
+          // whatever name comes next — a trailing pack-size variant of it.
+          lastCode = codeNum;
+          freshName = false;
+          rows.push({ category: currentCategory, productName: lastProductName, sku: L.skuText, productCode: L.codeText, rate: L.rateNum });
+        } else {
+          freshName = false;
+          pending.push({ category: currentCategory, productName: null, sku: L.skuText, productCode: L.codeText, rate: L.rateNum });
+        }
+      } else {
+        // Leading edge of a product whose name hasn't rendered yet — hold it.
+        freshName = false;
+        pending.push({ category: currentCategory, productName: null, sku: L.skuText, productCode: L.codeText, rate: L.rateNum });
+      }
+      continue;
+    }
+    if(L.isCategory){
+      flushPending();
+      currentCategory = L.combined.trim();
+      lastProductName = '';
+      lastCode = null;
+      freshName = false;
+    } else if(L.isBareLine){
+      // A bare all-caps line that isn't a known category header is a product
+      // name that landed on its own baseline — declare it without starting a
+      // new category.
+      flushPending(L.combined);
+      lastProductName = L.combined;
+      freshName = true;
     }
   }
   flushPending();
