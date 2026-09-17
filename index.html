@@ -486,6 +486,21 @@ function fmtDMY(dt){
   return `${d}-${m}-${y}`;
 }
 function todayISO(){ const d=new Date(); return d.toISOString().slice(0,10); }
+/* ---- Remembered identity fields (Collected By / Designation / Verified By) ----
+   These survive a page refresh via localStorage, so a field officer doesn't have
+   to retype their name on every visit — only clearing the browser's site data
+   resets them. This is separate from all audit/bill data, which still lives
+   only in memory for this tab as before. */
+const LS_PREFIX = 'rateLedger_';
+function lsGet(key, fallback){ try{ const v = localStorage.getItem(LS_PREFIX+key); return v==null ? (fallback||'') : v; }catch(e){ return fallback||''; } }
+function lsSet(key, val){ try{ localStorage.setItem(LS_PREFIX+key, val); }catch(e){} }
+function lsGetList(key){ try{ const v = JSON.parse(localStorage.getItem(LS_PREFIX+key)||'[]'); return Array.isArray(v)?v:[]; }catch(e){ return []; } }
+function lsAddToList(key, val, max){
+  if(!val) return;
+  const list = lsGetList(key).filter(x=>x.toUpperCase()!==val.toUpperCase());
+  list.unshift(val);
+  try{ localStorage.setItem(LS_PREFIX+key, JSON.stringify(list.slice(0, max||12))); }catch(e){}
+}
 function isoToDMYDate(iso){ if(!iso) return null; const [y,m,d]=iso.split('-').map(Number); return new Date(y,m-1,d); }
 // Quick numeric date entry: "260826" -> 26-08-26, "010826" -> 01-08-26, etc.
 // Expects exactly 6 digits, DDMMYY, and assumes the 21st century.
@@ -568,7 +583,7 @@ function renderShell(){
       <section class="view" id="view-ratecheck"></section>
       <section class="view" id="view-reports"></section>
     </main>
-    <footer class="appfoot">All data stays in this browser tab — nothing is uploaded to a server. Refreshing the page clears it, so export your report before you close the tab.</footer>
+    <footer class="appfoot">All data stays in this browser — nothing is uploaded to a server. Refreshing clears bills/rate master data (export your report first), but your Collected By / Designation / Verified By stay remembered on this device until you clear browser data.</footer>
   `;
   renderTabs();
   renderStatusStrip();
@@ -679,7 +694,7 @@ function renderDashboard(){
       <div class="stat-card"><div class="stat-label">Bills Checked</div><div class="stat-value" id="cuBillsChecked">0</div><div class="stat-note">${fmtInt(STATE.bills.length)} product lines</div></div>
       <div class="stat-card ${overRows.length?'danger':''}"><div class="stat-label">Overcharge Instances (≥1%)</div><div class="stat-value" id="cuOverInst">0</div><div class="stat-note">₹${fmtMoney(overAmt)} total overcharge</div></div>
       <div class="stat-card ${underRows.length?'warn':''}"><div class="stat-label">Undercharge Instances</div><div class="stat-value" id="cuUnderInst">0</div><div class="stat-note">₹${fmtMoney(underAmt)} total undercharge</div></div>
-      <div class="stat-card" style="${negRows.length?'border-color:var(--negligible);':''}"><div class="stat-label" style="color:var(--negligible);">Negligible (&lt;1%)</div><div class="stat-value" id="cuNegInst" style="color:var(--negligible);">0</div><div class="stat-note">within tolerance, not flagged</div></div>
+      <div class="stat-card" style="${negRows.length?'border-color:var(--negligible);':''}"><div class="stat-label" style="color:var(--negligible);">Overcharge – Negligible (&lt;1%)</div><div class="stat-value" id="cuNegInst" style="color:var(--negligible);">0</div><div class="stat-note">within tolerance, not flagged</div></div>
     </div>
 
     <div class="section-title">Setup checklist</div>
@@ -1624,7 +1639,8 @@ function emptyState(icon,title,body){
 function freshBillForm(){
   return {
     dbCode:'', dbName:'', pg:'', location:'', beatCode:'', beatName:'', beats:[], so:'', asm:'', rsm:'', active:'',
-    billType:'Tax Invoice', retailer:'', billNo:'', billDateISO: todayISO(), submissionISO: todayISO(), collectedBy:'', verifiedBy:'',
+    billType:'Tax Invoice', retailer:'', billNo:'', billDateISO: todayISO(), submissionISO: todayISO(),
+    collectedBy: lsGet('collectedBy'), designation: lsGet('designation'), verifiedBy: lsGet('verifiedBy'),
     lineItems: [], // {productCode, productName, sku, category, companyRate, gstPct, invoiceRate, qty}
     billCopy: null, // {fileName, ext, dataUrl} — attached bill photo/PDF, optional
   };
@@ -1677,7 +1693,7 @@ function renderRateCheck(){
       </div>
     </div>
     <div class="inline-fields">
-      <div class="field"><label>Retailer / Outlet Name <span class="colmap-req">*</span></label><input type="text" id="rcRetailer" value="${esc(f.retailer)}"></div>
+      <div class="field"><label>Retailer / Outlet Name <span class="colmap-req">*</span></label><input type="text" id="rcRetailer" value="${esc(f.retailer)}" style="text-transform:uppercase;"></div>
       <div class="field"><label>Bill Number</label><input type="text" id="rcBillNo" value="${esc(f.billNo)}"></div>
       <div class="field">
         <label>Bill Date <span class="colmap-req">*</span></label>
@@ -1687,8 +1703,20 @@ function renderRateCheck(){
         </div>
         <div class="hint">or type DDMMYY, e.g. 260826 = 26‑08‑26</div>
       </div>
-      <div class="field"><label>Collected By</label><input type="text" id="rcCollectedBy" value="${esc(f.collectedBy)}"></div>
-      <div class="field"><label>Verified By <span class="small-muted" style="text-transform:none;font-weight:400;">— stays filled for the next bill</span></label><input type="text" id="rcVerifiedBy" value="${esc(f.verifiedBy)}" placeholder="Verifier's name"></div>
+      <div class="field"><label>Collected By <span class="small-muted" style="text-transform:none;font-weight:400;">— remembered on this device</span></label>
+        <input type="text" id="rcCollectedBy" list="rcCollectedByList" value="${esc(f.collectedBy)}" style="text-transform:uppercase;">
+        <datalist id="rcCollectedByList">${lsGetList('collectedByList').map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+      </div>
+      <div class="field"><label>Designation</label>
+        <select id="rcDesignation">
+          <option value="">— Select —</option>
+          ${['Sales Officer','Merchandiser','ASM','ASE','RSM'].map(d=>`<option value="${d}" ${f.designation===d?'selected':''}>${d}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Verified By <span class="small-muted" style="text-transform:none;font-weight:400;">— remembered on this device until you clear cache</span></label>
+        <input type="text" id="rcVerifiedBy" list="rcVerifiedByList" value="${esc(f.verifiedBy)}" placeholder="Verifier's name" style="text-transform:uppercase;">
+        <datalist id="rcVerifiedByList">${lsGetList('verifiedByList').map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+      </div>
       <div class="field"><label>Submission Date</label><input type="date" id="rcSubDate" value="${f.submissionISO}"></div>
     </div>
     <div class="field" style="max-width:420px;">
@@ -1705,6 +1733,13 @@ function renderRateCheck(){
     </div>
 
     <div class="section-title">Products on this bill</div>
+    <div class="card" style="margin-bottom:12px;padding:11px 16px;font-size:12px;line-height:1.7;color:var(--ink-soft);">
+      <strong style="color:var(--ink);">How Status is decided:</strong> Diff (₹/kg) = Invoice Rate − Company Rate. Variance % = Diff ÷ Company Rate × 100.
+      &nbsp;<span class="badge negligible" style="vertical-align:middle;">Overcharge – Negligible</span> = variance is positive but <strong>under 1%</strong>.
+      &nbsp;<span class="badge over" style="vertical-align:middle;animation:none;">Overcharge</span> = variance is <strong>1% or more</strong>.
+      &nbsp;<span class="badge under" style="vertical-align:middle;">Undercharge</span> = invoice rate is below Company Rate (no negligible band).
+      Hover any <strong>Status</strong> badge below for that line's exact numbers.
+    </div>
     <div id="rcLineItems"></div>
     <button class="btn secondary small" id="rcAddLine" style="margin-top:10px;">+ Add product</button>
 
@@ -1723,7 +1758,11 @@ function renderRateCheck(){
     if(b){ f.beatCode = b.code; f.beatName = b.name; }
   });
   $all('#rcBillType .pill-opt').forEach(p=>p.addEventListener('click', ()=>{ f.billType=p.dataset.billtype; renderRateCheck(); }));
-  $('#rcRetailer').addEventListener('input', e=> f.retailer=e.target.value);
+  $('#rcRetailer').addEventListener('input', e=>{
+    const up = e.target.value.toUpperCase();
+    if(e.target.value!==up) e.target.value = up;
+    f.retailer = up;
+  });
   $('#rcBillNo').addEventListener('input', e=> f.billNo=e.target.value);
   $('#rcBillDate').addEventListener('change', e=>{ f.billDateISO=e.target.value; const q=$('#rcBillDateQuick'); if(q){ q.value=''; q.classList.remove('quick-ok','quick-bad'); } recomputeAllLineRates(); renderLineItems(); });
   const rcQuick = $('#rcBillDateQuick');
@@ -1742,8 +1781,21 @@ function renderRateCheck(){
       }
     }
   });
-  $('#rcCollectedBy').addEventListener('input', e=> f.collectedBy=e.target.value);
-  $('#rcVerifiedBy').addEventListener('input', e=> f.verifiedBy=e.target.value);
+  $('#rcCollectedBy').addEventListener('input', e=>{
+    const up = e.target.value.toUpperCase();
+    if(e.target.value!==up) e.target.value = up;
+    f.collectedBy = up;
+    lsSet('collectedBy', up);
+  });
+  $('#rcCollectedBy').addEventListener('change', e=>{ if(e.target.value.trim()) lsAddToList('collectedByList', e.target.value.trim()); });
+  $('#rcDesignation').addEventListener('change', e=>{ f.designation=e.target.value; lsSet('designation', e.target.value); });
+  $('#rcVerifiedBy').addEventListener('input', e=>{
+    const up = e.target.value.toUpperCase();
+    if(e.target.value!==up) e.target.value = up;
+    f.verifiedBy = up;
+    lsSet('verifiedBy', up);
+  });
+  $('#rcVerifiedBy').addEventListener('change', e=>{ if(e.target.value.trim()) lsAddToList('verifiedByList', e.target.value.trim()); });
   $('#rcSubDate').addEventListener('change', e=> f.submissionISO=e.target.value);
   const bcInput = $('#rcBillCopyInput');
   if(bcInput) bcInput.addEventListener('change', e=>{
@@ -1894,7 +1946,7 @@ function renderLineRow(li,i){
     </td>
     <td class="num" id="liDiff${i}" style="font-weight:700;color:${sColor};">${diff==null?'—':(diff>0?'+':'')+clamp2(diff)}</td>
     <td class="num" id="liPct${i}" style="font-weight:700;color:${sColor};">${pct==null?'—':(pct>0?'+':'')+pct+'%'}</td>
-    <td id="liStatus${i}">${statusBadge(status)}</td>
+    <td id="liStatus${i}">${statusBadge(status, statusExplain(li.companyRate, li.invoiceRate, diff, pct))}</td>
     <td class="num" id="liTotal${i}" style="font-weight:700;color:${sColor};">${total==null?'—':(total>0?'+':(total<0?'-':''))+'₹'+fmtMoney(Math.abs(total))}</td>
     <td><button class="icon-btn" id="liRemove${i}" title="Remove">✕</button></td>
   </tr>`;
@@ -1932,12 +1984,27 @@ function statusColor(status){
   if(status==='match') return 'var(--success)';
   return 'inherit';
 }
-function statusBadge(status){
+/* Builds a plain-English, numbers-shown explanation of why a line got its
+   status — this is what a verifier sees on hover, so "why is this Overcharge
+   and not Negligible" never has to be guessed at. */
+function statusExplain(companyRate, invoiceRate, d, pct){
+  if(d==null) return 'Enter an invoice rate to see the calculation.';
+  const rateLine = `Diff = Invoice Rate − Company Rate = ${fmtMoney(invoiceRate)} − ${fmtMoney(companyRate)} = ${d>0?'+':''}${clamp2(d)} ₹/kg`;
+  if(Math.abs(d)<0.004) return `${rateLine}\nExact match (0.00) → Match.`;
+  if(d>0){
+    const pctLine = `Variance = Diff ÷ Company Rate × 100 = ${clamp2(d)} ÷ ${fmtMoney(companyRate)} × 100 = ${pct}%`;
+    if(pct<1) return `${rateLine}\n${pctLine}\n${pct}% is BELOW the 1% negligible threshold → Overcharge – Negligible.`;
+    return `${rateLine}\n${pctLine}\n${pct}% is AT OR ABOVE the 1% threshold → Overcharge.`;
+  }
+  return `${rateLine}\nInvoice rate is below Company Rate → Undercharge. (Undercharge has no negligible band — any shortfall is flagged.)`;
+}
+function statusBadge(status, tooltip){
   if(!status) return '<span class="small-muted">—</span>';
-  if(status==='over') return '<span class="badge over">Overcharge</span>';
-  if(status==='negligible') return '<span class="badge negligible">Negligible</span>';
-  if(status==='under') return '<span class="badge under">Undercharge</span>';
-  return '<span class="badge match">Match</span>';
+  const t = tooltip ? ` title="${esc(tooltip)}"` : '';
+  if(status==='over') return `<span class="badge over"${t}>Overcharge</span>`;
+  if(status==='negligible') return `<span class="badge negligible"${t}>Overcharge – Negligible</span>`;
+  if(status==='under') return `<span class="badge under"${t}>Undercharge</span>`;
+  return `<span class="badge match"${t}>Match</span>`;
 }
 function updateLineDiff(i){
   const f = STATE.billForm;
@@ -1959,7 +2026,7 @@ function updateLineDiff(i){
     pctCell.textContent = pct==null?'—':(pct>0?'+':'')+pct+'%';
     pctCell.style.color = sColor;
   }
-  if(statusCell) statusCell.innerHTML = statusBadge(status);
+  if(statusCell) statusCell.innerHTML = statusBadge(status, statusExplain(li.companyRate, li.invoiceRate, d, pct));
   if(totalCell){
     totalCell.textContent = total==null?'—':(total>0?'+':(total<0?'-':''))+'₹'+fmtMoney(Math.abs(total));
     totalCell.style.color = sColor;
@@ -1968,19 +2035,76 @@ function updateLineDiff(i){
 }
 
 
+/* ---- Typo-tolerant product search ---- */
+function levenshtein(a, b){
+  if(a===b) return 0;
+  const al=a.length, bl=b.length;
+  if(al===0) return bl;
+  if(bl===0) return al;
+  let prev = new Array(bl+1), curr = new Array(bl+1);
+  for(let j=0;j<=bl;j++) prev[j]=j;
+  for(let i=1;i<=al;i++){
+    curr[0]=i;
+    for(let j=1;j<=bl;j++){
+      const cost = a.charCodeAt(i-1)===b.charCodeAt(j-1) ? 0 : 1;
+      curr[j] = Math.min(prev[j]+1, curr[j-1]+1, prev[j-1]+cost);
+    }
+    const tmp = prev; prev = curr; curr = tmp;
+  }
+  return prev[bl];
+}
+/* Scores how well a (possibly misspelled) query matches a target string.
+   Exact substring wins outright; otherwise each query word is matched
+   against the target's words allowing a small, length-scaled edit distance,
+   so a typo like "sharbti" still finds "SHARBATI". */
+function fuzzyScore(query, target){
+  if(!query || !target) return 0;
+  if(target.includes(query)) return 1000 - Math.min(200, target.length - query.length);
+  const qWords = query.split(/\s+/).filter(Boolean);
+  const tWords = target.split(/\s+/).filter(Boolean);
+  if(!qWords.length) return 0;
+  let total = 0;
+  qWords.forEach(qw=>{
+    let best = 0;
+    tWords.forEach(tw=>{
+      if(tw.includes(qw)) best = Math.max(best, 70);
+      else if(qw.length>=3 && qw.includes(tw)) best = Math.max(best, 45);
+      else{
+        const allowed = qw.length<=4 ? 1 : (qw.length<=7 ? 2 : 3);
+        const dist = levenshtein(qw, tw);
+        if(dist<=allowed) best = Math.max(best, 55 - dist*12);
+      }
+    });
+    total += best;
+  });
+  return qWords.length ? total/qWords.length : 0;
+}
 function showProductResults(i, q){
   const f = STATE.billForm;
   const resultsDiv = $(`#liResults${i}`);
   if(!f.location){ resultsDiv.innerHTML = `<div class="combo-results"><div class="combo-empty">Pick a DB first so we know the location</div></div>`; return; }
   if(!q){ resultsDiv.innerHTML=''; return; }
   const billDate = isoToDMYDate(f.billDateISO);
-  const ql = q.toLowerCase();
+  const qNorm = q.toUpperCase().trim().replace(/\s+/g,' ');
   let pool = STATE.rateRows.filter(r=> r.location===f.location && r.effDate<=billDate);
   // keep only the latest effective row per product code
   const latestByCode = {};
   pool.forEach(r=>{ if(!latestByCode[r.productCode] || r.effDate>latestByCode[r.productCode].effDate) latestByCode[r.productCode]=r; });
-  let hits = Object.values(latestByCode).filter(r=> r.productName.toLowerCase().includes(ql) || r.productCode.includes(q));
-  hits = hits.slice(0,25);
+  const candidates = Object.values(latestByCode);
+  const codeNorm = q.trim();
+  const scored = candidates.map(r=>{
+    const nameU = r.productName.toUpperCase();
+    const skuU = String(r.sku||'').toUpperCase();
+    const codeU = String(r.productCode||'');
+    let score = 0;
+    if(codeU===codeNorm) score = 5000;
+    else if(codeNorm.length>=3 && codeU.includes(codeNorm)) score = 800;
+    score = Math.max(score, fuzzyScore(qNorm, nameU));
+    score = Math.max(score, fuzzyScore(qNorm, skuU) * 0.85);
+    return {r, score};
+  }).filter(x=>x.score>=30);
+  scored.sort((a,b)=> b.score-a.score);
+  const hits = scored.slice(0,25).map(x=>x.r);
   if(!hits.length){ resultsDiv.innerHTML = `<div class="combo-results"><div class="combo-empty">No product matches "${esc(q)}" for ${esc(f.location)} on this bill date</div></div>`; return; }
   resultsDiv.innerHTML = `<div class="combo-results">${hits.map(h=>{
     const u = STATE.uomMap[h.productCode];
@@ -2028,16 +2152,18 @@ function saveBill(){
       sl: BILL_SEQ++, billUid,
       dbCode: f.dbCode, dbName: f.dbName, pg: f.pg, location: f.location,
       beatCode: f.beatCode, beatName: f.beatName, so: f.so, asm: f.asm, rsm: f.rsm, dbActive: f.active,
-      billType: f.billType, retailer: f.retailer, billNo: f.billNo, billDateStr: fmtDMY(billDate),
+      billType: f.billType, retailer: (f.retailer||'').toUpperCase(), billNo: (f.billNo||'').toUpperCase(), billDateStr: fmtDMY(billDate),
       productName: li.productName, productCode: li.productCode, sku: li.sku, category: li.category,
       companyRate: li.companyRate, invoiceRate: Number(li.invoiceRate), gstPct: li.gstPct,
       diff, pct, status, qty, uom, qtyKg, chargeAmt,
       overchargeAmt: status==='over' ? chargeAmt : 0,
       underchargeAmt: status==='under' ? clamp2(Math.abs(chargeAmt)) : 0,
       negligibleAmt: status==='negligible' ? chargeAmt : 0,
-      collectedBy: f.collectedBy, verifiedBy: f.verifiedBy, submissionStr: fmtDMY(subDate),
+      collectedBy: (f.collectedBy||'').toUpperCase(), designation: f.designation, verifiedBy: (f.verifiedBy||'').toUpperCase(), submissionStr: fmtDMY(subDate),
     });
   });
+  if(f.collectedBy && f.collectedBy.trim()) lsAddToList('collectedByList', f.collectedBy.trim());
+  if(f.verifiedBy && f.verifiedBy.trim()) lsAddToList('verifiedByList', f.verifiedBy.trim());
   toast(`Saved bill with ${validLines.length} product line(s)`, 'ok');
   const keepHeader = { ...f, lineItems: [] };
   keepHeader.retailer=''; keepHeader.billNo=''; keepHeader.lineItems=[emptyLineItem()]; keepHeader.billCopy=null;
@@ -2127,7 +2253,7 @@ function renderReportTable(){
     <div class="stat-card danger"><div class="stat-label">Overcharge (≥1%) · ₹${fmtMoney(overAmt)}</div><div class="stat-value" id="cuOverLines">0</div><div class="stat-note">lines overcharged</div></div>
     <div class="stat-card warn"><div class="stat-label">Undercharge · ₹${fmtMoney(underAmt)}</div><div class="stat-value" id="cuUnderLines">0</div><div class="stat-note">lines undercharged</div></div>
     <div class="stat-card success"><div class="stat-label">Matched lines</div><div class="stat-value" id="cuMatchLines">0</div></div>
-    <div class="stat-card" style="border-color:var(--negligible);"><div class="stat-label" style="color:var(--negligible);">Negligible (&lt;1%)</div><div class="stat-value" id="cuNegLines" style="color:var(--negligible);">0</div><div class="stat-note">not counted as overcharge</div></div>
+    <div class="stat-card" style="border-color:var(--negligible);"><div class="stat-label" style="color:var(--negligible);">Overcharge – Negligible (&lt;1%)</div><div class="stat-value" id="cuNegLines" style="color:var(--negligible);">0</div><div class="stat-note">not counted as overcharge</div></div>
   </div>`;
   countUp($('#cuLinesShown'), rows.length);
   countUp($('#cuOverLines'), overRows.length);
@@ -2145,7 +2271,7 @@ function renderReportTable(){
       <th class="num">Variance<br><span style="text-transform:none;">% of rate</span></th>
       <th>Quantity</th>
       <th>Status</th><th class="num">Overcharge Amt</th><th class="num">Undercharge Amt</th>
-      <th>Bill Copy</th><th>Collected By</th><th>Verified By</th><th>Submitted</th><th></th>
+      <th>Bill Copy</th><th>Collected By</th><th>Designation</th><th>Verified By</th><th>Submitted</th><th></th>
     </tr></thead>
     <tbody>${rows.map((b,idx)=>{ const sColor = statusColor(b.status); return `<tr class="${b.status==='over'?'row-over':''}">
       <td>${b.sl}</td><td style="font-family:var(--font-mono);">${esc(b.dbCode)}</td><td class="wrap">${esc(b.dbName)}</td><td>${esc(b.location)}</td>
@@ -2158,11 +2284,11 @@ function renderReportTable(){
       <td class="num" style="font-weight:700;color:${sColor};">${b.diff>0?'+':''}${clamp2(b.diff)}</td>
       <td class="num" style="font-weight:700;color:${sColor};">${b.pct==null?'—':(b.pct>0?'+':'')+b.pct+'%'}</td>
       <td style="font-family:var(--font-mono);">${esc(qtyDisplay(b))}</td>
-      <td>${statusBadge(b.status)}</td>
+      <td>${statusBadge(b.status, statusExplain(b.companyRate, b.invoiceRate, b.diff, b.pct))}</td>
       <td class="num" style="font-weight:700;color:var(--danger);">${b.status==='over'?'₹'+fmtMoney(b.overchargeAmt):'—'}</td>
       <td class="num" style="font-weight:700;color:var(--warn);">${b.status==='under'?'₹'+fmtMoney(b.underchargeAmt):'—'}</td>
       <td>${billCopyCell(b)}</td>
-      <td>${esc(b.collectedBy||'—')}</td><td>${esc(b.verifiedBy||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.submissionStr)}</td>
+      <td>${esc(b.collectedBy||'—')}</td><td>${esc(b.designation||'—')}</td><td>${esc(b.verifiedBy||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.submissionStr)}</td>
       <td><button class="icon-btn" data-del-bill="${b.sl}" title="Delete line">✕</button></td>
     </tr>`; }).join('')}</tbody>
   </table></div>`;
@@ -2238,6 +2364,7 @@ async function exportExcelPro(){
       {header:'Undercharge Amt', key:'underchargeAmt', width:16},
       {header:'Bill Copy', key:'billCopy', width:13},
       {header:'Collected By', key:'collectedBy', width:20},
+      {header:'Designation', key:'designation', width:16},
       {header:'Verified By', key:'verifiedBy', width:20},
       {header:'Submission Date', key:'submissionStr', width:15},
     ];
@@ -2288,7 +2415,7 @@ async function exportExcelPro(){
     const billCopyColIdx = cols.findIndex(c=>c.key==='billCopy');
     const EMBEDDABLE_EXT = {jpg:'jpeg', jpeg:'jpeg', png:'png', gif:'gif'};
     rows.forEach(b=>{
-      const statusLabel = b.status==='over'?'OVERCHARGE':(b.status==='negligible'?'NEGLIGIBLE':(b.status==='under'?'UNDERCHARGE':'MATCH'));
+      const statusLabel = b.status==='over'?'OVERCHARGE':(b.status==='negligible'?'OVERCHARGE - NEGLIGIBLE':(b.status==='under'?'UNDERCHARGE':'MATCH'));
       const dbStatusLabel = b.dbActive ? (isInactiveStatus(b.dbActive)?'INACTIVE':'ACTIVE') : '';
       const row = ws.getRow(r);
       const bf = STATE.billFiles[b.billUid];
@@ -2300,7 +2427,7 @@ async function exportExcelPro(){
         invoiceRate:b.invoiceRate, diff:b.diff, pctLabel: b.pct==null?'':((b.pct>0?'+':'')+b.pct+'%'), statusLabel, qty:b.qty||'', uom:b.uom||'KG', qtyKg:b.qtyKg||'',
         overchargeAmt: b.status==='over' ? (b.overchargeAmt||0) : '',
         underchargeAmt: b.status==='under' ? (b.underchargeAmt||0) : '',
-        billCopy: '', collectedBy:b.collectedBy||'', verifiedBy:b.verifiedBy||'', submissionStr:b.submissionStr,
+        billCopy: '', collectedBy:b.collectedBy||'', designation:b.designation||'', verifiedBy:b.verifiedBy||'', submissionStr:b.submissionStr,
       };
       cols.forEach((c,i)=>{ if(c.key!=='billCopy') row.getCell(i+1).value = vals[c.key]; });
       let photoEmbedded = false;
