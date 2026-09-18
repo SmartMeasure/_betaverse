@@ -147,7 +147,7 @@ function renderLogin(errorMsg){
           <div><h1 style="font-size:19px;">Rate Ledger</h1><p class="small-muted" style="margin-top:2px;">Dashboard sign-in</p></div>
         </div>
         <div class="field"><label>User Code</label><input type="text" id="loginCode" style="text-transform:uppercase;"></div>
-        <div class="field"><label>Password</label><input type="password" id="loginPassword"></div>
+        <div class="field"><label>PIN</label><input type="password" id="loginPin"></div>
         ${errorMsg ? `<p style="color:var(--danger);font-size:12.5px;margin:-6px 0 12px;">${esc(errorMsg)}</p>` : ''}
         <button class="btn accent wide" id="loginBtn">Log In</button>
       </div>
@@ -155,17 +155,17 @@ function renderLogin(errorMsg){
   `;
   const doLogin = async ()=>{
     const code = $('#loginCode').value.trim();
-    const password = $('#loginPassword').value;
-    if(!code || !password){ renderLogin('Enter both User Code and Password.'); return; }
+    const pin = $('#loginPin').value;
+    if(!code || !pin){ renderLogin('Enter both User Code and PIN.'); return; }
     const btn = $('#loginBtn'); btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Signing in…';
     try{
-      const res = await backendPost({ action:'login', code, password });
-      if(res.ok){ setSession({code:res.code, password, name:res.name, role:res.role, designation:res.designation}); boot(); }
+      const res = await backendPost({ action:'login', code, pin });
+      if(res.ok){ setSession({code:res.code, pin, name:res.name, role:res.role, designation:res.designation}); boot(); }
       else renderLogin(res.error || 'Login failed.');
     }catch(e){ renderLogin('Could not reach the server — check your connection.'); }
   };
   $('#loginBtn').addEventListener('click', doLogin);
-  $('#loginPassword').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  $('#loginPin').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
   $('#loginCode').focus();
 }
 function logout(){ clearSession(); boot(); }
@@ -175,7 +175,9 @@ let ACTIVE_TAB = null;
 function renderShell(){
   const s = getSession();
   const tabs = s.role==='Admin'
-    ? [{id:'analytics',label:'Analytics'},{id:'submissions',label:'All Submissions'},{id:'users',label:'Manage Users'},{id:'verifiers',label:'Manage Verifiers'}]
+    ? [{id:'analytics',label:'Analytics'},{id:'submissions',label:'All Submissions'},{id:'users',label:'Manage Users'}]
+    : s.role==='Verifier'
+    ? [{id:'myverified',label:'Bills I Verified'}]
     : [{id:'mydata',label:'My Data'}];
   if(!ACTIVE_TAB || !tabs.find(t=>t.id===ACTIVE_TAB)) ACTIVE_TAB = tabs[0].id;
   $('#app').innerHTML = `
@@ -194,8 +196,30 @@ function renderShell(){
   `;
   $('#logoutBtn').addEventListener('click', logout);
   $all('.tab-btn').forEach(b=>b.addEventListener('click', ()=>{ ACTIVE_TAB=b.dataset.tab; renderShell(); }));
-  const renderers = { analytics:renderAnalytics, submissions:renderSubmissions, users:renderUsers, verifiers:renderVerifiers, mydata:renderMyData };
+  const renderers = { analytics:renderAnalytics, submissions:renderSubmissions, users:renderUsers, mydata:renderMyData, myverified:renderMyVerified };
   (renderers[ACTIVE_TAB]||(()=>{}))();
+}
+
+/* ==================== Shared date-range filter bar ====================
+   Used by Analytics, All Submissions, My Data and Bills I Verified alike —
+   filters by the BILL's own date (not when it was submitted), inclusive
+   on both ends. Leaving both blank means "all time". */
+function dateRangeBarHtml(idPrefix, fromVal, toVal){
+  return `
+    <div class="filterbar">
+      <div class="field"><label>From</label><input type="date" id="${idPrefix}From" value="${fromVal||''}"></div>
+      <div class="field"><label>To</label><input type="date" id="${idPrefix}To" value="${toVal||''}"></div>
+      <button class="btn" id="${idPrefix}Clear">Clear (All Time)</button>
+    </div>
+  `;
+}
+function wireDateRangeBar(idPrefix, onChange){
+  $(`#${idPrefix}From`).addEventListener('change', onChange);
+  $(`#${idPrefix}To`).addEventListener('change', onChange);
+  $(`#${idPrefix}Clear`).addEventListener('click', ()=>{
+    $(`#${idPrefix}From`).value=''; $(`#${idPrefix}To`).value='';
+    onChange();
+  });
 }
 
 /* ==================== ANALYTICS (Admin) ==================== */
@@ -204,18 +228,16 @@ function destroyCharts(){ chartInstances.forEach(c=>c.destroy()); chartInstances
 
 async function renderAnalytics(){
   const body = $('#tabBody');
-  const month = window.__analyticsMonth || currentMonth();
   body.innerHTML = `
-    <div class="filterbar">
-      <div class="field"><label>Month</label><input type="month" id="anMonth" value="${month}"></div>
-      <button class="btn" id="anAllTime">All Time</button>
-    </div>
+    ${dateRangeBarHtml('an', window.__anFrom, window.__anTo)}
     <div id="anContent"><div class="empty-state">Loading analytics…</div></div>
   `;
-  $('#anMonth').addEventListener('change', e=>{ window.__analyticsMonth = e.target.value; window.__analyticsAllTime=false; renderAnalytics(); });
-  $('#anAllTime').addEventListener('click', ()=>{ window.__analyticsAllTime = true; renderAnalytics(); });
+  wireDateRangeBar('an', ()=>{
+    window.__anFrom = $('#anFrom').value; window.__anTo = $('#anTo').value;
+    renderAnalytics();
+  });
   const s = getSession();
-  const res = await backendGet({ action:'alldata', code:s.code, password:s.password, month: window.__analyticsAllTime ? '' : month });
+  const res = await backendGet({ action:'alldata', code:s.code, pin:s.pin, fromDate: window.__anFrom||'', toDate: window.__anTo||'' });
   if(!res.ok){ $('#anContent').innerHTML = `<div class="empty-state">${esc(res.error||'Could not load data.')}</div>`; return; }
   const rows = res.rows;
   renderAnalyticsContent(rows);
@@ -297,19 +319,19 @@ function renderAnalyticsContent(rows){
 /* ==================== ALL SUBMISSIONS (Admin) ==================== */
 async function renderSubmissions(){
   const body = $('#tabBody');
-  const month = window.__subMonth || currentMonth();
   body.innerHTML = `
-    <div class="filterbar">
-      <div class="field"><label>Month</label><input type="month" id="subMonth" value="${month}"></div>
-      <button class="btn" id="subAllTime">All Time</button>
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+      ${dateRangeBarHtml('sub', window.__subFrom, window.__subTo)}
       <button class="btn accent" id="subExport" style="margin-left:auto;">⬇ Export Excel</button>
     </div>
     <div id="subContent"><div class="empty-state">Loading…</div></div>
   `;
-  $('#subMonth').addEventListener('change', e=>{ window.__subMonth=e.target.value; window.__subAllTime=false; renderSubmissions(); });
-  $('#subAllTime').addEventListener('click', ()=>{ window.__subAllTime=true; renderSubmissions(); });
+  wireDateRangeBar('sub', ()=>{
+    window.__subFrom = $('#subFrom').value; window.__subTo = $('#subTo').value;
+    renderSubmissions();
+  });
   const s = getSession();
-  const res = await backendGet({ action:'alldata', code:s.code, password:s.password, month: window.__subAllTime ? '' : month });
+  const res = await backendGet({ action:'alldata', code:s.code, pin:s.pin, fromDate: window.__subFrom||'', toDate: window.__subTo||'' });
   if(!res.ok){ $('#subContent').innerHTML = `<div class="empty-state">${esc(res.error||'Could not load data.')}</div>`; return; }
   window.__subRows = res.rows;
   renderSubmissionsTable(res.rows);
@@ -347,8 +369,8 @@ async function renderUsers(){
         <div class="section-title">Add New User</div>
         <div class="field"><label>User Code</label><input type="text" id="nuCode" style="text-transform:uppercase;"></div>
         <div class="field"><label>Name</label><input type="text" id="nuName" style="text-transform:uppercase;"></div>
-        <div class="field"><label>Password</label><input type="text" id="nuPassword"></div>
-        <div class="field"><label>Role</label><select id="nuRole"><option value="Auditor">Auditor</option><option value="Admin">Admin</option></select></div>
+        <div class="field"><label>PIN</label><input type="text" id="nuPin"></div>
+        <div class="field"><label>Role</label><select id="nuRole"><option value="Auditor">Auditor</option><option value="Verifier">Verifier</option><option value="Admin">Admin</option></select></div>
         <div class="field"><label>Designation</label><select id="nuDesignation">
           <option value="">— None —</option>
           ${['Sales Officer','Merchandiser','ASM','ASE','RSM'].map(d=>`<option value="${d}">${d}</option>`).join('')}
@@ -367,7 +389,7 @@ async function renderUsers(){
 }
 async function loadUsersList(){
   const s = getSession();
-  const res = await backendGet({ action:'users', code:s.code, password:s.password });
+  const res = await backendGet({ action:'users', code:s.code, pin:s.pin });
   const el = $('#usersList');
   if(!res.ok){ el.innerHTML = `<div class="empty-state">${esc(res.error)}</div>`; return; }
   if(!res.users.length){ el.innerHTML = '<div class="empty-state">No users yet.</div>'; return; }
@@ -378,87 +400,83 @@ async function loadUsersList(){
       <td><span class="badge ${u.active?'active':'inactive'}">${u.active?'Active':'Inactive'}</span></td>
       <td style="display:flex;gap:6px;">
         <button class="btn small" data-toggle="${esc(u.code)}" data-active="${u.active}">${u.active?'Deactivate':'Activate'}</button>
-        <button class="btn small" data-reset="${esc(u.code)}">Reset PW</button>
+        <button class="btn small" data-reset="${esc(u.code)}">Reset PIN</button>
       </td>
     </tr>`).join('')}</tbody>
   </table></div>`;
   $all('[data-toggle]', el).forEach(b=>b.addEventListener('click', async ()=>{
     const s = getSession();
-    const res = await backendPost({ action:'toggleuser', code:s.code, password:s.password, targetCode:b.dataset.toggle, active: b.dataset.active!=='true' });
+    const res = await backendPost({ action:'toggleuser', code:s.code, pin:s.pin, targetCode:b.dataset.toggle, active: b.dataset.active!=='true' });
     if(res.ok){ toast('Updated', 'ok'); loadUsersList(); } else toast(res.error, 'err');
   }));
   $all('[data-reset]', el).forEach(b=>b.addEventListener('click', async ()=>{
-    const pw = prompt('New password for '+b.dataset.reset+':');
-    if(!pw) return;
+    const pin = prompt('New PIN for '+b.dataset.reset+':');
+    if(!pin) return;
     const s = getSession();
-    const res = await backendPost({ action:'resetpassword', code:s.code, password:s.password, targetCode:b.dataset.reset, newPassword:pw });
-    if(res.ok) toast('Password reset', 'ok'); else toast(res.error, 'err');
+    const res = await backendPost({ action:'resetpin', code:s.code, pin:s.pin, targetCode:b.dataset.reset, newPin:pin });
+    if(res.ok) toast('PIN reset', 'ok'); else toast(res.error, 'err');
   }));
 }
 async function addUserHandler(){
   const s = getSession();
-  const newUser = { code:$('#nuCode').value.trim(), name:$('#nuName').value.trim(), password:$('#nuPassword').value, role:$('#nuRole').value, designation:$('#nuDesignation').value };
+  const newUser = { code:$('#nuCode').value.trim(), name:$('#nuName').value.trim(), pin:$('#nuPin').value, role:$('#nuRole').value, designation:$('#nuDesignation').value };
   $('#nuErr').textContent = '';
-  const res = await backendPost({ action:'adduser', code:s.code, password:s.password, newUser });
-  if(res.ok){ toast('User added', 'ok'); $('#nuCode').value=''; $('#nuName').value=''; $('#nuPassword').value=''; loadUsersList(); }
+  const res = await backendPost({ action:'adduser', code:s.code, pin:s.pin, newUser });
+  if(res.ok){ toast('User added', 'ok'); $('#nuCode').value=''; $('#nuName').value=''; $('#nuPin').value=''; loadUsersList(); }
   else $('#nuErr').textContent = res.error;
 }
 
-/* ==================== MANAGE VERIFIERS (Admin) ==================== */
-async function renderVerifiers(){
+/* ==================== BILLS I VERIFIED (Verifier) ==================== */
+async function renderMyVerified(){
   const body = $('#tabBody');
   body.innerHTML = `
-    <div class="grid grid-2">
-      <div class="card">
-        <div class="section-title">Add Verifier</div>
-        <div class="field"><label>Name</label><input type="text" id="nvName" style="text-transform:uppercase;"></div>
-        <button class="btn accent wide" id="nvAdd">Add Verifier</button>
-        <p class="small-muted" id="nvErr" style="color:var(--danger);margin-top:8px;"></p>
-      </div>
-      <div class="card">
-        <div class="section-title">Existing Verifiers</div>
-        <div id="verifiersList"><div class="empty-state">Loading…</div></div>
-      </div>
-    </div>
+    ${dateRangeBarHtml('mv', window.__mvFrom, window.__mvTo)}
+    <div id="mvContent"><div class="empty-state">Loading…</div></div>
   `;
-  $('#nvAdd').addEventListener('click', async ()=>{
-    const s = getSession();
-    const name = $('#nvName').value.trim();
-    if(!name){ $('#nvErr').textContent = 'Name is required.'; return; }
-    const res = await backendPost({ action:'addverifier', code:s.code, password:s.password, name });
-    if(res.ok){ toast('Verifier added', 'ok'); $('#nvName').value=''; loadVerifiersList(); }
-    else $('#nvErr').textContent = res.error;
+  wireDateRangeBar('mv', ()=>{
+    window.__mvFrom = $('#mvFrom').value; window.__mvTo = $('#mvTo').value;
+    renderMyVerified();
   });
-  await loadVerifiersList();
-}
-async function loadVerifiersList(){
-  const res = await backendGet({ action:'verifiers' });
-  const el = $('#verifiersList');
+  const s = getSession();
+  const res = await backendGet({ action:'myverifieddata', code:s.code, pin:s.pin, fromDate: window.__mvFrom||'', toDate: window.__mvTo||'' });
+  const el = $('#mvContent');
   if(!res.ok){ el.innerHTML = `<div class="empty-state">${esc(res.error)}</div>`; return; }
-  if(!res.verifiers.length){ el.innerHTML = '<div class="empty-state">No verifiers yet.</div>'; return; }
-  el.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Name</th><th></th></tr></thead>
-    <tbody>${res.verifiers.map(v=>`<tr><td>${esc(v)}</td><td><button class="btn small" data-deact="${esc(v)}">Deactivate</button></td></tr>`).join('')}</tbody>
-  </table></div>`;
-  $all('[data-deact]', el).forEach(b=>b.addEventListener('click', async ()=>{
-    const s = getSession();
-    const res = await backendPost({ action:'toggleverifier', code:s.code, password:s.password, name:b.dataset.deact, active:false });
-    if(res.ok){ toast('Deactivated', 'ok'); loadVerifiersList(); } else toast(res.error, 'err');
-  }));
+  const rows = res.rows;
+  const over = rows.filter(r=>r.Status==='over');
+  const under = rows.filter(r=>r.Status==='under');
+  const neg = rows.filter(r=>r.Status==='negligible');
+  el.innerHTML = `
+    <div class="grid grid-4" style="margin-bottom:18px;">
+      <div class="stat-card"><div class="stat-label">Lines Verified</div><div class="stat-value">${fmtInt(rows.length)}</div></div>
+      <div class="stat-card"><div class="stat-label">Overcharge</div><div class="stat-value" style="color:var(--danger);">${fmtInt(over.length)}</div></div>
+      <div class="stat-card"><div class="stat-label">Undercharge</div><div class="stat-value" style="color:var(--warn);">${fmtInt(under.length)}</div></div>
+      <div class="stat-card"><div class="stat-label">Negligible</div><div class="stat-value" style="color:var(--negligible);">${fmtInt(neg.length)}</div></div>
+    </div>
+    ${!rows.length ? '<div class="empty-state">No bills verified against your name in this period yet.</div>' : `
+    <div class="table-wrap"><table>
+      <thead><tr><th>Bill Date</th><th>Retailer</th><th>Product</th><th>Collected By</th><th class="num">Company Rate</th><th class="num">Invoice Rate</th><th>Status</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr>
+        <td>${esc(r.BillDate)}</td><td>${esc(r.Retailer)}</td><td>${esc(r.ProductName)}</td><td>${esc(r.CollectedBy)}</td>
+        <td class="num">${fmtMoney(r.CompanyRate)}</td><td class="num">${fmtMoney(r.InvoiceRate)}</td>
+        <td>${statusBadge(r.Status)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`}
+  `;
 }
 
 /* ==================== MY DATA (Auditor) ==================== */
 async function renderMyData(){
   const body = $('#tabBody');
-  const month = window.__myMonth || currentMonth();
   body.innerHTML = `
-    <div class="filterbar">
-      <div class="field"><label>Month</label><input type="month" id="myMonth" value="${month}"></div>
-    </div>
+    ${dateRangeBarHtml('my', window.__myFrom, window.__myTo)}
     <div id="myContent"><div class="empty-state">Loading…</div></div>
   `;
-  $('#myMonth').addEventListener('change', e=>{ window.__myMonth=e.target.value; renderMyData(); });
+  wireDateRangeBar('my', ()=>{
+    window.__myFrom = $('#myFrom').value; window.__myTo = $('#myTo').value;
+    renderMyData();
+  });
   const s = getSession();
-  const res = await backendGet({ action:'mydata', code:s.code, password:s.password, month });
+  const res = await backendGet({ action:'mydata', code:s.code, pin:s.pin, fromDate: window.__myFrom||'', toDate: window.__myTo||'' });
   const el = $('#myContent');
   if(!res.ok){ el.innerHTML = `<div class="empty-state">${esc(res.error)}</div>`; return; }
   const rows = res.rows;
@@ -472,7 +490,7 @@ async function renderMyData(){
       <div class="stat-card"><div class="stat-label">Undercharge</div><div class="stat-value" style="color:var(--warn);">${fmtInt(under.length)}</div></div>
       <div class="stat-card"><div class="stat-label">Negligible</div><div class="stat-value" style="color:var(--negligible);">${fmtInt(neg.length)}</div></div>
     </div>
-    ${!rows.length ? '<div class="empty-state">No submissions for this month yet.</div>' : `
+    ${!rows.length ? '<div class="empty-state">No submissions in this period yet.</div>' : `
     <div class="table-wrap"><table>
       <thead><tr><th>Bill Date</th><th>Retailer</th><th>Product</th><th class="num">Company Rate</th><th class="num">Invoice Rate</th><th>Status</th><th>Verified By</th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
