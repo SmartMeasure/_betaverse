@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rate Ledger — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --void:#FFFFFF; --panel:#FFFFFF; --panel-2:#F4F5F7; --panel-3:#E7E9EC;
+  --edge:rgba(10,10,15,0.14); --edge-soft:rgba(10,10,15,0.07);
+  --ink:#12131A; --ink-soft:#53555C; --ink-faint:#8B8D93;
+  --accent:#101114; --accent-soft:rgba(16,17,20,0.08);
+  --danger:#D6234B; --danger-soft:rgba(214,35,75,0.12);
+  --success:#0FA86B; --success-soft:rgba(15,168,107,0.12);
+  --warn:#B9791A; --warn-soft:rgba(185,121,26,0.14);
+  --negligible:#2A5FD9; --negligible-soft:rgba(42,95,217,0.10);
+  --radius:8px; --radius-sm:4px;
+  --font-display:'Space Grotesk','Segoe UI',sans-serif;
+  --font-body:'IBM Plex Sans',-apple-system,sans-serif;
+  --font-mono:'JetBrains Mono','SF Mono',monospace;
+  --shadow-card: 0 0 0 1px rgba(10,10,15,0.08), 0 10px 26px rgba(10,10,15,0.10);
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{font-family:var(--font-body);color:var(--ink);background:var(--panel-2);min-height:100vh;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;}
+h1,h2,h3{font-family:var(--font-display);font-weight:600;margin:0;color:var(--ink);}
+#app{max-width:1320px;margin:0 auto;padding:0 24px 60px;}
+.topbar{padding:26px 0 18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;}
+.brand{display:flex;align-items:center;gap:12px;}
+.brand-mark{width:42px;height:42px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:16px;background:var(--panel-3);border:1px solid var(--edge);}
+.brand-text h1{font-size:20px;}
+.brand-text p{margin:2px 0 0;font-size:12px;color:var(--ink-soft);}
+.status-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--edge);border-radius:100px;background:var(--panel);font-size:11.5px;color:var(--ink-soft);}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--success);}
+.tabstrip{display:flex;gap:4px;border-bottom:1px solid var(--edge);margin-bottom:22px;flex-wrap:wrap;}
+.tab-btn{font-family:var(--font-body);font-weight:600;font-size:13px;color:var(--ink-soft);background:transparent;border:none;padding:10px 16px;border-radius:8px 8px 0 0;cursor:pointer;}
+.tab-btn.active{color:var(--ink);background:var(--panel-3);}
+.card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);padding:18px 20px;}
+.grid{display:grid;gap:16px;}
+.grid-4{grid-template-columns:repeat(4,1fr);}
+.grid-2{grid-template-columns:1fr 1fr;}
+@media (max-width:900px){.grid-4{grid-template-columns:repeat(2,1fr);}.grid-2{grid-template-columns:1fr;}}
+.stat-card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);padding:16px 18px;}
+.stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);font-weight:600;}
+.stat-value{font-family:var(--font-mono);font-size:26px;font-weight:600;margin-top:6px;}
+.stat-note{font-size:11.5px;color:var(--ink-faint);margin-top:4px;}
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin-bottom:5px;}
+.field input,.field select{width:100%;padding:9px 11px;border:1px solid var(--edge);border-radius:var(--radius-sm);background:var(--panel);color:var(--ink);font-size:13.5px;}
+.field input:focus,.field select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+.btn{padding:9px 16px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;border:1px solid var(--edge);background:var(--panel-3);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
+.btn:hover{border-color:var(--accent);}
+.btn.accent{background:var(--accent);color:#fff;border-color:transparent;font-weight:700;}
+.btn.danger{background:var(--danger);color:#fff;border-color:transparent;}
+.btn.small{padding:6px 11px;font-size:12px;}
+.btn.wide{width:100%;justify-content:center;}
+.btn:disabled{opacity:.5;cursor:not-allowed;}
+table{width:100%;border-collapse:collapse;font-size:12.5px;}
+.table-wrap{overflow-x:auto;border:1px solid var(--edge);border-radius:var(--radius);}
+thead th{text-align:left;padding:9px 11px;background:var(--panel-3);color:var(--ink-soft);font-weight:600;font-size:10.8px;text-transform:uppercase;white-space:nowrap;}
+tbody td{padding:8px 11px;border-bottom:1px solid var(--edge-soft);white-space:nowrap;}
+tbody tr:last-child td{border-bottom:none;}
+td.num{font-family:var(--font-mono);text-align:right;}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:100px;font-size:10.8px;font-weight:600;}
+.badge.over{background:var(--danger-soft);color:var(--danger);}
+.badge.negligible{background:var(--negligible-soft);color:var(--negligible);}
+.badge.under{background:var(--warn-soft);color:var(--warn);}
+.badge.match{background:var(--success-soft);color:var(--success);}
+.badge.active{background:var(--success-soft);color:var(--success);}
+.badge.inactive{background:var(--danger-soft);color:var(--danger);}
+.divider{height:1px;background:var(--edge);margin:20px 0;}
+.small-muted{font-size:11.5px;color:var(--ink-faint);}
+.section-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin:0 0 12px;}
+.empty-state{padding:40px 20px;text-align:center;color:var(--ink-faint);}
+.toast-wrap{position:fixed;bottom:20px;right:20px;z-index:200;display:flex;flex-direction:column;gap:8px;}
+.toast{background:var(--ink);color:#fff;padding:11px 16px;border-radius:var(--radius-sm);font-size:13px;box-shadow:0 10px 26px rgba(0,0,0,.25);}
+.toast.err{background:var(--danger);}
+.toast.ok{background:var(--success);}
+.chart-card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);padding:18px 20px;}
+.chart-card h3{font-size:13px;margin-bottom:14px;}
+.filterbar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px;}
+.filterbar .field{margin-bottom:0;min-width:150px;}
+.loader{width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:inline-block;}
+@keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+/* ---------------- Backend config ----------------
+   Same Web App URL as your Rate Ledger app — paste it here too. */
+const WEB_APP_URL = 'PASTE_YOUR_WEB_APP_URL_HERE';
+
+/* Shared session with the Rate Ledger app: if this Dashboard is opened from
+   the same browser/origin as Rate Ledger, a user already logged in there
+   won't need to log in again here (and vice versa). */
+const SESSION_KEY = 'rateLedger_session';
+function getSession(){ try{ return JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); }catch(e){ return null; } }
+function setSession(s){ try{ localStorage.setItem(SESSION_KEY, JSON.stringify(s)); }catch(e){} }
+function clearSession(){ try{ localStorage.removeItem(SESSION_KEY); }catch(e){} }
+
+async function backendPost(payload){
+  const res = await fetch(WEB_APP_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(payload) });
+  return res.json();
+}
+async function backendGet(params){
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(`${WEB_APP_URL}?${qs}`);
+  return res.json();
+}
+function $(sel, root){ return (root||document).querySelector(sel); }
+function $all(sel, root){ return Array.from((root||document).querySelectorAll(sel)); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtMoney(n){ return (n==null||isNaN(n)) ? '—' : Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtInt(n){ return (n==null||isNaN(n)) ? '—' : Number(n).toLocaleString('en-IN'); }
+function toast(msg, type){
+  const wrap = $('#toastWrap');
+  const t = document.createElement('div');
+  t.className = 'toast'+(type?' '+type:'');
+  t.textContent = msg;
+  wrap.appendChild(t);
+  setTimeout(()=>t.remove(), 4200);
+}
+function currentMonth(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+function statusBadge(status){
+  if(status==='over') return '<span class="badge over">Overcharge</span>';
+  if(status==='negligible') return '<span class="badge negligible">Overcharge – Negligible</span>';
+  if(status==='under') return '<span class="badge under">Undercharge</span>';
+  if(status==='match') return '<span class="badge match">Match</span>';
+  return '<span class="small-muted">—</span>';
+}
+
+/* ==================== LOGIN ==================== */
+function renderLogin(errorMsg){
+  $('#app').innerHTML = `
+    <div style="min-height:90vh;display:flex;align-items:center;justify-content:center;">
+      <div class="card" style="max-width:380px;width:100%;padding:32px 28px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+          <div class="brand-mark">RL</div>
+          <div><h1 style="font-size:19px;">Rate Ledger</h1><p class="small-muted" style="margin-top:2px;">Dashboard sign-in</p></div>
+        </div>
+        <div class="field"><label>User Code</label><input type="text" id="loginCode" style="text-transform:uppercase;"></div>
+        <div class="field"><label>Password</label><input type="password" id="loginPassword"></div>
+        ${errorMsg ? `<p style="color:var(--danger);font-size:12.5px;margin:-6px 0 12px;">${esc(errorMsg)}</p>` : ''}
+        <button class="btn accent wide" id="loginBtn">Log In</button>
+      </div>
+    </div>
+  `;
+  const doLogin = async ()=>{
+    const code = $('#loginCode').value.trim();
+    const password = $('#loginPassword').value;
+    if(!code || !password){ renderLogin('Enter both User Code and Password.'); return; }
+    const btn = $('#loginBtn'); btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Signing in…';
+    try{
+      const res = await backendPost({ action:'login', code, password });
+      if(res.ok){ setSession({code:res.code, password, name:res.name, role:res.role, designation:res.designation}); boot(); }
+      else renderLogin(res.error || 'Login failed.');
+    }catch(e){ renderLogin('Could not reach the server — check your connection.'); }
+  };
+  $('#loginBtn').addEventListener('click', doLogin);
+  $('#loginPassword').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  $('#loginCode').focus();
+}
+function logout(){ clearSession(); boot(); }
+
+/* ==================== SHELL ==================== */
+let ACTIVE_TAB = null;
+function renderShell(){
+  const s = getSession();
+  const tabs = s.role==='Admin'
+    ? [{id:'analytics',label:'Analytics'},{id:'submissions',label:'All Submissions'},{id:'users',label:'Manage Users'},{id:'verifiers',label:'Manage Verifiers'}]
+    : [{id:'mydata',label:'My Data'}];
+  if(!ACTIVE_TAB || !tabs.find(t=>t.id===ACTIVE_TAB)) ACTIVE_TAB = tabs[0].id;
+  $('#app').innerHTML = `
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">RL</div>
+        <div class="brand-text"><h1>Rate Ledger</h1><p>Dashboard</p></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div class="status-chip"><span class="status-dot"></span>${esc(s.name)} (${esc(s.role)})</div>
+        <button class="btn small" id="logoutBtn">Log Out</button>
+      </div>
+    </header>
+    <nav class="tabstrip">${tabs.map(t=>`<button class="tab-btn ${ACTIVE_TAB===t.id?'active':''}" data-tab="${t.id}">${t.label}</button>`).join('')}</nav>
+    <main id="tabBody"></main>
+  `;
+  $('#logoutBtn').addEventListener('click', logout);
+  $all('.tab-btn').forEach(b=>b.addEventListener('click', ()=>{ ACTIVE_TAB=b.dataset.tab; renderShell(); }));
+  const renderers = { analytics:renderAnalytics, submissions:renderSubmissions, users:renderUsers, verifiers:renderVerifiers, mydata:renderMyData };
+  (renderers[ACTIVE_TAB]||(()=>{}))();
+}
+
+/* ==================== ANALYTICS (Admin) ==================== */
+let chartInstances = [];
+function destroyCharts(){ chartInstances.forEach(c=>c.destroy()); chartInstances = []; }
+
+async function renderAnalytics(){
+  const body = $('#tabBody');
+  const month = window.__analyticsMonth || currentMonth();
+  body.innerHTML = `
+    <div class="filterbar">
+      <div class="field"><label>Month</label><input type="month" id="anMonth" value="${month}"></div>
+      <button class="btn" id="anAllTime">All Time</button>
+    </div>
+    <div id="anContent"><div class="empty-state">Loading analytics…</div></div>
+  `;
+  $('#anMonth').addEventListener('change', e=>{ window.__analyticsMonth = e.target.value; window.__analyticsAllTime=false; renderAnalytics(); });
+  $('#anAllTime').addEventListener('click', ()=>{ window.__analyticsAllTime = true; renderAnalytics(); });
+  const s = getSession();
+  const res = await backendGet({ action:'alldata', code:s.code, password:s.password, month: window.__analyticsAllTime ? '' : month });
+  if(!res.ok){ $('#anContent').innerHTML = `<div class="empty-state">${esc(res.error||'Could not load data.')}</div>`; return; }
+  const rows = res.rows;
+  renderAnalyticsContent(rows);
+}
+
+function renderAnalyticsContent(rows){
+  const content = $('#anContent');
+  destroyCharts();
+  if(!rows.length){ content.innerHTML = '<div class="empty-state">No submissions in this period yet.</div>'; return; }
+
+  const over = rows.filter(r=>r.Status==='over');
+  const neg = rows.filter(r=>r.Status==='negligible');
+  const under = rows.filter(r=>r.Status==='under');
+  const match = rows.filter(r=>r.Status==='match');
+  const overAmt = over.reduce((s,r)=>s+(Number(r.OverchargeAmt)||0),0);
+  const underAmt = under.reduce((s,r)=>s+(Number(r.UnderchargeAmt)||0),0);
+
+  content.innerHTML = `
+    <div class="grid grid-4" style="margin-bottom:18px;">
+      <div class="stat-card"><div class="stat-label">Lines Submitted</div><div class="stat-value">${fmtInt(rows.length)}</div></div>
+      <div class="stat-card"><div class="stat-label">Overcharge · ₹${fmtMoney(overAmt)}</div><div class="stat-value" style="color:var(--danger);">${fmtInt(over.length)}</div></div>
+      <div class="stat-card"><div class="stat-label">Undercharge · ₹${fmtMoney(underAmt)}</div><div class="stat-value" style="color:var(--warn);">${fmtInt(under.length)}</div></div>
+      <div class="stat-card"><div class="stat-label">Negligible</div><div class="stat-value" style="color:var(--negligible);">${fmtInt(neg.length)}</div></div>
+    </div>
+    <div class="grid grid-2" style="margin-bottom:18px;">
+      <div class="chart-card"><h3>Status Breakdown</h3><canvas id="chStatus" height="220"></canvas></div>
+      <div class="chart-card"><h3>Overcharge Value by Day</h3><canvas id="chTrend" height="220"></canvas></div>
+    </div>
+    <div class="grid grid-2" style="margin-bottom:18px;">
+      <div class="chart-card"><h3>Top Auditors by Overcharge Lines</h3><canvas id="chAuditors" height="240"></canvas></div>
+      <div class="chart-card"><h3>Top Distributors by Overcharge Lines</h3><canvas id="chDBs" height="240"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Overcharge Lines by Category</h3><canvas id="chCategory" height="200"></canvas>
+    </div>
+  `;
+
+  chartInstances.push(new Chart($('#chStatus'), {
+    type:'doughnut',
+    data:{ labels:['Overcharge','Overcharge – Negligible','Undercharge','Match'],
+      datasets:[{ data:[over.length, neg.length, under.length, match.length], backgroundColor:['#D6234B','#2A5FD9','#B9791A','#0FA86B'] }] },
+    options:{ plugins:{legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}}} }
+  }));
+
+  const byDay = {};
+  rows.forEach(r=>{ if(r.Status==='over'){ const d=(r.BillDate||'').slice(0,10)||'?'; byDay[d]=(byDay[d]||0)+(Number(r.OverchargeAmt)||0); } });
+  const days = Object.keys(byDay).sort();
+  chartInstances.push(new Chart($('#chTrend'), {
+    type:'line',
+    data:{ labels:days, datasets:[{ label:'Overcharge ₹', data:days.map(d=>Math.round(byDay[d]*100)/100), borderColor:'#D6234B', backgroundColor:'rgba(214,35,75,0.1)', fill:true, tension:.25 }] },
+    options:{ plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}} }
+  }));
+
+  function topN(field, n){
+    const m = {};
+    over.forEach(r=>{ const k=r[field]||'—'; m[k]=(m[k]||0)+1; });
+    return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,n);
+  }
+  const topAud = topN('AuditorName', 8);
+  chartInstances.push(new Chart($('#chAuditors'), {
+    type:'bar',
+    data:{ labels:topAud.map(x=>x[0]), datasets:[{ label:'Overcharge lines', data:topAud.map(x=>x[1]), backgroundColor:'#101114' }] },
+    options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}} }
+  }));
+  const topDB = topN('DBName', 8);
+  chartInstances.push(new Chart($('#chDBs'), {
+    type:'bar',
+    data:{ labels:topDB.map(x=>x[0]), datasets:[{ label:'Overcharge lines', data:topDB.map(x=>x[1]), backgroundColor:'#D6234B' }] },
+    options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}} }
+  }));
+  const topCat = topN('Category', 10);
+  chartInstances.push(new Chart($('#chCategory'), {
+    type:'bar',
+    data:{ labels:topCat.map(x=>x[0]), datasets:[{ label:'Overcharge lines', data:topCat.map(x=>x[1]), backgroundColor:'#2A5FD9' }] },
+    options:{ plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}} }
+  }));
+}
+
+/* ==================== ALL SUBMISSIONS (Admin) ==================== */
+async function renderSubmissions(){
+  const body = $('#tabBody');
+  const month = window.__subMonth || currentMonth();
+  body.innerHTML = `
+    <div class="filterbar">
+      <div class="field"><label>Month</label><input type="month" id="subMonth" value="${month}"></div>
+      <button class="btn" id="subAllTime">All Time</button>
+      <button class="btn accent" id="subExport" style="margin-left:auto;">⬇ Export Excel</button>
+    </div>
+    <div id="subContent"><div class="empty-state">Loading…</div></div>
+  `;
+  $('#subMonth').addEventListener('change', e=>{ window.__subMonth=e.target.value; window.__subAllTime=false; renderSubmissions(); });
+  $('#subAllTime').addEventListener('click', ()=>{ window.__subAllTime=true; renderSubmissions(); });
+  const s = getSession();
+  const res = await backendGet({ action:'alldata', code:s.code, password:s.password, month: window.__subAllTime ? '' : month });
+  if(!res.ok){ $('#subContent').innerHTML = `<div class="empty-state">${esc(res.error||'Could not load data.')}</div>`; return; }
+  window.__subRows = res.rows;
+  renderSubmissionsTable(res.rows);
+  $('#subExport').addEventListener('click', ()=>exportRowsToExcel(window.__subRows, 'All_Submissions'));
+}
+function renderSubmissionsTable(rows){
+  const content = $('#subContent');
+  if(!rows.length){ content.innerHTML = '<div class="empty-state">No submissions in this period.</div>'; return; }
+  const cols = ['Timestamp','AuditorCode','AuditorName','VerifiedBy','DBCode','DBName','Location','Retailer','BillDate','ProductName','ProductCode','CompanyRate','InvoiceRate','VariancePct','Status','OverchargeAmt','UnderchargeAmt'];
+  content.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r=>`<tr>${cols.map(c=>{
+      if(c==='Status') return `<td>${statusBadge(r[c])}</td>`;
+      if(['CompanyRate','InvoiceRate','OverchargeAmt','UnderchargeAmt'].includes(c)) return `<td class="num">${fmtMoney(r[c])}</td>`;
+      if(c==='VariancePct') return `<td class="num">${r[c]!=null && r[c]!==''?r[c]+'%':'—'}</td>`;
+      if(c==='Timestamp') return `<td>${esc(String(r[c]).slice(0,19).replace('T',' '))}</td>`;
+      return `<td>${esc(r[c])}</td>`;
+    }).join('')}</tr>`).join('')}</tbody>
+  </table></div>`;
+}
+function exportRowsToExcel(rows, filenamePrefix){
+  if(!rows || !rows.length){ toast('Nothing to export', 'err'); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Data');
+  XLSX.writeFile(wb, `${filenamePrefix}_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+/* ==================== MANAGE USERS (Admin) ==================== */
+async function renderUsers(){
+  const body = $('#tabBody');
+  body.innerHTML = `
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="section-title">Add New User</div>
+        <div class="field"><label>User Code</label><input type="text" id="nuCode" style="text-transform:uppercase;"></div>
+        <div class="field"><label>Name</label><input type="text" id="nuName" style="text-transform:uppercase;"></div>
+        <div class="field"><label>Password</label><input type="text" id="nuPassword"></div>
+        <div class="field"><label>Role</label><select id="nuRole"><option value="Auditor">Auditor</option><option value="Admin">Admin</option></select></div>
+        <div class="field"><label>Designation</label><select id="nuDesignation">
+          <option value="">— None —</option>
+          ${['Sales Officer','Merchandiser','ASM','ASE','RSM'].map(d=>`<option value="${d}">${d}</option>`).join('')}
+        </select></div>
+        <button class="btn accent wide" id="nuAdd">Add User</button>
+        <p class="small-muted" id="nuErr" style="color:var(--danger);margin-top:8px;"></p>
+      </div>
+      <div class="card">
+        <div class="section-title">Existing Users</div>
+        <div id="usersList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+  `;
+  $('#nuAdd').addEventListener('click', addUserHandler);
+  await loadUsersList();
+}
+async function loadUsersList(){
+  const s = getSession();
+  const res = await backendGet({ action:'users', code:s.code, password:s.password });
+  const el = $('#usersList');
+  if(!res.ok){ el.innerHTML = `<div class="empty-state">${esc(res.error)}</div>`; return; }
+  if(!res.users.length){ el.innerHTML = '<div class="empty-state">No users yet.</div>'; return; }
+  el.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Code</th><th>Name</th><th>Role</th><th>Designation</th><th>Status</th><th></th></tr></thead>
+    <tbody>${res.users.map(u=>`<tr>
+      <td style="font-family:var(--font-mono);">${esc(u.code)}</td><td>${esc(u.name)}</td><td>${esc(u.role)}</td><td>${esc(u.designation||'—')}</td>
+      <td><span class="badge ${u.active?'active':'inactive'}">${u.active?'Active':'Inactive'}</span></td>
+      <td style="display:flex;gap:6px;">
+        <button class="btn small" data-toggle="${esc(u.code)}" data-active="${u.active}">${u.active?'Deactivate':'Activate'}</button>
+        <button class="btn small" data-reset="${esc(u.code)}">Reset PW</button>
+      </td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+  $all('[data-toggle]', el).forEach(b=>b.addEventListener('click', async ()=>{
+    const s = getSession();
+    const res = await backendPost({ action:'toggleuser', code:s.code, password:s.password, targetCode:b.dataset.toggle, active: b.dataset.active!=='true' });
+    if(res.ok){ toast('Updated', 'ok'); loadUsersList(); } else toast(res.error, 'err');
+  }));
+  $all('[data-reset]', el).forEach(b=>b.addEventListener('click', async ()=>{
+    const pw = prompt('New password for '+b.dataset.reset+':');
+    if(!pw) return;
+    const s = getSession();
+    const res = await backendPost({ action:'resetpassword', code:s.code, password:s.password, targetCode:b.dataset.reset, newPassword:pw });
+    if(res.ok) toast('Password reset', 'ok'); else toast(res.error, 'err');
+  }));
+}
+async function addUserHandler(){
+  const s = getSession();
+  const newUser = { code:$('#nuCode').value.trim(), name:$('#nuName').value.trim(), password:$('#nuPassword').value, role:$('#nuRole').value, designation:$('#nuDesignation').value };
+  $('#nuErr').textContent = '';
+  const res = await backendPost({ action:'adduser', code:s.code, password:s.password, newUser });
+  if(res.ok){ toast('User added', 'ok'); $('#nuCode').value=''; $('#nuName').value=''; $('#nuPassword').value=''; loadUsersList(); }
+  else $('#nuErr').textContent = res.error;
+}
+
+/* ==================== MANAGE VERIFIERS (Admin) ==================== */
+async function renderVerifiers(){
+  const body = $('#tabBody');
+  body.innerHTML = `
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="section-title">Add Verifier</div>
+        <div class="field"><label>Name</label><input type="text" id="nvName" style="text-transform:uppercase;"></div>
+        <button class="btn accent wide" id="nvAdd">Add Verifier</button>
+        <p class="small-muted" id="nvErr" style="color:var(--danger);margin-top:8px;"></p>
+      </div>
+      <div class="card">
+        <div class="section-title">Existing Verifiers</div>
+        <div id="verifiersList"><div class="empty-state">Loading…</div></div>
+      </div>
+    </div>
+  `;
+  $('#nvAdd').addEventListener('click', async ()=>{
+    const s = getSession();
+    const name = $('#nvName').value.trim();
+    if(!name){ $('#nvErr').textContent = 'Name is required.'; return; }
+    const res = await backendPost({ action:'addverifier', code:s.code, password:s.password, name });
+    if(res.ok){ toast('Verifier added', 'ok'); $('#nvName').value=''; loadVerifiersList(); }
+    else $('#nvErr').textContent = res.error;
+  });
+  await loadVerifiersList();
+}
+async function loadVerifiersList(){
+  const res = await backendGet({ action:'verifiers' });
+  const el = $('#verifiersList');
+  if(!res.ok){ el.innerHTML = `<div class="empty-state">${esc(res.error)}</div>`; return; }
+  if(!res.verifiers.length){ el.innerHTML = '<div class="empty-state">No verifiers yet.</div>'; return; }
+  el.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Name</th><th></th></tr></thead>
+    <tbody>${res.verifiers.map(v=>`<tr><td>${esc(v)}</td><td><button class="btn small" data-deact="${esc(v)}">Deactivate</button></td></tr>`).join('')}</tbody>
+  </table></div>`;
+  $all('[data-deact]', el).forEach(b=>b.addEventListener('click', async ()=>{
+    const s = getSession();
+    const res = await backendPost({ action:'toggleverifier', code:s.code, password:s.password, name:b.dataset.deact, active:false });
+    if(res.ok){ toast('Deactivated', 'ok'); loadVerifiersList(); } else toast(res.error, 'err');
+  }));
+}
+
+/* ==================== MY DATA (Auditor) ==================== */
+async function renderMyData(){
+  const body = $('#tabBody');
+  const month = window.__myMonth || currentMonth();
+  body.innerHTML = `
+    <div class="filterbar">
+      <div class="field"><label>Month</label><input type="month" id="myMonth" value="${month}"></div>
+    </div>
+    <div id="myContent"><div class="empty-state">Loading…</div></div>
+  `;
+  $('#myMonth').addEventListener('change', e=>{ window.__myMonth=e.target.value; renderMyData(); });
+  const s = getSession();
+  const res = await backendGet({ action:'mydata', code:s.code, password:s.password, month });
+  const el = $('#myContent');
+  if(!res.ok){ el.innerHTML = `<div class="empty-state">${esc(res.error)}</div>`; return; }
+  const rows = res.rows;
+  const over = rows.filter(r=>r.Status==='over');
+  const under = rows.filter(r=>r.Status==='under');
+  const neg = rows.filter(r=>r.Status==='negligible');
+  el.innerHTML = `
+    <div class="grid grid-4" style="margin-bottom:18px;">
+      <div class="stat-card"><div class="stat-label">Lines Submitted</div><div class="stat-value">${fmtInt(rows.length)}</div></div>
+      <div class="stat-card"><div class="stat-label">Overcharge</div><div class="stat-value" style="color:var(--danger);">${fmtInt(over.length)}</div></div>
+      <div class="stat-card"><div class="stat-label">Undercharge</div><div class="stat-value" style="color:var(--warn);">${fmtInt(under.length)}</div></div>
+      <div class="stat-card"><div class="stat-label">Negligible</div><div class="stat-value" style="color:var(--negligible);">${fmtInt(neg.length)}</div></div>
+    </div>
+    ${!rows.length ? '<div class="empty-state">No submissions for this month yet.</div>' : `
+    <div class="table-wrap"><table>
+      <thead><tr><th>Bill Date</th><th>Retailer</th><th>Product</th><th class="num">Company Rate</th><th class="num">Invoice Rate</th><th>Status</th><th>Verified By</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr>
+        <td>${esc(r.BillDate)}</td><td>${esc(r.Retailer)}</td><td>${esc(r.ProductName)}</td>
+        <td class="num">${fmtMoney(r.CompanyRate)}</td><td class="num">${fmtMoney(r.InvoiceRate)}</td>
+        <td>${statusBadge(r.Status)}</td><td>${esc(r.VerifiedBy)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`}
+  `;
+}
+
+/* ==================== BOOT ==================== */
+function boot(){
+  const s = getSession();
+  if(!s){ renderLogin(); return; }
+  renderShell();
+}
+document.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>
