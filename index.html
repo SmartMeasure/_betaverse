@@ -163,6 +163,11 @@ input,select,textarea{font-family:var(--font-body);}
 }
 .brand-text p{margin:3px 0 0;font-size:12.5px;color:var(--ink-soft);}
 .status-strip{display:flex;gap:8px;flex-wrap:wrap;}
+.sync-banner{padding:10px 24px;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;}
+.sync-banner.warn{background:var(--warn-soft);color:var(--warn);border-bottom:1px solid var(--edge);}
+.sync-banner.err{background:var(--danger-soft);color:var(--danger);border-bottom:1px solid var(--edge);}
+.sync-banner-msg{font-weight:400;opacity:.9;margin-left:6px;}
+.sync-banner .btn{flex:none;}
 .status-chip{
   display:flex;align-items:center;gap:6px;
   padding:6px 12px;border:1px solid var(--edge);border-radius:100px;
@@ -465,15 +470,18 @@ async function retryPendingSubmissions(silent){
   if(!list.length) return;
   const remaining = [];
   let sent = 0;
+  let lastError = '';
   for(const item of list){
     try{
       const res = await backendPost({ action:'submit', code:session.code, pin:session.pin, rows:item.rows });
-      if(res.ok) sent += item.rows.length; else remaining.push(item);
-    }catch(e){ remaining.push(item); }
+      if(res.ok) sent += item.rows.length; else { remaining.push(item); lastError = res.error || 'Unknown error from the Sheet.'; }
+    }catch(e){ remaining.push(item); lastError = 'Could not reach the server (check your internet connection, the Web App URL, and that it is deployed as "Anyone" access).'; }
   }
   setPendingSubmissions(remaining);
   if(sent && !silent) toast(`${sent} pending line(s) submitted to the Sheet`, 'ok');
+  STATE.syncStatus = remaining.length ? { state:'error', message:lastError } : { state:'idle', message:'' };
   renderStatusStrip();
+  renderSyncBanner();
 }
 
 /* ---------------- Global state ---------------- */
@@ -667,6 +675,7 @@ function renderShell(){
         <div class="theme-switch" id="themeSwitch"></div>
       </div>
     </header>
+    <div id="syncBanner"></div>
     <nav class="tabstrip" id="tabStrip"><div id="tabButtons" style="display:flex;gap:4px;"></div><span class="tab-indicator" id="tabIndicator"></span></nav>
     <main>
       <section class="view" id="view-dashboard"></section>
@@ -680,8 +689,39 @@ function renderShell(){
   renderTabs();
   renderStatusStrip();
   renderThemeSwitch();
+  renderSyncBanner();
   const logoutBtn = $('#logoutBtn');
   if(logoutBtn) logoutBtn.addEventListener('click', logout);
+}
+
+/* ---------------- Persistent Sheet-sync status banner ----------------
+   A toast fades in seconds, so when the Sheet isn't receiving data, the
+   person often can't tell us the exact error afterwards — this banner
+   stays on screen (with the real error text, not just a tooltip) until
+   the sync problem is actually resolved, on every tab. */
+STATE.syncStatus = { state:'idle', message:'' }; // 'idle' | 'error'
+function renderSyncBanner(){
+  const el = $('#syncBanner');
+  if(!el) return;
+  if(!backendConfigured()){ el.innerHTML=''; return; }
+  const pending = getPendingSubmissions().length;
+  const s = STATE.syncStatus;
+  if(pending<=0 && s.state!=='error'){ el.innerHTML=''; return; }
+  const isErr = s.state==='error';
+  el.innerHTML = `
+    <div class="sync-banner ${isErr?'err':'warn'}">
+      <div>
+        <strong>${pending>0 ? `${pending} bill line(s) not yet in the Sheet.` : 'Sheet sync issue.'}</strong>
+        ${s.message ? `<span class="sync-banner-msg">${esc(s.message)}</span>` : ''}
+      </div>
+      <button class="btn small" id="syncRetryBtn">Retry now</button>
+    </div>`;
+  const btn = $('#syncRetryBtn');
+  if(btn) btn.addEventListener('click', async ()=>{
+    btn.disabled = true; btn.textContent = 'Retrying…';
+    await retryPendingSubmissions(false);
+    renderSyncBanner();
+  });
 }
 
 /* ---------------- Theme switcher ---------------- */
@@ -1774,11 +1814,15 @@ function uomOptionsForProduct(productCode){
   }
   return opts;
 }
-function qtyToKg(li){
+function qtyToKgPrecise(li){
   if(li.qty===''||li.qty==null||isNaN(Number(li.qty))) return null;
   const opts = uomOptionsForProduct(li.productCode);
   const opt = opts.find(o=>o.value===(li.uom||'KG')) || opts[0];
-  return clamp2(Number(li.qty) * (opt?opt.factor:1));
+  return Number(li.qty) * (opt?opt.factor:1);
+}
+function qtyToKg(li){
+  const p = qtyToKgPrecise(li);
+  return p==null ? null : clamp2(p);
 }
 /* ---------------- Rate Master view ---------------- */
 let RM_FILTERS = {location:'', category:'', effDate:'', q:''};
@@ -2249,22 +2293,30 @@ function renderLineRow(li,i){
    whatever unit the Qty/UOM selector for this line is currently set to —
    and converts it to ₹/kg itself, using the same pack-size factor
    (kg per PC / kg per BAG) already known from the UOM Conversion master. */
-function lineInvoiceRatePerKg(li){
+function lineInvoiceRatePerKgPrecise(li){
   if(li.invoiceRate===''||li.invoiceRate==null||isNaN(Number(li.invoiceRate))) return null;
   const opts = uomOptionsForProduct(li.productCode);
   const opt = opts.find(o=>o.value===(li.uom||'KG')) || opts[0];
   const factor = opt ? opt.factor : 1;
   if(!factor) return null;
-  return clamp2(Number(li.invoiceRate) / factor);
+  return Number(li.invoiceRate) / factor;
+}
+function lineInvoiceRatePerKg(li){
+  const p = lineInvoiceRatePerKgPrecise(li);
+  return p==null ? null : clamp2(p);
+}
+function lineDiffPrecise(li){
+  const invRateKg = lineInvoiceRatePerKgPrecise(li);
+  if(li.companyRate==null || invRateKg==null) return null;
+  return invRateKg - Number(li.companyRate);
 }
 function lineDiff(li){
-  const invRateKg = lineInvoiceRatePerKg(li);
-  if(li.companyRate==null || invRateKg==null) return null;
-  return clamp2(invRateKg - Number(li.companyRate));
+  const p = lineDiffPrecise(li);
+  return p==null ? null : clamp2(p);
 }
 /* Overcharge % of the Company Rate — the basis for the Negligible/Overcharge split. */
 function linePct(li){
-  const d = lineDiff(li);
+  const d = lineDiffPrecise(li);
   if(d==null || !li.companyRate) return null;
   return clamp2((d/li.companyRate)*100);
 }
@@ -2279,8 +2331,8 @@ function lineStatus(li){
   return 'match';
 }
 function lineTotal(li){
-  const d = lineDiff(li);
-  const qkg = qtyToKg(li);
+  const d = lineDiffPrecise(li);
+  const qkg = qtyToKgPrecise(li);
   if(d==null || qkg==null) return null;
   return clamp2(d*qkg);
 }
@@ -2467,7 +2519,7 @@ function saveBill(){
     const qty = li.qty!=='' && li.qty!=null ? Number(li.qty) : null;
     const uom = li.uom || 'KG';
     const qtyKg = qtyToKg(li);
-    const chargeAmt = qtyKg!=null ? clamp2(diff*qtyKg) : diff;
+    const chargeAmt = qtyKg!=null ? lineTotal(li) : diff;
     const record = {
       sl: BILL_SEQ++, billUid,
       dbCode: f.dbCode, dbName: f.dbName, pg: f.pg, location: f.location,
@@ -2492,10 +2544,24 @@ function saveBill(){
     if(session){
       backendPost({ action:'submit', code:session.code, pin:session.pin, rows:newRecords })
         .then(res=>{
-          if(res.ok) toast(`Saved locally and submitted ${res.submitted} line(s) to the Sheet`, 'ok');
-          else { queuePendingSubmission(newRecords); toast(`Saved locally — Sheet submit failed (${res.error||'unknown error'}), queued to retry`, 'err'); renderStatusStrip(); }
+          if(res.ok){
+            toast(`Saved locally and submitted ${res.submitted} line(s) to the Sheet`, 'ok');
+            STATE.syncStatus = { state:'idle', message:'' };
+          } else {
+            queuePendingSubmission(newRecords);
+            toast(`Saved locally — Sheet submit failed (${res.error||'unknown error'}), queued to retry`, 'err');
+            STATE.syncStatus = { state:'error', message: res.error || 'Unknown error from the Sheet.' };
+            renderStatusStrip();
+          }
+          renderSyncBanner();
         })
-        .catch(()=>{ queuePendingSubmission(newRecords); toast('Saved locally — no connection, queued to submit to the Sheet later', 'err'); renderStatusStrip(); });
+        .catch(()=>{
+          queuePendingSubmission(newRecords);
+          toast('Saved locally — no connection, queued to submit to the Sheet later', 'err');
+          STATE.syncStatus = { state:'error', message:'Could not reach the server (check your internet connection, the Web App URL, and that it is deployed as "Anyone" access).' };
+          renderStatusStrip();
+          renderSyncBanner();
+        });
     }
   } else {
     toast(`Saved bill with ${validLines.length} product line(s)`, 'ok');
