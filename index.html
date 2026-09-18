@@ -101,8 +101,11 @@
 .theme-switch .pill-opt{padding:6px 12px;font-size:11.5px;}
 
 /* Rate Check — quick numeric date entry next to the date picker */
-.date-combo{display:flex;gap:6px;align-items:flex-start;}
-.date-combo input[type=date]{flex:1;min-width:0;}
+.date-combo{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;}
+.date-combo input[type=date]{flex:1 1 132px;min-width:132px;}
+.verifier-combo{display:flex;gap:8px;}
+.verifier-combo input[type=password]{flex:0 0 130px;font-family:var(--font-mono);letter-spacing:.12em;}
+.verifier-combo input[readonly]{flex:1;min-width:0;background:var(--panel-2);color:var(--ink-soft);font-weight:600;}
 #rcBillDateQuick{width:82px;flex:none;font-family:var(--font-mono);text-align:center;letter-spacing:.03em;}
 #rcBillDateQuick.quick-bad{border-color:var(--danger) !important;}
 #rcBillDateQuick.quick-ok{border-color:var(--success) !important;}
@@ -256,7 +259,7 @@ main{
 
 /* ---------- Form elements ---------- */
 .field{margin-bottom:14px;}
-.field label{display:block;font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin-bottom:5px;}
+.field label{display:block;font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin-bottom:5px;min-height:29px;}
 .field input[type=text],.field input[type=number],.field input[type=date],.field select,.field textarea{
   width:100%;padding:9px 11px;border:1px solid var(--edge);border-radius:var(--radius-sm);
   background:var(--input-bg);color:var(--ink);font-size:13.5px;transition:border-color .15s, box-shadow .15s;
@@ -373,6 +376,25 @@ td.wrap{white-space:normal;}
 @keyframes spin{to{transform:rotate(360deg);}}
 .progress-bar{height:5px;background:var(--panel-2);border-radius:4px;overflow:hidden;margin-top:8px;}
 .progress-bar > div{height:100%;background:linear-gradient(90deg, var(--cyan), var(--violet));box-shadow:0 0 10px rgba(255,255,255,0.5);transition:width .2s;}
+
+/* ---- "Ultimate" loading card: shown while parsing rate ZIPs/Excels ---- */
+.loading-card{margin-top:14px;padding:18px 20px;border-radius:12px;background:var(--panel);border:1px solid var(--edge);display:flex;align-items:center;gap:16px;position:relative;overflow:hidden;}
+.loading-card::before{content:'';position:absolute;inset:0;background:linear-gradient(120deg, transparent 0%, rgba(255,255,255,0.10) 45%, transparent 85%);transform:translateX(-120%);animation:loading-sheen 1.6s ease-in-out infinite;pointer-events:none;}
+[data-theme="light"] .loading-card::before{background:linear-gradient(120deg, transparent 0%, rgba(16,17,20,0.05) 45%, transparent 85%);}
+@keyframes loading-sheen{100%{transform:translateX(120%);}}
+.loading-ring{width:48px;height:48px;flex:none;position:relative;}
+.loading-ring svg{width:100%;height:100%;transform:rotate(-90deg);}
+.loading-ring circle{fill:none;stroke-width:4.5;}
+.loading-ring .track{stroke:var(--panel-3);}
+.loading-ring .bar{stroke:url(#loadingGrad);stroke-linecap:round;transition:stroke-dashoffset .3s ease;}
+.loading-pct{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--ink);}
+.loading-body{flex:1;min-width:0;}
+.loading-title{font-weight:600;font-size:13.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.loading-sub{font-size:11.5px;color:var(--ink-faint);margin-top:2px;font-family:var(--font-mono);}
+.loading-track{height:6px;border-radius:100px;background:var(--panel-3);margin-top:10px;overflow:hidden;}
+.loading-fill{height:100%;border-radius:100px;background:linear-gradient(90deg, var(--ink) 0%, var(--violet) 55%, var(--cyan) 100%);transition:width .3s ease;position:relative;overflow:hidden;}
+.loading-fill::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);width:40%;animation:loading-fill-sheen 1.1s linear infinite;}
+@keyframes loading-fill-sheen{0%{transform:translateX(-120%);}100%{transform:translateX(340%);}}
 footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-top:26px;}
 </style>
 </head>
@@ -397,7 +419,7 @@ function backendConfigured(){ return WEB_APP_URL && !WEB_APP_URL.includes('PASTE
 
 /* ---------------- Session (login identity) ----------------
    Stored in localStorage so a refresh doesn't force re-login. Includes
-   the password because the backend re-checks credentials on every call
+   the PIN because the backend re-checks credentials on every call
    (no server-side session tokens, by design — keeps the Apps Script
    simple to read and audit). Because of that, treat this device as
    holding real credentials: use a lock screen / passcode on it. */
@@ -445,7 +467,7 @@ async function retryPendingSubmissions(silent){
   let sent = 0;
   for(const item of list){
     try{
-      const res = await backendPost({ action:'submit', code:session.code, password:session.password, rows:item.rows });
+      const res = await backendPost({ action:'submit', code:session.code, pin:session.pin, rows:item.rows });
       if(res.ok) sent += item.rows.length; else remaining.push(item);
     }catch(e){ remaining.push(item); }
   }
@@ -1220,6 +1242,34 @@ function wireRateFilesTableEvents(){
   }));
 }
 
+/* Renders the "ultimate" loading card used while parsing rate files — a
+   circular percentage ring plus a shimmering linear progress track, so a
+   long multi-file parse never looks stalled. */
+function loadingCardHtml(title, subtitle, pct){
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  const r = 18, c = 2*Math.PI*r;
+  const offset = c * (1 - p/100);
+  return `
+    <div class="loading-card">
+      <div class="loading-ring">
+        <svg viewBox="0 0 44 44">
+          <defs><linearGradient id="loadingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="var(--ink)"></stop>
+            <stop offset="100%" stop-color="var(--violet)"></stop>
+          </linearGradient></defs>
+          <circle class="track" cx="22" cy="22" r="${r}"></circle>
+          <circle class="bar" cx="22" cy="22" r="${r}" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}"></circle>
+        </svg>
+        <div class="loading-pct">${p}%</div>
+      </div>
+      <div class="loading-body">
+        <div class="loading-title">${esc(title)}</div>
+        <div class="loading-sub">${esc(subtitle)}</div>
+        <div class="loading-track"><div class="loading-fill" style="width:${p}%;"></div></div>
+      </div>
+    </div>
+  `;
+}
 async function handleRateFiles(files){
   const progDiv = $('#s3progress');
   const allItems = [];
@@ -1228,7 +1278,7 @@ async function handleRateFiles(files){
       const file = files[fi];
       const ext = (file.name.split('.').pop()||'').toLowerCase();
       if(ext==='xlsx' || ext==='xls'){
-        progDiv.innerHTML = `<div class="small-muted" style="margin-top:10px;">Reading ${esc(file.name)} (Excel rate file ${fi+1}/${files.length})…</div>`;
+        progDiv.innerHTML = loadingCardHtml(`Reading ${file.name}`, `Excel rate file ${fi+1} of ${files.length}`, (fi/files.length)*100);
         try{
           const items = await parseRateExcelWorkbook(file);
           if(!items.length) toast(`No usable rate columns found in ${file.name} — check it matches the expected template (Product Name / Product Code + a Rate/kg column per date)`, 'err');
@@ -1236,7 +1286,7 @@ async function handleRateFiles(files){
         }catch(e){ console.error(e); toast(`Could not read ${file.name} — ${e.message}`, 'err'); }
         continue;
       }
-      progDiv.innerHTML = `<div class="small-muted" style="margin-top:10px;">Reading ${esc(file.name)} (ZIP ${fi+1}/${files.length})…</div><div class="progress-bar"><div style="width:${Math.round(((fi)/files.length)*100)}%"></div></div>`;
+      progDiv.innerHTML = loadingCardHtml(`Opening ${file.name}`, `ZIP ${fi+1} of ${files.length}`, (fi/files.length)*100);
       let zip;
       try{ zip = await JSZip.loadAsync(file); }
       catch(e){ toast(`Could not read ${file.name} — skipped`, 'err'); continue; }
@@ -1245,7 +1295,7 @@ async function handleRateFiles(files){
       for(let i=0;i<pdfEntries.length;i++){
         const entry = pdfEntries[i];
         const pct = Math.round(((fi + (i+1)/pdfEntries.length) / files.length) * 100);
-        progDiv.innerHTML = `<div class="small-muted" style="margin-top:10px;">Parsing ${esc(entry.name)} — ZIP ${fi+1}/${files.length}, file ${i+1}/${pdfEntries.length}…</div><div class="progress-bar"><div style="width:${pct}%"></div></div>`;
+        progDiv.innerHTML = loadingCardHtml(`Parsing ${entry.name}`, `ZIP ${fi+1}/${files.length} · file ${i+1}/${pdfEntries.length}`, pct);
         const buf = await entry.async('arraybuffer');
         const meta = parseRateFilename(entry.name.split('/').pop());
         let rows = [];
@@ -1808,14 +1858,22 @@ function emptyState(icon,title,body){
 }
 
 /* ---------------- Rate Check view ---------------- */
+function lookupVerifierByCode(code){
+  const c = String(code||'').trim().toUpperCase();
+  if(!c) return null;
+  return STATE.verifiersList.find(v => String(v.code).toUpperCase()===c) || null;
+}
 function freshBillForm(){
   const session = getSession();
+  const verifierCode = backendConfigured() ? lsGet('verifierCode') : '';
+  const verifierMatch = backendConfigured() ? lookupVerifierByCode(verifierCode) : null;
   return {
     dbCode:'', dbName:'', pg:'', location:'', beatCode:'', beatName:'', beats:[], so:'', asm:'', rsm:'', active:'',
     billType:'Tax Invoice', retailer:'', billNo:'', billDateISO: todayISO(), submissionISO: todayISO(),
     collectedBy: session ? session.name : lsGet('collectedBy'),
     designation: session ? (session.designation||'') : lsGet('designation'),
-    verifiedBy: backendConfigured() ? '' : lsGet('verifiedBy'),
+    verifierCode: verifierCode,
+    verifiedBy: backendConfigured() ? (verifierMatch ? verifierMatch.name : '') : lsGet('verifiedBy'),
     lineItems: [], // {productCode, productName, sku, category, companyRate, gstPct, invoiceRate, qty}
     billCopy: null, // {fileName, ext, dataUrl} — attached bill photo/PDF, optional
   };
@@ -1825,6 +1883,13 @@ function renderRateCheck(){
   if(!STATE.billForm) STATE.billForm = freshBillForm();
   const view = $('#view-ratecheck');
   const f = STATE.billForm;
+  // Keep the auto-filled verifier name in sync with the code, in case the
+  // verifiers list finished loading from the Sheet after this bill form was
+  // first created (e.g. right after login, before the fetch resolves).
+  if(backendConfigured() && f.verifierCode){
+    const match = lookupVerifierByCode(f.verifierCode);
+    f.verifiedBy = match ? match.name : '';
+  }
   const resolvedLocWarning = f.dbCode && !f.location;
 
   view.innerHTML = `
@@ -1879,12 +1944,13 @@ function renderRateCheck(){
         <div class="hint">or type DDMMYY, e.g. 260826 = 26‑08‑26</div>
       </div>
       ${backendConfigured() && getSession() ? `
-      <div class="field readonly"><label>Collected By <span class="small-muted" style="text-transform:none;font-weight:400;">— from your login</span></label><input type="text" value="${esc(f.collectedBy)}" readonly></div>
-      <div class="field readonly"><label>Designation <span class="small-muted" style="text-transform:none;font-weight:400;">— from your login</span></label><input type="text" value="${esc(f.designation||'—')}" readonly></div>
+      <div class="field readonly"><label>Collected By</label><input type="text" value="${esc(f.collectedBy)}" readonly><div class="hint">From your login</div></div>
+      <div class="field readonly"><label>Designation</label><input type="text" value="${esc(f.designation||'—')}" readonly><div class="hint">From your login</div></div>
       ` : `
-      <div class="field"><label>Collected By <span class="small-muted" style="text-transform:none;font-weight:400;">— remembered on this device</span></label>
+      <div class="field"><label>Collected By</label>
         <input type="text" id="rcCollectedBy" list="rcCollectedByList" value="${esc(f.collectedBy)}" style="text-transform:uppercase;">
         <datalist id="rcCollectedByList">${lsGetList('collectedByList').map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+        <div class="hint">Remembered on this device</div>
       </div>
       <div class="field"><label>Designation</label>
         <select id="rcDesignation">
@@ -1894,17 +1960,18 @@ function renderRateCheck(){
       </div>
       `}
       ${backendConfigured() ? `
-      <div class="field"><label>Verified By <span class="colmap-req">*</span> <span class="small-muted" style="text-transform:none;font-weight:400;">— set by Admin</span></label>
-        <select id="rcVerifiedBy">
-          <option value="">— Select —</option>
-          ${STATE.verifiersList.map(n=>`<option value="${esc(n)}" ${f.verifiedBy===n?'selected':''}>${esc(n)}</option>`).join('')}
-        </select>
-        ${!STATE.verifiersList.length ? `<div class="hint" style="color:var(--warn);">No verifiers loaded yet — ask your Admin to add some, or check your connection.</div>` : ''}
+      <div class="field"><label>Verified By <span class="colmap-req">*</span></label>
+        <div class="verifier-combo">
+          <input type="password" id="rcVerifierCode" value="${esc(f.verifierCode||'')}" placeholder="Verifier code" autocomplete="off" inputmode="text">
+          <input type="text" id="rcVerifierName" value="${esc(f.verifiedBy||'')}" placeholder="Name appears here" readonly>
+        </div>
+        <div class="hint" id="rcVerifierHint" style="${(f.verifierCode && !f.verifiedBy) ? 'color:var(--danger);' : ''}">${!STATE.verifiersList.length ? 'No verifiers loaded yet — ask your Admin to add some, or check your connection.' : (f.verifierCode && !f.verifiedBy ? 'Code not recognized.' : 'Verifier types their own code — their name fills in automatically.')}</div>
       </div>
       ` : `
-      <div class="field"><label>Verified By <span class="small-muted" style="text-transform:none;font-weight:400;">— remembered on this device until you clear cache</span></label>
+      <div class="field"><label>Verified By</label>
         <input type="text" id="rcVerifiedBy" list="rcVerifiedByList" value="${esc(f.verifiedBy)}" placeholder="Verifier's name" style="text-transform:uppercase;">
         <datalist id="rcVerifiedByList">${lsGetList('verifiedByList').map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+        <div class="hint">Remembered until you clear cache</div>
       </div>
       `}
       <div class="field"><label>Submission Date</label><input type="date" id="rcSubDate" value="${f.submissionISO}"></div>
@@ -1985,17 +2052,32 @@ function renderRateCheck(){
   if(designationEl) designationEl.addEventListener('change', e=>{ f.designation=e.target.value; lsSet('designation', e.target.value); });
   const verifiedByEl = $('#rcVerifiedBy');
   if(verifiedByEl){
-    if(verifiedByEl.tagName==='SELECT'){
-      verifiedByEl.addEventListener('change', e=> f.verifiedBy = e.target.value);
-    } else {
-      verifiedByEl.addEventListener('input', e=>{
-        const up = e.target.value.toUpperCase();
-        if(e.target.value!==up) e.target.value = up;
-        f.verifiedBy = up;
-        lsSet('verifiedBy', up);
-      });
-      verifiedByEl.addEventListener('change', e=>{ if(e.target.value.trim()) lsAddToList('verifiedByList', e.target.value.trim()); });
-    }
+    verifiedByEl.addEventListener('input', e=>{
+      const up = e.target.value.toUpperCase();
+      if(e.target.value!==up) e.target.value = up;
+      f.verifiedBy = up;
+      lsSet('verifiedBy', up);
+    });
+    verifiedByEl.addEventListener('change', e=>{ if(e.target.value.trim()) lsAddToList('verifiedByList', e.target.value.trim()); });
+  }
+  const verifierCodeEl = $('#rcVerifierCode');
+  if(verifierCodeEl){
+    verifierCodeEl.addEventListener('input', e=>{
+      const code = e.target.value.trim().toUpperCase();
+      if(e.target.value!==code) e.target.value = code;
+      f.verifierCode = code;
+      lsSet('verifierCode', code);
+      const match = lookupVerifierByCode(code);
+      f.verifiedBy = match ? match.name : '';
+      const nameEl = $('#rcVerifierName');
+      if(nameEl) nameEl.value = f.verifiedBy;
+      const hintEl = $('#rcVerifierHint');
+      if(hintEl){
+        if(!STATE.verifiersList.length){ hintEl.style.color=''; hintEl.textContent = 'No verifiers loaded yet — ask your Admin to add some, or check your connection.'; }
+        else if(code && !match){ hintEl.style.color='var(--danger)'; hintEl.textContent = 'Code not recognized.'; }
+        else{ hintEl.style.color=''; hintEl.textContent = 'Verifier types their own code here — their name fills in automatically.'; }
+      }
+    });
   }
   $('#rcSubDate').addEventListener('change', e=> f.submissionISO=e.target.value);
   const bcInput = $('#rcBillCopyInput');
@@ -2129,6 +2211,9 @@ function renderLineRow(li,i){
   const total = lineTotal(li);
   const uomOpts = uomOptionsForProduct(li.productCode);
   const sColor = statusColor(status);
+  const curUom = li.uom || 'KG';
+  const invRatePerKg = lineInvoiceRatePerKg(li);
+  const invRateUnitLabel = curUom==='KG' ? '₹/kg' : `₹/${curUom} · = ₹${invRatePerKg!=null?fmtMoney(invRatePerKg):'—'}/kg`;
   return `<tr>
     <td class="combo">
       <input type="text" class="prodsearch" id="liSearch${i}" placeholder="Search product name or code…" value="${esc(li.productName ? li.productName+(li.sku?(' — '+li.sku):'') : '')}">
@@ -2138,7 +2223,10 @@ function renderLineRow(li,i){
     <td style="font-family:var(--font-mono);">${esc(li.productCode||'—')}</td>
     <td>${esc(li.category||'—')}</td>
     <td class="num">${li.companyRate!=null?fmtMoney(li.companyRate):'—'}</td>
-    <td><input type="number" step="0.01" id="liInvRate${i}" value="${esc(li.invoiceRate)}" placeholder="0.00" ${!li.productCode?'disabled':''}></td>
+    <td>
+      <input type="number" step="0.01" id="liInvRate${i}" value="${esc(li.invoiceRate)}" placeholder="0.00" ${!li.productCode?'disabled':''}>
+      <div class="small-muted" id="liInvRateHint${i}">${esc(invRateUnitLabel)}</div>
+    </td>
     <td>
       <div style="display:flex;gap:4px;">
         <input type="number" step="0.01" id="liQty${i}" value="${esc(li.qty)}" placeholder="qty" style="width:64px;">
@@ -2148,14 +2236,31 @@ function renderLineRow(li,i){
     </td>
     <td class="num" id="liDiff${i}" style="font-weight:700;color:${sColor};">${diff==null?'—':(diff>0?'+':'')+clamp2(diff)}</td>
     <td class="num" id="liPct${i}" style="font-weight:700;color:${sColor};">${pct==null?'—':(pct>0?'+':'')+pct+'%'}</td>
-    <td id="liStatus${i}">${statusBadge(status, statusExplain(li.companyRate, li.invoiceRate, diff, pct))}</td>
+    <td id="liStatus${i}">${statusBadge(status, statusExplain(li.companyRate, invRatePerKg, diff, pct, li.invoiceRate, curUom))}</td>
     <td class="num" id="liTotal${i}" style="font-weight:700;color:${sColor};">${total==null?'—':(total>0?'+':(total<0?'-':''))+'₹'+fmtMoney(Math.abs(total))}</td>
     <td><button class="icon-btn" id="liRemove${i}" title="Remove">✕</button></td>
   </tr>`;
 }
+/* The rate a verifier reads off the physical invoice is quoted in whatever
+   unit that invoice bills in (₹/PC, ₹/BAG, or ₹/KG) — not always ₹/kg like
+   the Company Rate always is. Rather than making the verifier do that
+   division by hand before typing (slow, and one wrong keystroke away from a
+   false "undercharge"), the app takes the rate exactly as printed — in
+   whatever unit the Qty/UOM selector for this line is currently set to —
+   and converts it to ₹/kg itself, using the same pack-size factor
+   (kg per PC / kg per BAG) already known from the UOM Conversion master. */
+function lineInvoiceRatePerKg(li){
+  if(li.invoiceRate===''||li.invoiceRate==null||isNaN(Number(li.invoiceRate))) return null;
+  const opts = uomOptionsForProduct(li.productCode);
+  const opt = opts.find(o=>o.value===(li.uom||'KG')) || opts[0];
+  const factor = opt ? opt.factor : 1;
+  if(!factor) return null;
+  return clamp2(Number(li.invoiceRate) / factor);
+}
 function lineDiff(li){
-  if(li.companyRate==null || li.invoiceRate===''||li.invoiceRate==null) return null;
-  return clamp2(Number(li.invoiceRate) - Number(li.companyRate));
+  const invRateKg = lineInvoiceRatePerKg(li);
+  if(li.companyRate==null || invRateKg==null) return null;
+  return clamp2(invRateKg - Number(li.companyRate));
 }
 /* Overcharge % of the Company Rate — the basis for the Negligible/Overcharge split. */
 function linePct(li){
@@ -2189,16 +2294,21 @@ function statusColor(status){
 /* Builds a plain-English, numbers-shown explanation of why a line got its
    status — this is what a verifier sees on hover, so "why is this Overcharge
    and not Negligible" never has to be guessed at. */
-function statusExplain(companyRate, invoiceRate, d, pct){
+function statusExplain(companyRate, invoiceRatePerKg, d, pct, rawInvoiceRate, uom){
   if(d==null) return 'Enter an invoice rate to see the calculation.';
-  const rateLine = `Diff = Invoice Rate − Company Rate = ${fmtMoney(invoiceRate)} − ${fmtMoney(companyRate)} = ${d>0?'+':''}${clamp2(d)} ₹/kg`;
-  if(Math.abs(d)<0.004) return `${rateLine}\nExact match (0.00) → Match.`;
-  if(d>0){
-    const pctLine = `Variance = Diff ÷ Company Rate × 100 = ${clamp2(d)} ÷ ${fmtMoney(companyRate)} × 100 = ${pct}%`;
-    if(pct<1) return `${rateLine}\n${pctLine}\n${pct}% is BELOW the 1% negligible threshold → Overcharge – Negligible.`;
-    return `${rateLine}\n${pctLine}\n${pct}% is AT OR ABOVE the 1% threshold → Overcharge.`;
+  const lines = [];
+  if(uom && uom!=='KG' && rawInvoiceRate!=null && rawInvoiceRate!==''){
+    lines.push(`Invoice Rate = ₹${fmtMoney(rawInvoiceRate)}/${uom} ÷ pack size = ₹${fmtMoney(invoiceRatePerKg)}/kg`);
   }
-  return `${rateLine}\nInvoice rate is below Company Rate → Undercharge. (Undercharge has no negligible band — any shortfall is flagged.)`;
+  lines.push(`Diff = Invoice Rate − Company Rate = ${fmtMoney(invoiceRatePerKg)} − ${fmtMoney(companyRate)} = ${d>0?'+':''}${clamp2(d)} ₹/kg`);
+  if(Math.abs(d)<0.004){ lines.push('Exact match (0.00) → Match.'); return lines.join('\n'); }
+  if(d>0){
+    lines.push(`Variance = Diff ÷ Company Rate × 100 = ${clamp2(d)} ÷ ${fmtMoney(companyRate)} × 100 = ${pct}%`);
+    lines.push(pct<1 ? `${pct}% is BELOW the 1% negligible threshold → Overcharge – Negligible.` : `${pct}% is AT OR ABOVE the 1% threshold → Overcharge.`);
+    return lines.join('\n');
+  }
+  lines.push('Invoice rate is below Company Rate → Undercharge. (Undercharge has no negligible band — any shortfall is flagged.)');
+  return lines.join('\n');
 }
 function statusBadge(status, tooltip){
   if(!status) return '<span class="small-muted">—</span>';
@@ -2214,12 +2324,15 @@ function updateLineDiff(i){
   const li = f.lineItems[i];
   const d = lineDiff(li); const status = lineStatus(li); const pct = linePct(li);
   const qtyKg = qtyToKg(li); const total = lineTotal(li);
+  const curUom = li.uom || 'KG';
+  const invRatePerKg = lineInvoiceRatePerKg(li);
   const sColor = statusColor(status);
   const diffCell = $(`#liDiff${i}`);
   const pctCell = $(`#liPct${i}`);
   const statusCell = $(`#liStatus${i}`);
   const totalCell = $(`#liTotal${i}`);
   const hintEl = $(`#liQtyKgHint${i}`);
+  const invHintEl = $(`#liInvRateHint${i}`);
   if(diffCell){
     diffCell.textContent = d==null?'—':(d>0?'+':'')+clamp2(d);
     diffCell.style.color = sColor;
@@ -2228,12 +2341,13 @@ function updateLineDiff(i){
     pctCell.textContent = pct==null?'—':(pct>0?'+':'')+pct+'%';
     pctCell.style.color = sColor;
   }
-  if(statusCell) statusCell.innerHTML = statusBadge(status, statusExplain(li.companyRate, li.invoiceRate, d, pct));
+  if(statusCell) statusCell.innerHTML = statusBadge(status, statusExplain(li.companyRate, invRatePerKg, d, pct, li.invoiceRate, curUom));
   if(totalCell){
     totalCell.textContent = total==null?'—':(total>0?'+':(total<0?'-':''))+'₹'+fmtMoney(Math.abs(total));
     totalCell.style.color = sColor;
   }
-  if(hintEl) hintEl.textContent = (qtyKg!=null && (li.uom||'KG')!=='KG') ? ('= '+qtyKg+' kg') : '';
+  if(hintEl) hintEl.textContent = (qtyKg!=null && curUom!=='KG') ? ('= '+qtyKg+' kg') : '';
+  if(invHintEl) invHintEl.textContent = curUom==='KG' ? '₹/kg' : `₹/${curUom} · = ₹${invRatePerKg!=null?fmtMoney(invRatePerKg):'—'}/kg`;
 }
 
 
@@ -2334,7 +2448,7 @@ function saveBill(){
   if(!f.location){ errEl.textContent = "This DB's location could not be resolved — fix the Price Group Mapping."; return; }
   if(!f.retailer.trim()){ errEl.textContent = 'Retailer / outlet name is required.'; return; }
   if(!f.billDateISO){ errEl.textContent = 'Bill date is required.'; return; }
-  if(backendConfigured() && !f.verifiedBy){ errEl.textContent = 'Verified By is required.'; return; }
+  if(backendConfigured() && !f.verifiedBy){ errEl.textContent = f.verifierCode ? 'Verifier code not recognized — check the code and try again.' : 'Verified By (verifier code) is required.'; return; }
   const validLines = f.lineItems.filter(li=> li.productCode && li.invoiceRate!=='' && li.invoiceRate!=null);
   if(!validLines.length){ errEl.textContent = 'Add at least one product with an invoice rate.'; return; }
 
@@ -2365,7 +2479,7 @@ function saveBill(){
       overchargeAmt: status==='over' ? chargeAmt : 0,
       underchargeAmt: status==='under' ? clamp2(Math.abs(chargeAmt)) : 0,
       negligibleAmt: status==='negligible' ? chargeAmt : 0,
-      collectedBy: (f.collectedBy||'').toUpperCase(), designation: f.designation, verifiedBy: (f.verifiedBy||'').toUpperCase(), submissionStr: fmtDMY(subDate),
+      collectedBy: (f.collectedBy||'').toUpperCase(), designation: f.designation, verifiedBy: (f.verifiedBy||'').toUpperCase(), verifiedByCode: f.verifierCode||'', submissionStr: fmtDMY(subDate),
     };
     STATE.bills.push(record);
     newRecords.push(record);
@@ -2376,7 +2490,7 @@ function saveBill(){
   if(backendConfigured()){
     const session = getSession();
     if(session){
-      backendPost({ action:'submit', code:session.code, password:session.password, rows:newRecords })
+      backendPost({ action:'submit', code:session.code, pin:session.pin, rows:newRecords })
         .then(res=>{
           if(res.ok) toast(`Saved locally and submitted ${res.submitted} line(s) to the Sheet`, 'ok');
           else { queuePendingSubmission(newRecords); toast(`Saved locally — Sheet submit failed (${res.error||'unknown error'}), queued to retry`, 'err'); renderStatusStrip(); }
@@ -2495,18 +2609,18 @@ function renderReportTable(){
       <th>Status</th><th class="num">Overcharge Amt</th><th class="num">Undercharge Amt</th>
       <th>Bill Copy</th><th>Collected By</th><th>Designation</th><th>Verified By</th><th>Submitted</th><th></th>
     </tr></thead>
-    <tbody>${rows.map((b,idx)=>{ const sColor = statusColor(b.status); return `<tr class="${b.status==='over'?'row-over':''}">
+    <tbody>${rows.map((b,idx)=>{ const sColor = statusColor(b.status); const bInvRatePerKg = lineInvoiceRatePerKg(b); const bUom = b.uom||'KG'; return `<tr class="${b.status==='over'?'row-over':''}">
       <td>${b.sl}</td><td style="font-family:var(--font-mono);">${esc(b.dbCode)}</td><td class="wrap">${esc(b.dbName)}</td><td>${esc(b.location)}</td>
       <td style="font-family:var(--font-mono);">${esc(b.beatCode||'—')}</td><td class="wrap">${esc(b.beatName||'—')}</td>
       <td>${esc(b.so||'—')}</td><td>${esc(b.asm||'—')}</td><td>${esc(b.rsm||'—')}</td><td>${dbStatusBadge(b.dbActive)}</td>
       <td class="wrap">${esc(b.retailer)}</td><td>${esc(b.billType)}</td>
       <td>${esc(b.billNo||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.billDateStr)}</td>
       <td class="wrap">${esc(b.productName)}</td><td style="font-family:var(--font-mono);">${esc(b.packSize||b.sku||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.productCode)}</td>
-      <td class="num">${fmtMoney(b.companyRate)}</td><td class="num">${fmtMoney(b.invoiceRate)}</td>
+      <td class="num">${fmtMoney(b.companyRate)}</td><td class="num" title="${bUom!=='KG'?`Entered as ₹${fmtMoney(b.invoiceRate)}/${bUom}`:''}">${fmtMoney(bInvRatePerKg)}${bUom!=='KG'?`<div class="small-muted">₹${fmtMoney(b.invoiceRate)}/${esc(bUom)} entered</div>`:''}</td>
       <td class="num" style="font-weight:700;color:${sColor};">${b.diff>0?'+':''}${clamp2(b.diff)}</td>
       <td class="num" style="font-weight:700;color:${sColor};">${b.pct==null?'—':(b.pct>0?'+':'')+b.pct+'%'}</td>
       <td style="font-family:var(--font-mono);">${esc(qtyDisplay(b))}</td>
-      <td>${statusBadge(b.status, statusExplain(b.companyRate, b.invoiceRate, b.diff, b.pct))}</td>
+      <td>${statusBadge(b.status, statusExplain(b.companyRate, bInvRatePerKg, b.diff, b.pct, b.invoiceRate, bUom))}</td>
       <td class="num" style="font-weight:700;color:var(--danger);">${b.status==='over'?'₹'+fmtMoney(b.overchargeAmt):'—'}</td>
       <td class="num" style="font-weight:700;color:var(--warn);">${b.status==='under'?'₹'+fmtMoney(b.underchargeAmt):'—'}</td>
       <td>${billCopyCell(b)}</td>
@@ -2576,7 +2690,8 @@ async function exportExcelPro(){
       {header:'Product Code', key:'productCode', width:13},
       {header:'GST %', key:'gstPct', width:8},
       {header:'Company Rate', key:'companyRate', width:13},
-      {header:'Invoice Rate', key:'invoiceRate', width:13},
+      {header:'Invoice Rate (₹/kg)', key:'invoiceRate', width:15},
+      {header:'Invoice Rate As Entered', key:'invoiceRateEntered', width:18},
       {header:'Difference', key:'diff', width:12},
       {header:'Variance %', key:'pctLabel', width:11},
       {header:'Status', key:'statusLabel', width:13},
@@ -2647,7 +2762,7 @@ async function exportExcelPro(){
         beatCode:b.beatCode||'', beatName:b.beatName||'', so:b.so||'', asm:b.asm||'', rsm:b.rsm||'', dbStatusLabel,
         retailer:b.retailer, billType:b.billType, billNo:b.billNo||'', billDateStr:b.billDateStr,
         productName:b.productName, packSize:b.packSize||b.sku||'', productCode:b.productCode, gstPct:b.gstPct, companyRate:b.companyRate,
-        invoiceRate:b.invoiceRate, diff:b.diff, pctLabel: b.pct==null?'':((b.pct>0?'+':'')+b.pct+'%'), statusLabel, qty:b.qty||'', uom:b.uom||'KG', qtyKg:b.qtyKg||'',
+        invoiceRate: lineInvoiceRatePerKg(b), invoiceRateEntered: (b.uom&&b.uom!=='KG') ? `₹${fmtMoney(b.invoiceRate)}/${b.uom}` : '', diff:b.diff, pctLabel: b.pct==null?'':((b.pct>0?'+':'')+b.pct+'%'), statusLabel, qty:b.qty||'', uom:b.uom||'KG', qtyKg:b.qtyKg||'',
         overchargeAmt: b.status==='over' ? (b.overchargeAmt||0) : '',
         underchargeAmt: b.status==='under' ? (b.underchargeAmt||0) : '',
         billCopy: '', collectedBy:b.collectedBy||'', designation:b.designation||'', verifiedBy:b.verifiedBy||'', submissionStr:b.submissionStr,
@@ -2865,22 +2980,22 @@ function renderLoginGate(errorMsg){
           </div>
         </div>
         <div class="field"><label>User Code</label><input type="text" id="loginCode" autocomplete="username" style="text-transform:uppercase;"></div>
-        <div class="field"><label>Password</label><input type="password" id="loginPassword" autocomplete="current-password"></div>
+        <div class="field"><label>PIN</label><input type="password" id="loginPin" autocomplete="current-password"></div>
         ${errorMsg ? `<p style="color:var(--danger);font-size:12.5px;margin:-6px 0 12px;">${esc(errorMsg)}</p>` : ''}
         <button class="btn accent wide" id="loginBtn">Log In</button>
-        <p class="small-muted" style="margin-top:16px;text-align:center;">Ask your Admin for a User Code and Password.</p>
+        <p class="small-muted" style="margin-top:16px;text-align:center;">Ask your Admin for a User Code and PIN.</p>
       </div>
     </div>
   `;
   const doLogin = async ()=>{
     const code = $('#loginCode').value.trim();
-    const password = $('#loginPassword').value;
-    if(!code || !password){ renderLoginGate('Enter both User Code and Password.'); return; }
+    const pin = $('#loginPin').value;
+    if(!code || !pin){ renderLoginGate('Enter both User Code and PIN.'); return; }
     const btn = $('#loginBtn'); btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Signing in…';
     try{
-      const res = await backendPost({ action:'login', code, password });
+      const res = await backendPost({ action:'login', code, pin });
       if(res.ok){
-        setSession({ code:res.code, password, name:res.name, role:res.role, designation:res.designation });
+        setSession({ code:res.code, pin, name:res.name, role:res.role, designation:res.designation });
         boot();
       } else {
         renderLoginGate(res.error || 'Login failed.');
@@ -2890,7 +3005,7 @@ function renderLoginGate(errorMsg){
     }
   };
   $('#loginBtn').addEventListener('click', doLogin);
-  $('#loginPassword').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  $('#loginPin').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
   $('#loginCode').focus();
 }
 function logout(){
