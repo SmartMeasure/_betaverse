@@ -383,8 +383,76 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 <script id="app-script">
 /* ============================================================
    RATE LEDGER — Overinvoicing Audit
-   Single-file client-side app. No data leaves the browser.
+   Single-file client-side app. Bill data stays in the browser UNLESS a
+   Google Sheet backend is configured below (WEB_APP_URL) — when it is,
+   logged-in submissions are also sent to that Sheet for the Dashboard.
    ============================================================ */
+
+/* ---------------- Backend config ----------------
+   Paste the Web App URL from Apps Script deployment here (see
+   Deployment_Instructions.txt). Leave as-is to run fully offline/local,
+   exactly as before — no login screen will appear. */
+const WEB_APP_URL = 'PASTE_YOUR_WEB_APP_URL_HERE';
+function backendConfigured(){ return WEB_APP_URL && !WEB_APP_URL.includes('PASTE_YOUR_WEB_APP_URL_HERE'); }
+
+/* ---------------- Session (login identity) ----------------
+   Stored in localStorage so a refresh doesn't force re-login. Includes
+   the password because the backend re-checks credentials on every call
+   (no server-side session tokens, by design — keeps the Apps Script
+   simple to read and audit). Because of that, treat this device as
+   holding real credentials: use a lock screen / passcode on it. */
+const SESSION_KEY = 'rateLedger_session';
+function getSession(){ try{ return JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); }catch(e){ return null; } }
+function setSession(s){ try{ localStorage.setItem(SESSION_KEY, JSON.stringify(s)); }catch(e){} }
+function clearSession(){ try{ localStorage.removeItem(SESSION_KEY); }catch(e){} }
+
+/* Apps Script web apps don't handle CORS preflight (OPTIONS) requests, so
+   POSTs must avoid triggering one: send the JSON body as plain text with
+   a simple content-type, which browsers don't preflight. */
+async function backendPost(payload){
+  const res = await fetch(WEB_APP_URL, {
+    method:'POST',
+    headers: {'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+async function backendGet(params){
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(`${WEB_APP_URL}?${qs}`);
+  return res.json();
+}
+
+/* ---------------- Pending submissions (offline resilience) ----------------
+   If a field visit has no signal, a submit is queued here instead of
+   being lost, and retried on demand or whenever the app regains
+   connectivity. */
+const PENDING_KEY = 'rateLedger_pendingSubmissions';
+function getPendingSubmissions(){ try{ return JSON.parse(localStorage.getItem(PENDING_KEY)||'[]'); }catch(e){ return []; } }
+function setPendingSubmissions(list){ try{ localStorage.setItem(PENDING_KEY, JSON.stringify(list)); }catch(e){} }
+function queuePendingSubmission(rows){
+  const list = getPendingSubmissions();
+  list.push({ rows, queuedAt: new Date().toISOString() });
+  setPendingSubmissions(list);
+}
+async function retryPendingSubmissions(silent){
+  if(!backendConfigured()) return;
+  const session = getSession();
+  if(!session) return;
+  const list = getPendingSubmissions();
+  if(!list.length) return;
+  const remaining = [];
+  let sent = 0;
+  for(const item of list){
+    try{
+      const res = await backendPost({ action:'submit', code:session.code, password:session.password, rows:item.rows });
+      if(res.ok) sent += item.rows.length; else remaining.push(item);
+    }catch(e){ remaining.push(item); }
+  }
+  setPendingSubmissions(remaining);
+  if(sent && !silent) toast(`${sent} pending line(s) submitted to the Sheet`, 'ok');
+  renderStatusStrip();
+}
 
 /* ---------------- Global state ---------------- */
 const STATE = {
@@ -400,6 +468,7 @@ const STATE = {
   beatSoAuto: false,    // true when the DB Master upload itself carried Beat/SO/ASM/RSM columns (routing then lives on STATE.dbMaster records)
   uomMap: {},            // productCode -> {name, category, packSize, kgPerPc, kgPerBag} — UOM conversion master
   uomMapFile: null,
+  verifiersList: [],     // fetched from the Sheet backend — options for the mandatory Verified By dropdown
   bills: [],            // flattened report rows
   billFiles: {},        // billUid -> {fileName, ext, dataUrl, savedName} — attached bill photo/PDF copy
   currentTab: 'dashboard',
@@ -572,6 +641,7 @@ function renderShell(){
       </div>
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
         <div class="status-strip" id="statusStrip"></div>
+        ${getSession() ? `<div class="status-chip ready" title="Logged in"><span class="status-dot"></span>${esc(getSession().name)} (${esc(getSession().role)})</div><button class="btn secondary small" id="logoutBtn">Log Out</button>` : ''}
         <div class="theme-switch" id="themeSwitch"></div>
       </div>
     </header>
@@ -583,11 +653,13 @@ function renderShell(){
       <section class="view" id="view-ratecheck"></section>
       <section class="view" id="view-reports"></section>
     </main>
-    <footer class="appfoot">All data stays in this browser — nothing is uploaded to a server. Refreshing clears bills/rate master data (export your report first), but your Collected By / Designation / Verified By stay remembered on this device until you clear browser data.</footer>
+    <footer class="appfoot">${backendConfigured() ? 'Bills you save are submitted to your organisation\'s Google Sheet, in addition to this local report.' : 'All data stays in this browser — nothing is uploaded to a server.'} Refreshing clears bills/rate master data (export your report first), but your Collected By / Designation / Verified By stay remembered on this device until you clear browser data.</footer>
   `;
   renderTabs();
   renderStatusStrip();
   renderThemeSwitch();
+  const logoutBtn = $('#logoutBtn');
+  if(logoutBtn) logoutBtn.addEventListener('click', logout);
 }
 
 /* ---------------- Theme switcher ---------------- */
@@ -1016,20 +1088,108 @@ function gstForCategory(cat){
   const c = (cat||'').toLowerCase();
   return CATEGORY_GST_ZERO.some(k=>c.includes(k)) ? 0 : 5;
 }
+function guessCategoryFromName(name){
+  const upper = String(name||'').toUpperCase();
+  for(const cat of KNOWN_CATEGORIES){ if(upper.includes(cat)) return cat; }
+  return '';
+}
+/* Recognises a rate-change date cell whether it's a real Excel date, a raw
+   serial number (date-formatted cell read without cellDates), or plain text
+   like "02.08.2026" / "02-08-2026" / "02/08/2026". */
+function tryParseDateCell(val){
+  if(val==null || val==='') return null;
+  if(typeof val === 'number' && val>20000 && val<90000){
+    const d = new Date(Math.round((val-25569)*86400*1000));
+    if(!isNaN(d)) return { effDate:d, effDateStr:fmtDMY(d) };
+  }
+  const s = String(val).trim();
+  const m = s.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})$/);
+  if(m){
+    let [,dd,mm,yyyy] = m;
+    if(yyyy.length===2) yyyy = '20'+yyyy;
+    const d = new Date(Number(yyyy), Number(mm)-1, Number(dd));
+    if(!isNaN(d) && d.getMonth()===Number(mm)-1) return { effDate:d, effDateStr:fmtDMY(d) };
+  }
+  return null;
+}
+/* Alternative to the ZIP-of-PDFs upload: a wide "multi-date, multi-location"
+   rate Excel — one sheet per location, Product Name/SKU/Product Code as
+   fixed columns, then one "Rate/kg" column per rate-revision date within the
+   month. Cells showing "#N/A" (no rate change for that product on that date)
+   are skipped. Produces the same {fileName, detectedLocation, effDateStr,
+   matchedLocation, rows} shape the ZIP/PDF path does, so it drops straight
+   into the same review-and-confirm step. */
+async function parseRateExcelWorkbook(file){
+  const wb = await readWorkbookFile(file);
+  const groups = {}; // "location|effDateStr" -> {location, effDateStr, rows:[]}
+  wb.SheetNames.forEach(sheetName=>{
+    const rows = sheetToRows(wb.Sheets[sheetName]);
+    if(!rows.length) return;
+    let headerRowIdx=-1, nameCol=-1, codeCol=-1, skuCol=-1;
+    for(let i=0;i<Math.min(rows.length,12);i++){
+      const r = rows[i];
+      const ni = r.findIndex(c=>String(c).trim().toUpperCase()==='PRODUCT NAME');
+      const ci = r.findIndex(c=>String(c).trim().toUpperCase()==='PRODUCT CODE');
+      if(ni>=0 && ci>=0){
+        headerRowIdx=i; nameCol=ni; codeCol=ci;
+        const si = r.findIndex(c=>String(c).trim().toUpperCase()==='SKU');
+        skuCol = si>=0 ? si : -1;
+        break;
+      }
+    }
+    if(headerRowIdx===-1) return; // doesn't look like this template — skip the sheet quietly
+    const lastFixedCol = Math.max(nameCol, codeCol, skuCol);
+    const dateColMap = {};
+    for(let col=lastFixedCol+1; col<(rows[headerRowIdx]||[]).length; col++){
+      for(let back=1; back<=3 && headerRowIdx-back>=0; back++){
+        const parsed = tryParseDateCell((rows[headerRowIdx-back]||[])[col]);
+        if(parsed){ dateColMap[col]=parsed; break; }
+      }
+    }
+    if(!Object.keys(dateColMap).length) return; // no date columns on this sheet — skip
+    const location = matchLocation(sheetName) || sheetName.trim().toUpperCase();
+    for(let ri=headerRowIdx+1; ri<rows.length; ri++){
+      const row = rows[ri];
+      if(!row) continue;
+      const productName = String(row[nameCol]==null?'':row[nameCol]).trim();
+      const productCode = String(row[codeCol]==null?'':row[codeCol]).trim();
+      if(!productName || !/^\d+$/.test(productCode)) continue;
+      const sku = skuCol>=0 ? String(row[skuCol]==null?'':row[skuCol]).trim() : '';
+      const category = (STATE.uomMap[productCode] && STATE.uomMap[productCode].category) || guessCategoryFromName(productName);
+      Object.keys(dateColMap).forEach(col=>{
+        const raw = row[col];
+        if(raw==null || raw==='' || /N\s*\/?\s*A/i.test(String(raw))) return;
+        const rateNum = parseFloat(String(raw).replace(/[^0-9.]/g,''));
+        if(isNaN(rateNum) || rateNum<=0) return;
+        const {effDateStr} = dateColMap[col];
+        const key = location+'|'+effDateStr;
+        if(!groups[key]) groups[key] = { location, effDateStr, rows: [] };
+        groups[key].rows.push({ category, productName, sku, productCode, rate: clamp2(rateNum) });
+      });
+    }
+  });
+  return Object.values(groups).map(g=>({
+    fileName: `${file.name} — ${g.location} (${g.effDateStr})`,
+    detectedLocation: g.location,
+    effDateStr: g.effDateStr,
+    matchedLocation: matchLocation(g.location),
+    rows: g.rows,
+  }));
+}
 
 function renderStep3(){
   const c = $('#step3');
   const done = STATE.rateRows.length>0;
   const status = done ? `${STATE.rateFiles.length} file(s), ${STATE.rateRows.length} SKU rows` : 'Pending';
   const body = `
-    <p class="small-muted">Upload location-wise rate PDFs as ZIP(s) (WhatsApp rate circulars) — select or drop <strong>multiple ZIP files at once</strong> if the month had several rate revisions (e.g. 10 rate changes = 10 ZIPs), and they'll all be parsed together into one review list. Each filename should carry the <strong>location</strong> and the <strong>effective date</strong> (e.g. <span class="tag">Kolkata Current Rate 06-09-2026.pdf</span>) — that date becomes the rate's effective-from date. When you check a bill, the correct rate for that bill's date is picked automatically — no need to pick a date yourself. Rates already include GST; every category is 5% GST except Papad, which is 0%. You can also upload more ZIPs later (e.g. next month's revision) — new dates simply add on top.</p>
+    <p class="small-muted">Upload location-wise rates as ZIP(s) of PDFs (WhatsApp rate circulars), <strong>or an Excel file</strong> in the multi-date template — one sheet per location, with Product Name / SKU / Product Code fixed columns and one "Rate/kg" column per rate-revision date in the month (cells marked <span class="tag">#N/A</span> are skipped). Mix ZIPs and Excel files in the same upload if you like — select or drop <strong>multiple files at once</strong>. Each PDF's filename should carry the <strong>location</strong> and the <strong>effective date</strong> (e.g. <span class="tag">Kolkata Current Rate 06-09-2026.pdf</span>); the Excel template gets its dates straight from its own date-column headers. Rates already include GST; every category is 5% GST except Papad, which is 0%. You can upload more files later (e.g. next month's revision) — new dates simply add on top.</p>
     <div id="s3zone"></div>
     <div id="s3progress"></div>
     <div id="s3review" style="margin-top:16px;"></div>
     ${STATE.rateFiles.length ? renderRateFilesTable() : ''}
   `;
-  stepShell(c, 3, 'Rate File ZIP', 'Location-wise rate PDFs — multiple ZIPs at once', done, status, body);
-  wireDropzone($('#s3zone'), '.zip', handleRateZips, true);
+  stepShell(c, 3, 'Rate Files', 'ZIP of PDFs or a multi-date Excel — multiple at once', done, status, body);
+  wireDropzone($('#s3zone'), '.zip,.xlsx,.xls', handleRateFiles, true);
   const rf = $('#rateFilesTable');
   if(rf) wireRateFilesTableEvents();
 }
@@ -1060,12 +1220,22 @@ function wireRateFilesTableEvents(){
   }));
 }
 
-async function handleRateZips(files){
+async function handleRateFiles(files){
   const progDiv = $('#s3progress');
   const allItems = [];
   try{
     for(let fi=0; fi<files.length; fi++){
       const file = files[fi];
+      const ext = (file.name.split('.').pop()||'').toLowerCase();
+      if(ext==='xlsx' || ext==='xls'){
+        progDiv.innerHTML = `<div class="small-muted" style="margin-top:10px;">Reading ${esc(file.name)} (Excel rate file ${fi+1}/${files.length})…</div>`;
+        try{
+          const items = await parseRateExcelWorkbook(file);
+          if(!items.length) toast(`No usable rate columns found in ${file.name} — check it matches the expected template (Product Name / Product Code + a Rate/kg column per date)`, 'err');
+          allItems.push(...items);
+        }catch(e){ console.error(e); toast(`Could not read ${file.name} — ${e.message}`, 'err'); }
+        continue;
+      }
       progDiv.innerHTML = `<div class="small-muted" style="margin-top:10px;">Reading ${esc(file.name)} (ZIP ${fi+1}/${files.length})…</div><div class="progress-bar"><div style="width:${Math.round(((fi)/files.length)*100)}%"></div></div>`;
       let zip;
       try{ zip = await JSZip.loadAsync(file); }
@@ -1086,10 +1256,10 @@ async function handleRateZips(files){
       }
     }
     progDiv.innerHTML = '';
-    if(!allItems.length){ toast('No PDF rate files found in the selected ZIP(s)', 'err'); return; }
+    if(!allItems.length){ toast('No usable rate data found in the selected file(s)', 'err'); return; }
     renderRateReview(allItems);
   }catch(err){
-    console.error(err); toast('Could not read ZIP(s): '+err.message, 'err'); progDiv.innerHTML='';
+    console.error(err); toast('Could not read file(s): '+err.message, 'err'); progDiv.innerHTML='';
   }
 }
 
@@ -1601,12 +1771,14 @@ function renderRMTable(){
   if(!rows.length){ wrap.innerHTML = emptyState('📋','No rate rows match','Try clearing filters, or upload rate files in Data Setup → Step 3.'); return; }
   wrap.innerHTML = `<p class="small-muted" style="margin-bottom:8px;">Product names are auto-extracted from PDF and occasionally need a fix on tightly-packed rows (common in Spices/Sattu) — click a name or rate to edit it in place. Product Code and Rate are what the overcharge check actually relies on.</p>
   <div class="table-wrap"><table>
-    <thead><tr><th>Location</th><th>Category</th><th>Product</th><th>SKU</th><th>Code</th><th class="num">GST%</th><th class="num">Rate (incl. GST)</th><th>Effective From</th></tr></thead>
+    <thead><tr><th>Location</th><th>Category</th><th>Product</th><th>Pack Size</th><th>SKU</th><th>Code</th><th class="num">GST%</th><th class="num">Rate (incl. GST)</th><th>Effective From</th></tr></thead>
     <tbody>${rows.slice(0,600).map((r)=>{
       const rid = r._rid || (r._rid = uid('rr'));
+      const packSize = (STATE.uomMap[r.productCode] && STATE.uomMap[r.productCode].packSize) || r.sku || '—';
       return `<tr>
       <td>${esc(r.location)}</td><td>${esc(r.category)}</td>
       <td class="wrap" contenteditable="true" spellcheck="false" data-edit-name="${rid}">${esc(r.productName)}</td>
+      <td style="font-family:var(--font-mono);">${esc(packSize)}</td>
       <td>${esc(r.sku)}</td>
       <td style="font-family:var(--font-mono);">${esc(r.productCode)}</td><td class="num">${r.gstPct}%</td>
       <td class="num" contenteditable="true" spellcheck="false" data-edit-rate="${rid}">${fmtMoney(r.rate)}</td>
@@ -1637,10 +1809,13 @@ function emptyState(icon,title,body){
 
 /* ---------------- Rate Check view ---------------- */
 function freshBillForm(){
+  const session = getSession();
   return {
     dbCode:'', dbName:'', pg:'', location:'', beatCode:'', beatName:'', beats:[], so:'', asm:'', rsm:'', active:'',
     billType:'Tax Invoice', retailer:'', billNo:'', billDateISO: todayISO(), submissionISO: todayISO(),
-    collectedBy: lsGet('collectedBy'), designation: lsGet('designation'), verifiedBy: lsGet('verifiedBy'),
+    collectedBy: session ? session.name : lsGet('collectedBy'),
+    designation: session ? (session.designation||'') : lsGet('designation'),
+    verifiedBy: backendConfigured() ? '' : lsGet('verifiedBy'),
     lineItems: [], // {productCode, productName, sku, category, companyRate, gstPct, invoiceRate, qty}
     billCopy: null, // {fileName, ext, dataUrl} — attached bill photo/PDF, optional
   };
@@ -1703,6 +1878,10 @@ function renderRateCheck(){
         </div>
         <div class="hint">or type DDMMYY, e.g. 260826 = 26‑08‑26</div>
       </div>
+      ${backendConfigured() && getSession() ? `
+      <div class="field readonly"><label>Collected By <span class="small-muted" style="text-transform:none;font-weight:400;">— from your login</span></label><input type="text" value="${esc(f.collectedBy)}" readonly></div>
+      <div class="field readonly"><label>Designation <span class="small-muted" style="text-transform:none;font-weight:400;">— from your login</span></label><input type="text" value="${esc(f.designation||'—')}" readonly></div>
+      ` : `
       <div class="field"><label>Collected By <span class="small-muted" style="text-transform:none;font-weight:400;">— remembered on this device</span></label>
         <input type="text" id="rcCollectedBy" list="rcCollectedByList" value="${esc(f.collectedBy)}" style="text-transform:uppercase;">
         <datalist id="rcCollectedByList">${lsGetList('collectedByList').map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
@@ -1713,10 +1892,21 @@ function renderRateCheck(){
           ${['Sales Officer','Merchandiser','ASM','ASE','RSM'].map(d=>`<option value="${d}" ${f.designation===d?'selected':''}>${d}</option>`).join('')}
         </select>
       </div>
+      `}
+      ${backendConfigured() ? `
+      <div class="field"><label>Verified By <span class="colmap-req">*</span> <span class="small-muted" style="text-transform:none;font-weight:400;">— set by Admin</span></label>
+        <select id="rcVerifiedBy">
+          <option value="">— Select —</option>
+          ${STATE.verifiersList.map(n=>`<option value="${esc(n)}" ${f.verifiedBy===n?'selected':''}>${esc(n)}</option>`).join('')}
+        </select>
+        ${!STATE.verifiersList.length ? `<div class="hint" style="color:var(--warn);">No verifiers loaded yet — ask your Admin to add some, or check your connection.</div>` : ''}
+      </div>
+      ` : `
       <div class="field"><label>Verified By <span class="small-muted" style="text-transform:none;font-weight:400;">— remembered on this device until you clear cache</span></label>
         <input type="text" id="rcVerifiedBy" list="rcVerifiedByList" value="${esc(f.verifiedBy)}" placeholder="Verifier's name" style="text-transform:uppercase;">
         <datalist id="rcVerifiedByList">${lsGetList('verifiedByList').map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
       </div>
+      `}
       <div class="field"><label>Submission Date</label><input type="date" id="rcSubDate" value="${f.submissionISO}"></div>
     </div>
     <div class="field" style="max-width:420px;">
@@ -1781,21 +1971,32 @@ function renderRateCheck(){
       }
     }
   });
-  $('#rcCollectedBy').addEventListener('input', e=>{
-    const up = e.target.value.toUpperCase();
-    if(e.target.value!==up) e.target.value = up;
-    f.collectedBy = up;
-    lsSet('collectedBy', up);
-  });
-  $('#rcCollectedBy').addEventListener('change', e=>{ if(e.target.value.trim()) lsAddToList('collectedByList', e.target.value.trim()); });
-  $('#rcDesignation').addEventListener('change', e=>{ f.designation=e.target.value; lsSet('designation', e.target.value); });
-  $('#rcVerifiedBy').addEventListener('input', e=>{
-    const up = e.target.value.toUpperCase();
-    if(e.target.value!==up) e.target.value = up;
-    f.verifiedBy = up;
-    lsSet('verifiedBy', up);
-  });
-  $('#rcVerifiedBy').addEventListener('change', e=>{ if(e.target.value.trim()) lsAddToList('verifiedByList', e.target.value.trim()); });
+  const collectedByEl = $('#rcCollectedBy');
+  if(collectedByEl){
+    collectedByEl.addEventListener('input', e=>{
+      const up = e.target.value.toUpperCase();
+      if(e.target.value!==up) e.target.value = up;
+      f.collectedBy = up;
+      lsSet('collectedBy', up);
+    });
+    collectedByEl.addEventListener('change', e=>{ if(e.target.value.trim()) lsAddToList('collectedByList', e.target.value.trim()); });
+  }
+  const designationEl = $('#rcDesignation');
+  if(designationEl) designationEl.addEventListener('change', e=>{ f.designation=e.target.value; lsSet('designation', e.target.value); });
+  const verifiedByEl = $('#rcVerifiedBy');
+  if(verifiedByEl){
+    if(verifiedByEl.tagName==='SELECT'){
+      verifiedByEl.addEventListener('change', e=> f.verifiedBy = e.target.value);
+    } else {
+      verifiedByEl.addEventListener('input', e=>{
+        const up = e.target.value.toUpperCase();
+        if(e.target.value!==up) e.target.value = up;
+        f.verifiedBy = up;
+        lsSet('verifiedBy', up);
+      });
+      verifiedByEl.addEventListener('change', e=>{ if(e.target.value.trim()) lsAddToList('verifiedByList', e.target.value.trim()); });
+    }
+  }
   $('#rcSubDate').addEventListener('change', e=> f.submissionISO=e.target.value);
   const bcInput = $('#rcBillCopyInput');
   if(bcInput) bcInput.addEventListener('change', e=>{
@@ -1829,7 +2030,7 @@ function renderRateCheck(){
   if(f.lineItems.length===0){ f.lineItems.push(emptyLineItem()); renderLineItems(); }
 }
 
-function emptyLineItem(){ return {productCode:'', productName:'', sku:'', category:'', companyRate:null, gstPct:null, invoiceRate:'', qty:'', uom:'KG'}; }
+function emptyLineItem(){ return {productCode:'', productName:'', sku:'', category:'', packSize:'', companyRate:null, gstPct:null, invoiceRate:'', qty:'', uom:'KG'}; }
 
 function wireDbCombo(){
   const input = $('#rcDbCode');
@@ -1898,7 +2099,7 @@ function renderLineItems(){
   const div = $('#rcLineItems');
   div.innerHTML = `
     <table class="li-table">
-      <thead><tr><th style="width:22%;">Product</th><th>Product Code</th><th>Category</th><th class="num">Company Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th class="num">Invoice Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th>Qty</th><th class="num">Diff<br><span class="small-muted" style="text-transform:none;">₹/kg</span></th><th class="num">Variance<br><span class="small-muted" style="text-transform:none;">% of rate</span></th><th>Status</th><th class="num">Total ₹</th><th></th></tr></thead>
+      <thead><tr><th style="width:22%;">Product</th><th>Pack Size</th><th>Product Code</th><th>Category</th><th class="num">Company Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th class="num">Invoice Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th>Qty</th><th class="num">Diff<br><span class="small-muted" style="text-transform:none;">₹/kg</span></th><th class="num">Variance<br><span class="small-muted" style="text-transform:none;">% of rate</span></th><th>Status</th><th class="num">Total ₹</th><th></th></tr></thead>
       <tbody>
         ${f.lineItems.map((li,i)=>renderLineRow(li,i)).join('')}
       </tbody>
@@ -1933,6 +2134,7 @@ function renderLineRow(li,i){
       <input type="text" class="prodsearch" id="liSearch${i}" placeholder="Search product name or code…" value="${esc(li.productName ? li.productName+(li.sku?(' — '+li.sku):'') : '')}">
       <div id="liResults${i}" class="combo-host"></div>
     </td>
+    <td style="font-family:var(--font-mono);">${esc(li.packSize||'—')}</td>
     <td style="font-family:var(--font-mono);">${esc(li.productCode||'—')}</td>
     <td>${esc(li.category||'—')}</td>
     <td class="num">${li.companyRate!=null?fmtMoney(li.companyRate):'—'}</td>
@@ -2117,6 +2319,8 @@ function showProductResults(i, q){
     const li = f.lineItems[i];
     li.productCode = rr.productCode; li.productName = rr.productName; li.sku = rr.sku; li.category = rr.category;
     li.companyRate = rr.rate; li.gstPct = rr.gstPct; li.uom = 'KG';
+    const uomEntry = STATE.uomMap[rr.productCode];
+    li.packSize = (uomEntry && uomEntry.packSize) || rr.sku || '';
     resultsDiv.innerHTML = '';
     renderLineItems();
   }));
@@ -2130,6 +2334,7 @@ function saveBill(){
   if(!f.location){ errEl.textContent = "This DB's location could not be resolved — fix the Price Group Mapping."; return; }
   if(!f.retailer.trim()){ errEl.textContent = 'Retailer / outlet name is required.'; return; }
   if(!f.billDateISO){ errEl.textContent = 'Bill date is required.'; return; }
+  if(backendConfigured() && !f.verifiedBy){ errEl.textContent = 'Verified By is required.'; return; }
   const validLines = f.lineItems.filter(li=> li.productCode && li.invoiceRate!=='' && li.invoiceRate!=null);
   if(!validLines.length){ errEl.textContent = 'Add at least one product with an invoice rate.'; return; }
 
@@ -2140,6 +2345,7 @@ function saveBill(){
     const savedName = `Bill_${billUid.replace('bill_','')}.${f.billCopy.ext.replace(/[^a-z0-9]/gi,'')||'jpg'}`;
     STATE.billFiles[billUid] = { fileName: f.billCopy.fileName, ext: f.billCopy.ext, dataUrl: f.billCopy.dataUrl, savedName, kind: f.billCopy.kind || 'pdf' };
   }
+  const newRecords = [];
   validLines.forEach(li=>{
     const diff = lineDiff(li);
     const status = lineStatus(li);
@@ -2148,23 +2354,39 @@ function saveBill(){
     const uom = li.uom || 'KG';
     const qtyKg = qtyToKg(li);
     const chargeAmt = qtyKg!=null ? clamp2(diff*qtyKg) : diff;
-    STATE.bills.push({
+    const record = {
       sl: BILL_SEQ++, billUid,
       dbCode: f.dbCode, dbName: f.dbName, pg: f.pg, location: f.location,
       beatCode: f.beatCode, beatName: f.beatName, so: f.so, asm: f.asm, rsm: f.rsm, dbActive: f.active,
       billType: f.billType, retailer: (f.retailer||'').toUpperCase(), billNo: (f.billNo||'').toUpperCase(), billDateStr: fmtDMY(billDate),
-      productName: li.productName, productCode: li.productCode, sku: li.sku, category: li.category,
+      productName: li.productName, productCode: li.productCode, sku: li.sku, category: li.category, packSize: li.packSize||li.sku||'',
       companyRate: li.companyRate, invoiceRate: Number(li.invoiceRate), gstPct: li.gstPct,
       diff, pct, status, qty, uom, qtyKg, chargeAmt,
       overchargeAmt: status==='over' ? chargeAmt : 0,
       underchargeAmt: status==='under' ? clamp2(Math.abs(chargeAmt)) : 0,
       negligibleAmt: status==='negligible' ? chargeAmt : 0,
       collectedBy: (f.collectedBy||'').toUpperCase(), designation: f.designation, verifiedBy: (f.verifiedBy||'').toUpperCase(), submissionStr: fmtDMY(subDate),
-    });
+    };
+    STATE.bills.push(record);
+    newRecords.push(record);
   });
   if(f.collectedBy && f.collectedBy.trim()) lsAddToList('collectedByList', f.collectedBy.trim());
   if(f.verifiedBy && f.verifiedBy.trim()) lsAddToList('verifiedByList', f.verifiedBy.trim());
-  toast(`Saved bill with ${validLines.length} product line(s)`, 'ok');
+
+  if(backendConfigured()){
+    const session = getSession();
+    if(session){
+      backendPost({ action:'submit', code:session.code, password:session.password, rows:newRecords })
+        .then(res=>{
+          if(res.ok) toast(`Saved locally and submitted ${res.submitted} line(s) to the Sheet`, 'ok');
+          else { queuePendingSubmission(newRecords); toast(`Saved locally — Sheet submit failed (${res.error||'unknown error'}), queued to retry`, 'err'); renderStatusStrip(); }
+        })
+        .catch(()=>{ queuePendingSubmission(newRecords); toast('Saved locally — no connection, queued to submit to the Sheet later', 'err'); renderStatusStrip(); });
+    }
+  } else {
+    toast(`Saved bill with ${validLines.length} product line(s)`, 'ok');
+  }
+
   const keepHeader = { ...f, lineItems: [] };
   keepHeader.retailer=''; keepHeader.billNo=''; keepHeader.lineItems=[emptyLineItem()]; keepHeader.billCopy=null;
   STATE.billForm = keepHeader;
@@ -2267,7 +2489,7 @@ function renderReportTable(){
       <th>SL</th><th>DB Code</th><th>DB Name</th><th>Location</th><th>Beat Code</th><th>Beat Name</th>
       <th>SO Name</th><th>ASM Name</th><th>RSM Name</th><th>DB Status</th>
       <th>Retailer</th><th>Bill Type</th><th>Bill No</th><th>Bill Date</th>
-      <th>Product</th><th>Code</th><th class="num">Company Rate<br><span style="text-transform:none;">₹/kg</span></th><th class="num">Invoice Rate<br><span style="text-transform:none;">₹/kg</span></th><th class="num">Difference<br><span style="text-transform:none;">₹/kg</span></th>
+      <th>Product</th><th>Pack Size</th><th>Code</th><th class="num">Company Rate<br><span style="text-transform:none;">₹/kg</span></th><th class="num">Invoice Rate<br><span style="text-transform:none;">₹/kg</span></th><th class="num">Difference<br><span style="text-transform:none;">₹/kg</span></th>
       <th class="num">Variance<br><span style="text-transform:none;">% of rate</span></th>
       <th>Quantity</th>
       <th>Status</th><th class="num">Overcharge Amt</th><th class="num">Undercharge Amt</th>
@@ -2279,7 +2501,7 @@ function renderReportTable(){
       <td>${esc(b.so||'—')}</td><td>${esc(b.asm||'—')}</td><td>${esc(b.rsm||'—')}</td><td>${dbStatusBadge(b.dbActive)}</td>
       <td class="wrap">${esc(b.retailer)}</td><td>${esc(b.billType)}</td>
       <td>${esc(b.billNo||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.billDateStr)}</td>
-      <td class="wrap">${esc(b.productName)}</td><td style="font-family:var(--font-mono);">${esc(b.productCode)}</td>
+      <td class="wrap">${esc(b.productName)}</td><td style="font-family:var(--font-mono);">${esc(b.packSize||b.sku||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.productCode)}</td>
       <td class="num">${fmtMoney(b.companyRate)}</td><td class="num">${fmtMoney(b.invoiceRate)}</td>
       <td class="num" style="font-weight:700;color:${sColor};">${b.diff>0?'+':''}${clamp2(b.diff)}</td>
       <td class="num" style="font-weight:700;color:${sColor};">${b.pct==null?'—':(b.pct>0?'+':'')+b.pct+'%'}</td>
@@ -2350,6 +2572,7 @@ async function exportExcelPro(){
       {header:'Bill No', key:'billNo', width:14},
       {header:'Bill Date', key:'billDateStr', width:12},
       {header:'Product', key:'productName', width:34},
+      {header:'Pack Size', key:'packSize', width:12},
       {header:'Product Code', key:'productCode', width:13},
       {header:'GST %', key:'gstPct', width:8},
       {header:'Company Rate', key:'companyRate', width:13},
@@ -2423,7 +2646,7 @@ async function exportExcelPro(){
         sl:b.sl, dbCode:b.dbCode, dbName:b.dbName, location:b.location,
         beatCode:b.beatCode||'', beatName:b.beatName||'', so:b.so||'', asm:b.asm||'', rsm:b.rsm||'', dbStatusLabel,
         retailer:b.retailer, billType:b.billType, billNo:b.billNo||'', billDateStr:b.billDateStr,
-        productName:b.productName, productCode:b.productCode, gstPct:b.gstPct, companyRate:b.companyRate,
+        productName:b.productName, packSize:b.packSize||b.sku||'', productCode:b.productCode, gstPct:b.gstPct, companyRate:b.companyRate,
         invoiceRate:b.invoiceRate, diff:b.diff, pctLabel: b.pct==null?'':((b.pct>0?'+':'')+b.pct+'%'), statusLabel, qty:b.qty||'', uom:b.uom||'KG', qtyKg:b.qtyKg||'',
         overchargeAmt: b.status==='over' ? (b.overchargeAmt||0) : '',
         underchargeAmt: b.status==='under' ? (b.underchargeAmt||0) : '',
@@ -2628,10 +2851,72 @@ async function exportExcelPro(){
   else start();
 })();
 
-/* ---------------- Init ---------------- */
-document.addEventListener('DOMContentLoaded', ()=>{
+/* ---------------- Login gate ---------------- */
+function renderLoginGate(errorMsg){
+  const app = $('#app');
+  app.innerHTML = `
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div class="card" style="max-width:380px;width:100%;padding:32px 28px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+          <div class="brand-mark">RL</div>
+          <div>
+            <h1 style="font-size:19px;">Rate Ledger</h1>
+            <p class="small-muted" style="margin-top:2px;">Sign in to continue</p>
+          </div>
+        </div>
+        <div class="field"><label>User Code</label><input type="text" id="loginCode" autocomplete="username" style="text-transform:uppercase;"></div>
+        <div class="field"><label>Password</label><input type="password" id="loginPassword" autocomplete="current-password"></div>
+        ${errorMsg ? `<p style="color:var(--danger);font-size:12.5px;margin:-6px 0 12px;">${esc(errorMsg)}</p>` : ''}
+        <button class="btn accent wide" id="loginBtn">Log In</button>
+        <p class="small-muted" style="margin-top:16px;text-align:center;">Ask your Admin for a User Code and Password.</p>
+      </div>
+    </div>
+  `;
+  const doLogin = async ()=>{
+    const code = $('#loginCode').value.trim();
+    const password = $('#loginPassword').value;
+    if(!code || !password){ renderLoginGate('Enter both User Code and Password.'); return; }
+    const btn = $('#loginBtn'); btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Signing in…';
+    try{
+      const res = await backendPost({ action:'login', code, password });
+      if(res.ok){
+        setSession({ code:res.code, password, name:res.name, role:res.role, designation:res.designation });
+        boot();
+      } else {
+        renderLoginGate(res.error || 'Login failed.');
+      }
+    }catch(err){
+      renderLoginGate('Could not reach the server — check your internet connection and try again.');
+    }
+  };
+  $('#loginBtn').addEventListener('click', doLogin);
+  $('#loginPassword').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  $('#loginCode').focus();
+}
+function logout(){
+  clearSession();
+  boot();
+}
+
+/* ---------------- Boot ---------------- */
+async function boot(){
+  if(backendConfigured() && !getSession()){
+    renderLoginGate();
+    return;
+  }
   renderShell();
   switchTab('dashboard');
+  if(backendConfigured() && getSession()){
+    backendGet({action:'verifiers'}).then(res=>{
+      if(res.ok){ STATE.verifiersList = res.verifiers; if(STATE.billForm) renderRateCheck(); }
+    }).catch(()=>{});
+    retryPendingSubmissions(true);
+  }
+}
+
+/* ---------------- Init ---------------- */
+document.addEventListener('DOMContentLoaded', ()=>{
+  boot();
   // one delegated listener for every combo box (DB search, product search) —
   // closes any open results dropdown when the user clicks elsewhere.
   document.addEventListener('click', (e)=>{
