@@ -211,8 +211,11 @@ input,select,textarea{font-family:var(--font-body);}
 .gst-exception-body{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11.5px;color:var(--ink-soft);}
 .gst-exception-body input{width:80px;padding:3px 6px;font-size:11.5px;border-radius:4px;border:1px solid var(--edge);background:var(--input-bg);color:var(--ink);font-family:var(--font-mono);}
 .gst-mismatch-badge{display:inline-flex;align-items:center;margin-left:6px;padding:2px 8px;border-radius:100px;background:rgba(155,89,235,.14);color:#9B59EB;font-size:10px;font-weight:700;letter-spacing:.02em;}
+.gst-mismatch-badge.suspect{background:var(--warn-soft);color:var(--warn);}
 tr.row-gst-mismatch{background:rgba(155,89,235,0.07) !important;}
 tr.row-gst-mismatch:hover{background:rgba(155,89,235,0.12) !important;}
+tr.row-gst-suspect{background:rgba(255,194,78,0.09) !important;}
+tr.row-gst-suspect:hover{background:rgba(255,194,78,0.15) !important;}
 .rate-mode-toggle{display:flex;gap:2px;margin-bottom:4px;background:var(--panel-2);border-radius:6px;padding:2px;width:fit-content;}
 .rmt-btn{border:none;background:transparent;color:var(--ink-faint);font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;cursor:pointer;transition:background .15s, color .15s;}
 .rmt-btn.active{background:var(--panel);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,0.15);}
@@ -488,7 +491,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v42';
+const APP_VERSION = 'v43';
 const WEB_APP_URL = 'PASTE_YOUR_WEB_APP_URL_HERE';
 function backendConfigured(){ return WEB_APP_URL && !WEB_APP_URL.includes('PASTE_YOUR_WEB_APP_URL_HERE'); }
 
@@ -2061,11 +2064,16 @@ function aggregateLineItem(li){
   const gstPctCharged = (inclShown!=null && totalInvoiced>0) ? clamp2((inclShown/totalInvoiced - 1)*100) : null;
   const gstMismatch = gstPctCharged!=null && Math.abs(gstPctCharged-gstPct)>0.05;
   const gstMismatchAmt = gstMismatch ? clamp2(inclShown - totalInvoiced*(1+gstPct/100)) : 0;
+  // A charged-GST% that's negative or wildly large almost always means the
+  // "Amount incl. GST" box got the wrong number typed into it (e.g. a
+  // per-unit rate instead of the line's total) rather than a real finding —
+  // flag that distinctly instead of presenting a nonsense % as fact.
+  const gstEntrySuspect = gstMismatch && (gstPctCharged<-0.5 || gstPctCharged>50);
   return {
     totalQtyKg: clamp2(totalQtyKg), totalInvoiced: clamp2(totalInvoicedInclGst), totalInvoicedExclGst: clamp2(totalInvoiced), gstPct,
     blendedRatePerKg: clamp2(blendedRatePerKg), expectedAmount: clamp2(expectedAmount),
     diffAmount: clamp2(diffAmount), diffPerKg: clamp2(diffPerKg), pct, status, parts, error:null,
-    amountInclGstShown: inclShown, gstPctCharged, gstMismatch, gstMismatchAmt,
+    amountInclGstShown: inclShown, gstPctCharged, gstMismatch, gstMismatchAmt, gstEntrySuspect,
   };
 }
 function emptyComponent(uom){ return {uom: uom||'KG', qty:'', rate:'', total:''}; }
@@ -2581,7 +2589,11 @@ function cardSummaryHtml(li){
   const sColor = statusColor(agg.status);
   const showExclLine = (li.amountExcludesGst && agg.gstPct>0) || agg.gstMismatch;
   const gstLine = showExclLine ? `<span class="cs-item">Invoiced (excl. GST): <b>₹${fmtMoney(agg.totalInvoicedExclGst)}</b>${(li.amountExcludesGst && agg.gstPct>0)?` +${agg.gstPct}% GST →`:''}</span>` : '';
-  const gstMismatchBadge = agg.gstMismatch ? `<span class="gst-mismatch-badge" title="Excl-GST Amount ₹${fmtMoney(agg.totalInvoicedExclGst)} vs invoice's own incl-GST figure ₹${fmtMoney(agg.amountInclGstShown)} works out to ${agg.gstPctCharged}% GST actually charged, vs this product's correct rate of ${agg.gstPct}%. Tracked separately from the rate overcharge/undercharge above.">⚠ Wrong GST charged (${agg.gstPctCharged}% vs correct ${agg.gstPct}%): ${agg.gstMismatchAmt>0?'+':''}₹${fmtMoney(agg.gstMismatchAmt)}</span>` : '';
+  const gstMismatchBadge = agg.gstMismatch ? (
+    agg.gstEntrySuspect
+      ? `<span class="gst-mismatch-badge suspect" title="Excl-GST Amount is ₹${fmtMoney(agg.totalInvoicedExclGst)}. The 'Amount incl. GST' you entered (₹${fmtMoney(agg.amountInclGstShown)}) works out to ${agg.gstPctCharged}% GST — that's not a realistic GST rate, so this is probably the wrong number (e.g. a per-unit rate instead of this line's total). Double-check and re-enter it in the box above.">⚠ Check this entry — ₹${fmtMoney(agg.amountInclGstShown)} implies ${agg.gstPctCharged}% GST, which isn't realistic</span>`
+      : `<span class="gst-mismatch-badge" title="Excl-GST Amount ₹${fmtMoney(agg.totalInvoicedExclGst)} vs invoice's own incl-GST figure ₹${fmtMoney(agg.amountInclGstShown)} works out to ${agg.gstPctCharged}% GST actually charged, vs this product's correct rate of ${agg.gstPct}%. Tracked separately from the rate overcharge/undercharge above.">⚠ Wrong GST charged (${agg.gstPctCharged}% vs correct ${agg.gstPct}%): ${agg.gstMismatchAmt>0?'+':''}₹${fmtMoney(agg.gstMismatchAmt)}</span>`
+  ) : '';
   return `<div class="card-summary">
     <span class="cs-item">Total Qty: <b>${agg.totalQtyKg} kg</b></span>
     ${gstLine}
@@ -2787,7 +2799,9 @@ function statusExplainAggregate(li, agg){
   } else {
     lines.push(`Total Invoiced = ₹${fmtMoney(agg.totalInvoiced)}`);
   }
-  if(agg.gstMismatch) lines.push(`GST check: excl-GST Amount ₹${fmtMoney(agg.totalInvoicedExclGst)} vs invoice's own incl-GST figure ₹${fmtMoney(agg.amountInclGstShown)} → ${agg.gstPctCharged}% actually charged, vs correct ${agg.gstPct}% → ${agg.gstMismatchAmt>0?'+':''}₹${fmtMoney(agg.gstMismatchAmt)} wrong GST (tracked separately below).`);
+  if(agg.gstMismatch) lines.push(agg.gstEntrySuspect
+    ? `GST check: excl-GST Amount ₹${fmtMoney(agg.totalInvoicedExclGst)} vs the incl-GST figure you entered (₹${fmtMoney(agg.amountInclGstShown)}) works out to ${agg.gstPctCharged}% — not a realistic GST rate. This entry is probably wrong (e.g. a per-unit rate instead of this line's total); double-check and re-enter it.`
+    : `GST check: excl-GST Amount ₹${fmtMoney(agg.totalInvoicedExclGst)} vs invoice's own incl-GST figure ₹${fmtMoney(agg.amountInclGstShown)} → ${agg.gstPctCharged}% actually charged, vs correct ${agg.gstPct}% → ${agg.gstMismatchAmt>0?'+':''}₹${fmtMoney(agg.gstMismatchAmt)} wrong GST (tracked separately below).`);
   lines.push(`Blended Rate = Invoiced ÷ Qty(kg) = ₹${fmtMoney(agg.totalInvoiced)} ÷ ${agg.totalQtyKg} = ₹${fmtMoney(agg.blendedRatePerKg)}/kg`);
   lines.push(`Expected (at Company Rate) = ₹${fmtMoney(li.companyRate)} × ${agg.totalQtyKg} = ₹${fmtMoney(agg.expectedAmount)}`);
   lines.push(`Difference = Invoiced − Expected = ₹${fmtMoney(agg.totalInvoiced)} − ₹${fmtMoney(agg.expectedAmount)} = ${agg.diffAmount>0?'+':''}₹${fmtMoney(agg.diffAmount)}`);
@@ -2808,7 +2822,9 @@ function statusExplainSaved(b){
   } else {
     lines.push(`Total Invoiced = ₹${fmtMoney(b.totalInvoiced!=null?b.totalInvoiced:b.chargeAmt)}`);
   }
-  if(b.gstMismatch) lines.push(`GST check: excl-GST Amount ₹${fmtMoney(b.totalInvoicedExclGst)} vs invoice's own incl-GST figure ₹${fmtMoney(b.amountInclGstShown)} → ${b.gstPctCharged}% actually charged, vs correct ${b.gstPct}% → ${b.gstMismatchAmt>0?'+':''}₹${fmtMoney(b.gstMismatchAmt)} wrong GST.`);
+  if(b.gstMismatch) lines.push(b.gstEntrySuspect
+    ? `GST check: the incl-GST figure entered (₹${fmtMoney(b.amountInclGstShown)}) works out to ${b.gstPctCharged}% vs excl-GST Amount ₹${fmtMoney(b.totalInvoicedExclGst)} — not a realistic GST rate, likely a data-entry mistake on this line.`
+    : `GST check: excl-GST Amount ₹${fmtMoney(b.totalInvoicedExclGst)} vs invoice's own incl-GST figure ₹${fmtMoney(b.amountInclGstShown)} → ${b.gstPctCharged}% actually charged, vs correct ${b.gstPct}% → ${b.gstMismatchAmt>0?'+':''}₹${fmtMoney(b.gstMismatchAmt)} wrong GST.`);
   lines.push(`Blended Rate = ₹${fmtMoney(b.blendedRate!=null?b.blendedRate:b.invoiceRate)}/kg`);
   lines.push(`Expected (Company Rate × Qty) = ₹${fmtMoney(b.expectedAmount!=null?b.expectedAmount:clamp2(b.companyRate*b.qtyKg))}`);
   lines.push(`Difference = ${b.chargeAmt>0?'+':''}₹${fmtMoney(b.chargeAmt)}`);
@@ -2928,7 +2944,7 @@ function saveBill(){
       packSizeKg: packInfo.value, bagSizeLabel: bagInfo.value ? `${bagInfo.value} kg` : '', componentsSummary,
       totalInvoiced: agg.totalInvoiced, blendedRate: agg.blendedRatePerKg, expectedAmount: agg.expectedAmount,
       amountExcludesGst: !!li.amountExcludesGst, totalInvoicedExclGst: agg.totalInvoicedExclGst,
-      amountInclGstShown: agg.amountInclGstShown, gstPctCharged: agg.gstPctCharged, gstMismatch: agg.gstMismatch, gstMismatchAmt: agg.gstMismatchAmt,
+      amountInclGstShown: agg.amountInclGstShown, gstPctCharged: agg.gstPctCharged, gstMismatch: agg.gstMismatch, gstMismatchAmt: agg.gstMismatchAmt, gstEntrySuspect: agg.gstEntrySuspect,
       overchargeAmt: agg.status==='over' ? agg.diffAmount : 0,
       underchargeAmt: agg.status==='under' ? clamp2(Math.abs(agg.diffAmount)) : 0,
       negligibleAmt: agg.status==='negligible' ? agg.diffAmount : 0,
@@ -3077,7 +3093,7 @@ function renderReportTable(){
       <th style="color:#9B59EB;">Wrong GST Charged</th>
       <th>Bill Copy</th><th>Collected By</th><th>Designation</th><th>Verified By</th><th>Submitted</th><th></th>
     </tr></thead>
-    <tbody>${rows.map((b,idx)=>{ const sColor = statusColor(b.status); return `<tr class="${b.status==='over'?'row-over':''} ${b.gstMismatch?'row-gst-mismatch':''}">
+    <tbody>${rows.map((b,idx)=>{ const sColor = statusColor(b.status); return `<tr class="${b.status==='over'?'row-over':''} ${b.gstMismatch?(b.gstEntrySuspect?'row-gst-suspect':'row-gst-mismatch'):''}">
       <td>${b.sl}</td><td style="font-family:var(--font-mono);">${esc(b.dbCode)}</td><td class="wrap">${esc(b.dbName)}</td><td>${esc(b.location)}</td>
       <td style="font-family:var(--font-mono);">${esc(b.beatCode||'—')}</td><td class="wrap">${esc(b.beatName||'—')}</td>
       <td>${esc(b.so||'—')}</td><td>${esc(b.asm||'—')}</td><td>${esc(b.rsm||'—')}</td><td>${dbStatusBadge(b.dbActive)}</td>
@@ -3093,7 +3109,7 @@ function renderReportTable(){
       <td>${statusBadge(b.status, statusExplainSaved(b), b.pct)}</td>
       <td class="num" style="font-weight:700;color:var(--danger);">${b.status==='over'?'₹'+fmtMoney(b.overchargeAmt):'—'}</td>
       <td class="num" style="font-weight:700;color:var(--warn);">${b.status==='under'?'₹'+fmtMoney(b.underchargeAmt):'—'}</td>
-      <td class="num" style="font-weight:700;color:#9B59EB;" title="${b.gstMismatch?`Correct GST is ${b.gstPct}%, ${b.gstPctCharged}% was actually charged.`:''}">${b.gstMismatch?(b.gstMismatchAmt>0?'+':'')+'₹'+fmtMoney(b.gstMismatchAmt):'—'}</td>
+      <td class="num" style="font-weight:700;color:${b.gstEntrySuspect?'var(--warn)':'#9B59EB'};" title="${b.gstMismatch?(b.gstEntrySuspect?`This ${b.gstPctCharged}% figure isn't a realistic GST rate — the 'Amount incl. GST' entered for this line is probably wrong.`:`Correct GST is ${b.gstPct}%, ${b.gstPctCharged}% was actually charged.`):''}">${b.gstMismatch?(b.gstEntrySuspect?'⚠ check entry':(b.gstMismatchAmt>0?'+':'')+'₹'+fmtMoney(b.gstMismatchAmt)):'—'}</td>
       <td>${billCopyCell(b)}</td>
       <td>${esc(b.collectedBy||'—')}</td><td>${esc(b.designation||'—')}</td><td>${esc(b.verifiedBy||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.submissionStr)}</td>
       <td><button class="icon-btn" data-del-bill="${b.sl}" title="Delete line">✕</button></td>
@@ -3238,7 +3254,7 @@ async function exportExcelPro(){
         pctLabel: b.pct==null?'':((b.pct>0?'+':'')+b.pct+'%'), statusLabel, diffAmountLabel: (b.chargeAmt>0?'+':'')+fmtMoney(b.chargeAmt),
         overchargeAmt: b.status==='over' ? (b.overchargeAmt||0) : '',
         underchargeAmt: b.status==='under' ? (b.underchargeAmt||0) : '',
-        gstMismatchLabel: b.gstMismatch ? `${b.gstPctCharged}% charged vs correct ${b.gstPct}% = ${b.gstMismatchAmt>0?'+':''}₹${fmtMoney(b.gstMismatchAmt)}` : '',
+        gstMismatchLabel: b.gstMismatch ? (b.gstEntrySuspect ? `⚠ Check entry — ${b.gstPctCharged}% isn't a realistic GST rate` : `${b.gstPctCharged}% charged vs correct ${b.gstPct}% = ${b.gstMismatchAmt>0?'+':''}₹${fmtMoney(b.gstMismatchAmt)}`) : '',
         billCopy: '', collectedBy:b.collectedBy||'', designation:b.designation||'', verifiedBy:b.verifiedBy||'', submissionStr:b.submissionStr,
       };
       cols.forEach((c,i)=>{ if(c.key!=='billCopy') row.getCell(i+1).value = vals[c.key]; });
@@ -3278,7 +3294,9 @@ async function exportExcelPro(){
         const idx = cols.findIndex(c=>c.key===k)+1;
         if(idx>0) row.getCell(idx).numFmt = '#,##0.00';
       });
-      const fillColor = b.status==='over' ? DANGERSOFT : (b.status==='negligible' ? NEGLIGIBLESOFT : (b.status==='under' ? WARNSOFT : SUCCESSSOFT));
+      const GSTMISMATCHSOFT = 'FFF1E8FC';
+      const GSTSUSPECTSOFT = 'FFFDF0DA';
+      const fillColor = b.gstMismatch ? (b.gstEntrySuspect ? GSTSUSPECTSOFT : GSTMISMATCHSOFT) : (b.status==='over' ? DANGERSOFT : (b.status==='negligible' ? NEGLIGIBLESOFT : (b.status==='under' ? WARNSOFT : SUCCESSSOFT)));
       row.eachCell({includeEmpty:true}, cell=>{
         cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fillColor}};
         cell.border = {bottom:{style:'hair', color:{argb:'FFD2C8AC'}}};
@@ -3299,8 +3317,8 @@ async function exportExcelPro(){
       if(b.gstMismatch){
         const gstCell = cellByKey('gstMismatchLabel');
         if(gstCell){
-          gstCell.font = {name:'Calibri', size:10, bold:true, color:{argb:'FF9B59EB'}};
-          gstCell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFF1E8FC'}};
+          gstCell.font = {name:'Calibri', size:10, bold:true, color:{argb: b.gstEntrySuspect?'FF9C6B12':'FF9B59EB'}};
+          gstCell.fill = {type:'pattern', pattern:'solid', fgColor:{argb: b.gstEntrySuspect?'FFFDF0DA':'FFF1E8FC'}};
         }
       }
       row.height = photoEmbedded ? 54 : 18;
