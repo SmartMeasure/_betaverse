@@ -202,6 +202,7 @@ input,select,textarea{font-family:var(--font-body);}
 .card-summary .cs-item{color:var(--ink-soft);}
 .card-summary .cs-item b{color:var(--ink);font-family:var(--font-mono);}
 .card-summary .cs-status{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.rate-incl-gst-hint{color:var(--negligible);font-family:var(--font-mono);margin-top:2px;}
 .gst-toggle{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink-soft);margin-top:8px;cursor:pointer;user-select:none;}
 .gst-toggle input{width:14px;height:14px;cursor:pointer;}
 .gst-exception{margin-top:8px;}
@@ -487,7 +488,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v40';
+const APP_VERSION = 'v42';
 const WEB_APP_URL = 'PASTE_YOUR_WEB_APP_URL_HERE';
 function backendConfigured(){ return WEB_APP_URL && !WEB_APP_URL.includes('PASTE_YOUR_WEB_APP_URL_HERE'); }
 
@@ -2558,6 +2559,7 @@ function renderComponentRow(li, liIdx, comp, compIdx, canRemove){
     <div class="component-field">
       <label>Rate (per ${esc(comp.uom)})</label>
       <input type="number" step="any" id="li${liIdx}_c${compIdx}_rate" value="${esc(rateVal)}" placeholder="rate" class="${resolved.computed==='rate'?'auto-filled':''}">
+      ${(li.amountExcludesGst && li.gstPct>0 && rateVal!=='' && !isNaN(Number(rateVal))) ? `<div class="small-muted rate-incl-gst-hint" id="li${liIdx}_c${compIdx}_rateHint">= ₹${fmtMoney(Number(rateVal)*(1+li.gstPct/100))}/${esc(comp.uom)} incl. GST — check against invoice's "Rate (Incl. of Tax)"</div>` : `<div class="small-muted rate-incl-gst-hint" id="li${liIdx}_c${compIdx}_rateHint"></div>`}
     </div>
     <div class="component-field">
       <label>Bill Amount (₹)</label>
@@ -2644,7 +2646,10 @@ function renderProductCard(li, liIdx, isNew){
       </div>
     </div>
     ${li.productCode ? `
-      <label class="gst-toggle"><input type="checkbox" id="li${liIdx}_gstToggle" ${li.amountExcludesGst?'checked':''}> ${li.amountExcludesGst ? `Bill Amount excludes GST — add ${li.gstPct||0}% before comparing to Company Rate` : `Bill Amount is final/all-inclusive — no GST adjustment (typical for a Hand Bill)`}</label>
+      ${STATE.billForm.billType==='Tax Invoice'
+        ? `<div class="gst-toggle" style="cursor:default;"><span style="color:var(--success);">✓</span> Tax Invoice — GST (${li.gstPct||0}%) added automatically before comparing to Company Rate</div>`
+        : `<label class="gst-toggle"><input type="checkbox" id="li${liIdx}_gstToggle" ${li.amountExcludesGst?'checked':''}> ${li.amountExcludesGst ? `Bill Amount excludes GST — add ${li.gstPct||0}% before comparing to Company Rate` : `Bill Amount is final/all-inclusive — no GST adjustment (typical for a Hand Bill)`}</label>`
+      }
       <details class="gst-exception" ${li.amountInclGstShown ? 'open' : ''}>
         <summary>Invoice looks like it charged the wrong GST on this product (e.g. tax added on a ${li.gstPct||0}%-GST item)? Click here</summary>
         <div class="gst-exception-body">
@@ -2745,6 +2750,15 @@ function updateComponentRow(liIdx, compIdx){
   }
   const errEl = $(`#li${liIdx}_c${compIdx}_err`);
   if(errEl) errEl.textContent = resolved.error ? (COMPONENT_ERROR_MSG[resolved.error]||'') : '';
+  const rateHintEl = $(`#li${liIdx}_c${compIdx}_rateHint`);
+  if(rateHintEl){
+    const rNow = rawR!=null ? rawR : (resolved.computed==='rate' ? resolved.rate : null);
+    if(li.amountExcludesGst && li.gstPct>0 && rNow!=null){
+      rateHintEl.textContent = `= ₹${fmtMoney(rNow*(1+li.gstPct/100))}/${comp.uom} incl. GST — check against invoice's "Rate (Incl. of Tax)"`;
+    } else {
+      rateHintEl.textContent = '';
+    }
+  }
   const summaryEl = $(`#liSummary${liIdx}`);
   if(summaryEl) summaryEl.innerHTML = cardSummaryHtml(li);
 }
