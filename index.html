@@ -168,6 +168,38 @@ input,select,textarea{font-family:var(--font-body);}
 .rate-pipeline-arrow{color:var(--ink-faint);font-size:12px;}
 .inv-rate-converted{display:inline-block;margin-top:2px;background:var(--negligible-soft);color:var(--negligible);border-radius:5px;padding:1.5px 7px;font-family:var(--font-mono);font-weight:700;font-size:11px;}
 .auto-detect-tag{display:inline-block;background:var(--panel-3);color:var(--ink-faint);border-radius:4px;padding:1px 6px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
+
+/* ---- Product cards (multi-UOM component bill entry) ---- */
+.product-card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);padding:16px 18px;margin-bottom:14px;position:relative;}
+.product-card-head{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-bottom:4px;}
+.product-card-search{flex:1 1 280px;min-width:240px;position:relative;}
+.product-card-search input.prodsearch.picked{border-color:var(--success);background:var(--success-soft, rgba(51,240,180,0.08));font-weight:600;padding-right:34px;}
+.prodsearch-check{position:absolute;right:11px;top:50%;transform:translateY(-50%);color:var(--success);font-weight:700;font-size:15px;pointer-events:none;}
+@keyframes cardPicked{0%{box-shadow:0 0 0 0 rgba(51,240,180,.5);border-color:var(--success);}70%{box-shadow:0 0 0 16px rgba(51,240,180,0);}100%{box-shadow:0 0 0 0 rgba(51,240,180,0);}}
+.product-card.just-picked{animation:cardPicked 1s ease-out;}
+.product-card-meta{display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding-top:9px;}
+.product-card-meta .pm-item{font-size:11.5px;color:var(--ink-soft);}
+.product-card-meta .pm-item b{color:var(--ink);font-family:var(--font-mono);}
+.product-card-remove{position:absolute;top:14px;right:16px;}
+.pack-size-field{display:inline-flex;align-items:center;gap:5px;}
+.pack-size-field input{width:70px;padding:3px 6px;font-size:11.5px;border-radius:4px;border:1px solid var(--edge);background:var(--input-bg);color:var(--ink);font-family:var(--font-mono);}
+.pack-size-field input.needs-confirm{border-color:var(--warn);box-shadow:0 0 0 2px var(--warn-soft);}
+.pack-size-field .unit-suffix{font-size:11px;color:var(--ink-faint);}
+.bag-size-inline{display:flex;align-items:center;gap:6px;background:var(--warn-soft);border:1px solid var(--warn);border-radius:6px;padding:6px 10px;margin-top:8px;font-size:12px;}
+.bag-size-inline input{width:70px;padding:3px 6px;font-size:12px;border-radius:4px;border:1px solid var(--edge);}
+.bag-size-inline select{padding:3px 6px;font-size:12px;border-radius:4px;}
+.component-row{display:grid;grid-template-columns:90px 1fr 1fr 1fr auto;gap:8px;align-items:start;margin-top:8px;padding-top:8px;border-top:1px dashed var(--edge-soft);}
+.component-row:first-of-type{border-top:none;margin-top:10px;padding-top:0;}
+.component-field label{display:block;font-size:9.5px;color:var(--ink-faint);text-transform:uppercase;margin-bottom:2px;}
+.component-field input, .component-field select{width:100%;padding:6px 8px;border:1px solid var(--edge);border-radius:5px;background:var(--input-bg);color:var(--ink);font-size:13px;font-family:var(--font-mono);}
+.component-field input.auto-filled{background:var(--negligible-soft);color:var(--negligible);border-color:var(--negligible);font-weight:700;}
+.component-err{grid-column:1 / -1;color:var(--danger);font-size:11px;margin-top:2px;}
+.component-remove{align-self:end;}
+.add-component-btn{margin-top:10px;}
+.card-summary{margin-top:14px;padding:11px 14px;border-radius:8px;background:var(--panel-2);display:flex;gap:18px;flex-wrap:wrap;align-items:center;font-size:12.5px;}
+.card-summary .cs-item{color:var(--ink-soft);}
+.card-summary .cs-item b{color:var(--ink);font-family:var(--font-mono);}
+.card-summary .cs-status{margin-left:auto;display:flex;align-items:center;gap:8px;}
 .rate-mode-toggle{display:flex;gap:2px;margin-bottom:4px;background:var(--panel-2);border-radius:6px;padding:2px;width:fit-content;}
 .rmt-btn{border:none;background:transparent;color:var(--ink-faint);font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;cursor:pointer;transition:background .15s, color .15s;}
 .rmt-btn.active{background:var(--panel);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,0.15);}
@@ -350,8 +382,9 @@ td.wrap{white-space:normal;}
 /* search combobox */
 .combo{position:relative;}
 .combo-results{
-  position:absolute;top:100%;left:0;right:0;background:var(--panel-2);border:1px solid rgba(255,255,255,0.3);
-  border-radius:var(--radius-sm);max-height:260px;overflow-y:auto;z-index:40;box-shadow:0 12px 30px rgba(0,0,0,0.5), 0 0 20px rgba(255,255,255,0.12);margin-top:3px;
+  position:absolute;top:100%;left:0;background:var(--panel-2);border:1px solid rgba(255,255,255,0.3);
+  border-radius:var(--radius-sm);max-height:280px;overflow-y:auto;z-index:60;box-shadow:0 12px 30px rgba(0,0,0,0.5), 0 0 20px rgba(255,255,255,0.12);margin-top:3px;
+  width:max-content;min-width:100%;max-width:min(460px, 92vw);
 }
 .combo-item{padding:9px 12px;border-bottom:1px solid var(--edge-soft);font-size:12.5px;}
 .combo-item:hover,.combo-item.hl{background:rgba(255,255,255,0.08);}
@@ -508,6 +541,7 @@ async function retryPendingSubmissions(silent){
 const STATE = {
   dbMaster: [],        // {code, name, pg, pgName, active, beatCode, beatName, so, asm, rsm}
   dbMasterFile: null,
+  bagSizeByProductCode: {}, // {code: {value, unit}} — remembered once an operator manually enters a Bag Size, for the rest of this session
   priceGroupMap: [],   // {location, pg} — auto-filled from DB Master's Price Group + Price Group Name columns, or upload Step 2 to override
   pgMapFile: null,
   pgMapAuto: false,     // true when priceGroupMap came from the DB Master upload, not a separate Step 2 file
@@ -1858,16 +1892,193 @@ function uomOptionsForProduct(productCode){
   }
   return opts;
 }
-function qtyToKgPrecise(li){
-  if(li.qty===''||li.qty==null||isNaN(Number(li.qty))) return null;
-  const opts = uomOptionsForProduct(li.productCode);
-  const opt = opts.find(o=>o.value===(li.uom||'KG')) || opts[0];
-  return Number(li.qty) * (opt?opt.factor:1);
+
+/* ============================================================
+   MULTI-UOM COMPONENT ENGINE
+   A single bill line for one product can mix Bag + Pc + Kg all
+   on the same invoice. Each such entry is a "component"; the
+   product line holds an array of them. Within one component the
+   operator only ever has two of {Qty, Rate, Total} printed on the
+   bill — the third is always derived, deterministically. See
+   UOM_Rate_Entry_Logic_Spec.md §2–4 for the full spec this
+   implements.
+   ============================================================ */
+
+function parseNum(v){
+  if(v===''||v==null) return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
 }
-function qtyToKg(li){
-  const p = qtyToKgPrecise(li);
-  return p==null ? null : clamp2(p);
+
+// SKU text like "1KG", "500GM", "7GM" -> kg-per-piece. Returns null if the
+// SKU carries no extractable weight (e.g. "LAB REJECTION", "COMBO PACK").
+function parsePackSizeKgFromSku(sku){
+  const m = String(sku||'').match(/(\d+(?:\.\d+)?)\s*(KG|GM|G|GRAM|ML|L)\b/i);
+  if(!m) return null;
+  const num = parseFloat(m[1]);
+  const unit = m[2].toUpperCase();
+  if(unit==='KG') return num;
+  if(unit==='GM'||unit==='G'||unit==='GRAM') return num/1000;
+  return null; // ML/L are non-weight packs — never auto-guessed, always needs manual entry
 }
+
+// Pack size (kg per PC), in priority order: UOM Conversion master (authoritative,
+// needs no confirmation) -> operator's manual entry for this line -> auto-parsed
+// from the SKU text (flagged for confirmation) -> unknown.
+function resolvePackSizeKg(li){
+  const u = STATE.uomMap[li.productCode];
+  if(u && u.kgPerPc) return {value:u.kgPerPc, source:'uom', needsConfirm:false};
+  if(li.packSizeKgManual!=null && li.packSizeKgManual!=='' && !isNaN(Number(li.packSizeKgManual))) return {value:Number(li.packSizeKgManual), source:'manual', needsConfirm:false};
+  const parsed = parsePackSizeKgFromSku(li.sku);
+  if(parsed!=null) return {value:parsed, source:'sku', needsConfirm: !li.packSizeConfirmed};
+  return {value:null, source:null, needsConfirm:true};
+}
+// Bag size (kg per BAG), in priority order: UOM Conversion master -> this
+// session's remembered value for the same product code (so it's only ever
+// typed once) -> this specific line's manual entry -> unknown (blocks BAG
+// components from calculating rather than guessing).
+function resolveBagSizeKg(li){
+  const u = STATE.uomMap[li.productCode];
+  if(u && u.kgPerBag) return {value:u.kgPerBag, source:'uom'};
+  const cached = STATE.bagSizeByProductCode[li.productCode];
+  const packInfo = resolvePackSizeKg(li);
+  if(cached){
+    const v = cached.unit==='PCS' ? (packInfo.value!=null ? cached.value*packInfo.value : null) : cached.value;
+    return {value:v, source:'cache', unit:cached.unit, rawValue:cached.value};
+  }
+  if(li.bagSizeValue!=null && li.bagSizeValue!=='' && !isNaN(Number(li.bagSizeValue))){
+    const v = li.bagSizeUnit==='PCS' ? (packInfo.value!=null ? Number(li.bagSizeValue)*packInfo.value : null) : Number(li.bagSizeValue);
+    return {value:v, source:'manual', unit:li.bagSizeUnit, rawValue:Number(li.bagSizeValue)};
+  }
+  return {value:null, source:null};
+}
+function factorForUom(li, uom){
+  if(uom==='KG') return {value:1, error:null};
+  if(uom==='PC'){ const p = resolvePackSizeKg(li); return {value:p.value, error: p.value==null?'pack_size_missing':null}; }
+  if(uom==='BAG'){ const b = resolveBagSizeKg(li); return {value:b.value, error: b.value==null?'bag_size_missing':null}; }
+  return {value:null, error:'bad_uom'};
+}
+
+// The 2-of-3 rule: whichever of Qty/Rate/Total the operator leaves empty is
+// the one that gets computed. If all three end up filled (operator typed
+// over a value the app had auto-filled), Total is recomputed from Qty×Rate —
+// Rate wins as the source of truth, since that's normally what's printed.
+function resolveComponent(comp){
+  const q = parseNum(comp.qty), r = parseNum(comp.rate), t = parseNum(comp.total);
+  const hasQ = q!=null, hasR = r!=null, hasT = t!=null;
+  const filled = [hasQ,hasR,hasT].filter(Boolean).length;
+  if(filled<2) return {qty:q, rate:r, total:t, computed:null, error:'need_more'};
+  if(hasQ && hasR){
+    if(q<0||r<0) return {qty:q, rate:r, total:null, computed:null, error:'negative'};
+    return {qty:q, rate:r, total:clamp2(q*r), computed:'total', error:null};
+  }
+  if(hasQ && hasT){
+    if(q===0) return {qty:q, rate:null, total:t, computed:null, error:'qty_zero'};
+    if(q<0) return {qty:q, rate:null, total:t, computed:null, error:'negative'};
+    return {qty:q, rate:clamp2(t/q), total:t, computed:'rate', error:null};
+  }
+  if(hasR && hasT){
+    if(r===0) return {qty:null, rate:r, total:t, computed:null, error:'rate_zero'};
+    if(r<0) return {qty:null, rate:r, total:t, computed:null, error:'negative'};
+    return {qty:clamp2(t/r), rate:r, total:t, computed:'qty', error:null};
+  }
+  return {qty:q, rate:r, total:t, computed:null, error:'need_more'};
+}
+const COMPONENT_ERROR_MSG = {
+  need_more: 'Enter any 2 of Qty / Rate / Total — the third fills in.',
+  qty_zero: 'Qty can\'t be 0 when deriving Rate from Total.',
+  rate_zero: 'Rate can\'t be 0 when deriving Qty from Total.',
+  negative: 'Values can\'t be negative.',
+  pack_size_missing: 'Pack size (kg per PC) unknown for this product — enter it above.',
+  bag_size_missing: 'Bag size unknown for this product — enter it above.',
+};
+function componentKgAndAmount(li, comp){
+  const resolved = resolveComponent(comp);
+  if(resolved.error) return {error:resolved.error, resolved};
+  const f = factorForUom(li, comp.uom);
+  if(f.error) return {error:f.error, resolved};
+  return {kg: resolved.qty*f.value, amount: resolved.total, qty:resolved.qty, rate:resolved.rate, error:null};
+}
+// Aggregates every component of one product line into the single figure that
+// actually answers "how much were they over/undercharged on this bill line":
+// every UOM used is converted to a common kg basis and summed, so a bill that
+// splits one SKU across Bag+Pc+Kg still produces one clean answer.
+function aggregateLineItem(li){
+  let totalQtyKg = 0, totalInvoiced = 0;
+  const parts = [];
+  let any = false;
+  for(const comp of li.components){
+    if((comp.qty===''||comp.qty==null) && (comp.rate===''||comp.rate==null) && (comp.total===''||comp.total==null)) continue;
+    any = true;
+    const r = componentKgAndAmount(li, comp);
+    if(r.error) return {error:r.error, parts, any};
+    totalQtyKg += r.kg; totalInvoiced += r.amount;
+    parts.push({uom:comp.uom, qty:r.qty, rate:r.rate, total:r.amount});
+  }
+  if(!any) return {error:'empty', parts, any};
+  if(li.companyRate==null) return {error:'no_company_rate', parts, any};
+  const blendedRatePerKg = totalInvoiced/totalQtyKg;
+  const expectedAmount = li.companyRate*totalQtyKg;
+  const diffAmount = totalInvoiced-expectedAmount;
+  const diffPerKg = blendedRatePerKg-li.companyRate;
+  const pct = clamp2((diffPerKg/li.companyRate)*100);
+  let status;
+  if(Math.abs(diffAmount)<0.01) status='match';
+  else if(diffAmount>0) status = pct<1 ? 'negligible' : 'over';
+  else status='under';
+  return {
+    totalQtyKg: clamp2(totalQtyKg), totalInvoiced: clamp2(totalInvoiced),
+    blendedRatePerKg: clamp2(blendedRatePerKg), expectedAmount: clamp2(expectedAmount),
+    diffAmount: clamp2(diffAmount), diffPerKg: clamp2(diffPerKg), pct, status, parts, error:null
+  };
+}
+function emptyComponent(uom){ return {uom: uom||'KG', qty:'', rate:'', total:''}; }
+
+/* ---- Typo-tolerant product search ---- */
+function levenshtein(a, b){
+  if(a===b) return 0;
+  const al=a.length, bl=b.length;
+  if(al===0) return bl;
+  if(bl===0) return al;
+  let prev = new Array(bl+1), curr = new Array(bl+1);
+  for(let j=0;j<=bl;j++) prev[j]=j;
+  for(let i=1;i<=al;i++){
+    curr[0]=i;
+    for(let j=1;j<=bl;j++){
+      const cost = a.charCodeAt(i-1)===b.charCodeAt(j-1) ? 0 : 1;
+      curr[j] = Math.min(prev[j]+1, curr[j-1]+1, prev[j-1]+cost);
+    }
+    const tmp = prev; prev = curr; curr = tmp;
+  }
+  return prev[bl];
+}
+/* Scores how well a (possibly misspelled) query matches a target string.
+   Exact substring wins outright; otherwise each query word is matched
+   against the target's words allowing a small, length-scaled edit distance,
+   so a typo like "sharbti" still finds "SHARBATI". */
+function fuzzyScore(query, target){
+  if(!query || !target) return 0;
+  if(target.includes(query)) return 1000 - Math.min(200, target.length - query.length);
+  const qWords = query.split(/\s+/).filter(Boolean);
+  const tWords = target.split(/\s+/).filter(Boolean);
+  if(!qWords.length) return 0;
+  let total = 0;
+  qWords.forEach(qw=>{
+    let best = 0;
+    tWords.forEach(tw=>{
+      if(tw.includes(qw)) best = Math.max(best, 70);
+      else if(qw.length>=3 && qw.includes(tw)) best = Math.max(best, 45);
+      else{
+        const allowed = qw.length<=4 ? 1 : (qw.length<=7 ? 2 : 3);
+        const dist = levenshtein(qw, tw);
+        if(dist<=allowed) best = Math.max(best, 55 - dist*12);
+      }
+    });
+    total += best;
+  });
+  return qWords.length ? total/qWords.length : 0;
+}
+
 /* ---------------- Rate Master view ---------------- */
 let RM_FILTERS = {location:'', category:'', effDate:'', q:''};
 
@@ -2080,7 +2291,7 @@ function renderRateCheck(){
     <div class="section-title">Products on this bill</div>
     <div class="card" style="margin-bottom:12px;padding:11px 16px;font-size:12px;line-height:1.7;color:var(--ink-soft);">
       <div style="margin-bottom:6px;">
-        <strong style="color:var(--ink);">Rate logic:</strong> Company Rate is always <strong>₹/kg</strong>. Type the Invoice Rate <strong>exactly as printed on the bill</strong>, in whatever unit (KG / PC / BAG) the Qty selector is set to — the app converts it to ₹/kg itself using that product's pack size, shown right under the box, before comparing the two.
+        <strong style="color:var(--ink);">Rate logic:</strong> Company Rate is always <strong>₹/kg</strong>. For every line, type the <strong>Bill Amount</strong> exactly as printed for that quantity (its "Amount" column — never the Rate column, which can be per-unit or tax-inclusive/exclusive and cause mix-ups) — the app divides by Qty and by the product's pack size itself to get ₹/kg, before comparing to the Company Rate.
         <span class="rate-pipeline"><span>₹ as billed</span><span class="rate-pipeline-arrow">→</span><span>÷ pack size</span><span class="rate-pipeline-arrow">→</span><span>₹/kg</span><span class="rate-pipeline-arrow">→</span><span>vs Company Rate</span></span>
       </div>
       <strong style="color:var(--ink);">How Status is decided:</strong> Diff (₹/kg) = Invoice Rate − Company Rate. Variance % = Diff ÷ Company Rate × 100.
@@ -2204,7 +2415,7 @@ function renderRateCheck(){
   if(f.lineItems.length===0){ f.lineItems.push(emptyLineItem()); renderLineItems(); }
 }
 
-function emptyLineItem(){ return {productCode:'', productName:'', sku:'', category:'', packSize:'', companyRate:null, gstPct:null, invoiceRate:'', rateMode:'auto', qty:'', uom:'KG'}; }
+function emptyLineItem(){ return {productCode:'', productName:'', sku:'', category:'', packSize:'', companyRate:null, gstPct:null, packSizeKgManual:'', packSizeConfirmed:false, bagSizeValue:'', bagSizeUnit:'KG', components:[emptyComponent('KG')]}; }
 
 function wireDbCombo(){
   const input = $('#rcDbCode');
@@ -2268,195 +2479,6 @@ function recomputeAllLineRates(){
   });
 }
 
-function renderLineItems(){
-  const f = STATE.billForm;
-  const div = $('#rcLineItems');
-  div.innerHTML = `
-    <div style="overflow-x:auto;">
-    <table class="li-table" style="min-width:1360px;">
-      <thead><tr><th style="width:230px;">Product</th><th>Pack Size</th><th>Product Code</th><th>Category</th><th class="num">Company Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th class="num" style="min-width:150px;">Invoice Rate<br><span class="small-muted" style="text-transform:none;">₹/kg incl. GST</span></th><th>Qty</th><th class="num">Diff<br><span class="small-muted" style="text-transform:none;">₹/kg</span></th><th class="num">Variance<br><span class="small-muted" style="text-transform:none;">% of rate</span></th><th>Status</th><th class="num">Total ₹</th><th></th></tr></thead>
-      <tbody>
-        ${f.lineItems.map((li,i)=>renderLineRow(li,i, STATE._justAddedLine && i===f.lineItems.length-1)).join('')}
-      </tbody>
-    </table>
-    </div>
-  `;
-  STATE._justAddedLine = false;
-  f.lineItems.forEach((li,i)=>{
-    const searchInput = $(`#liSearch${i}`);
-    const resultsDiv = $(`#liResults${i}`);
-    if(!searchInput) return;
-    searchInput.addEventListener('input', e=> showProductResults(i, e.target.value));
-    searchInput.addEventListener('focus', e=> showProductResults(i, e.target.value));
-    const invRate = $(`#liInvRate${i}`);
-    if(invRate) invRate.addEventListener('input', e=>{ li.invoiceRate = e.target.value; updateLineDiff(i); });
-    $all(`#liRateModeToggle${i} .rmt-btn`).forEach(btn=>btn.addEventListener('click', ()=>{
-      const mode = btn.dataset.mode;
-      if(li.rateMode===mode) return;
-      li.rateMode = mode;
-      li.invoiceRate = ''; // old value would mean something different under the new mode — start fresh
-      renderLineItems();
-    }));
-    const qty = $(`#liQty${i}`);
-    if(qty) qty.addEventListener('input', e=>{ li.qty = e.target.value; updateLineDiff(i); });
-    const uomSel = $(`#liUom${i}`);
-    if(uomSel) uomSel.addEventListener('change', e=>{ li.uom = e.target.value; updateLineDiff(i); });
-    const rm = $(`#liRemove${i}`);
-    if(rm) rm.addEventListener('click', ()=>{ f.lineItems.splice(i,1); renderLineItems(); });
-  });
-}
-function invRateHintHtml(li, unitRate, invRatePerKg){
-  const curUom = li.uom || 'KG';
-  const opt = uomOptionsForProduct(li.productCode).find(o=>o.value===curUom);
-  const packBit = opt ? `÷ ${opt.factor}kg` : '÷ pack size';
-  const mode = resolveRateMode(li);
-  const autoTag = (!li.rateMode || li.rateMode==='auto') ? `<span class="auto-detect-tag">auto: ${mode==='total'?'total amount':'per-unit rate'}</span>` : '';
-  if(mode==='total'){
-    if(li.qty===''||li.qty==null||Number(li.qty)===0) return `<span class="small-muted">Enter Qty above, then the ₹ amount for it</span>`;
-    const parts = [autoTag, `<span class="small-muted">÷ ${esc(li.qty)} ${esc(curUom)}</span>`, `<span class="inv-rate-converted">= ₹${unitRate!=null?fmtMoney(unitRate):'—'}/${esc(curUom)}</span>`];
-    if(curUom!=='KG'){ parts.push(`<span class="small-muted">${packBit}</span>`); parts.push(`<span class="inv-rate-converted">= ₹${invRatePerKg!=null?fmtMoney(invRatePerKg):'—'}/kg</span>`); }
-    return parts.filter(Boolean).join(' ');
-  }
-  if(curUom==='KG') return `${autoTag} <span class="small-muted">₹/kg</span>`;
-  return `${autoTag} <span class="small-muted">₹/${esc(curUom)} entered ${packBit}</span> <span class="inv-rate-converted">= ₹${invRatePerKg!=null?fmtMoney(invRatePerKg):'—'}/kg</span>`;
-}
-function rateModeToggleHtml(i, rateMode){
-  const mode = rateMode || 'auto';
-  return `<div class="rate-mode-toggle" id="liRateModeToggle${i}">
-    <button type="button" class="rmt-btn ${mode==='auto'?'active':''}" data-mode="auto">Auto</button>
-    <button type="button" class="rmt-btn ${mode==='total'?'active':''}" data-mode="total">Total ₹</button>
-    <button type="button" class="rmt-btn ${mode==='unit'?'active':''}" data-mode="unit">Per-unit</button>
-  </div>`;
-}
-function renderLineRow(li,i,isNew){
-  const diff = lineDiff(li);
-  const status = lineStatus(li);
-  const pct = linePct(li);
-  const qtyKg = qtyToKg(li);
-  const total = lineTotal(li);
-  const uomOpts = uomOptionsForProduct(li.productCode);
-  const sColor = statusColor(status);
-  const curUom = li.uom || 'KG';
-  const invRatePerKg = lineInvoiceRatePerKg(li);
-  const unitRate = lineUnitRatePrecise(li)!=null ? clamp2(lineUnitRatePrecise(li)) : null;
-  const invRateUnitLabel = invRateHintHtml(li, unitRate, invRatePerKg);
-  return `<tr class="${isNew?'line-row-new':''}">
-    <td class="combo">
-      <input type="text" class="prodsearch" id="liSearch${i}" placeholder="Search product name or code…" value="${esc(li.productName ? li.productName+(li.sku?(' — '+li.sku):'') : '')}">
-      <div id="liResults${i}" class="combo-host"></div>
-    </td>
-    <td style="font-family:var(--font-mono);">${esc(li.packSize||'—')}</td>
-    <td style="font-family:var(--font-mono);">${esc(li.productCode||'—')}</td>
-    <td>${esc(li.category||'—')}</td>
-    <td class="num">${li.companyRate!=null?fmtMoney(li.companyRate):'—'}</td>
-    <td>
-      ${rateModeToggleHtml(i, li.rateMode)}
-      <input type="number" step="0.01" id="liInvRate${i}" value="${esc(li.invoiceRate)}" placeholder="${li.rateMode==='total'?'Total ₹ for this qty':'0.00'}" ${!li.productCode?'disabled':''}>
-      <div class="hint" id="liInvRateHint${i}">${invRateUnitLabel}</div>
-    </td>
-    <td>
-      <div style="display:flex;gap:4px;">
-        <input type="number" step="0.01" id="liQty${i}" value="${esc(li.qty)}" placeholder="qty" style="width:64px;">
-        ${uomOpts.length>1 ? `<select id="liUom${i}" style="width:auto;">${uomOpts.map(o=>`<option value="${esc(o.value)}" ${(li.uom||'KG')===o.value?'selected':''}>${esc(o.value)}</option>`).join('')}</select>` : `<span class="small-muted" style="align-self:center;">kg</span>`}
-      </div>
-      <div class="small-muted" id="liQtyKgHint${i}">${(qtyKg!=null && (li.uom||'KG')!=='KG') ? ('= '+qtyKg+' kg') : ''}</div>
-    </td>
-    <td class="num" id="liDiff${i}" style="font-weight:700;color:${sColor};">${diff==null?'—':(diff>0?'+':'')+clamp2(diff)}</td>
-    <td class="num" id="liPct${i}" style="font-weight:700;color:${sColor};">${pct==null?'—':(pct>0?'+':'')+pct+'%'}</td>
-    <td id="liStatus${i}">${statusBadge(status, statusExplain(li, li.companyRate, invRatePerKg, diff, pct), pct)}</td>
-    <td class="num" id="liTotal${i}" style="font-weight:700;color:${sColor};">${total==null?'—':(total>0?'+':(total<0?'-':''))+'₹'+fmtMoney(Math.abs(total))}</td>
-    <td><button class="icon-btn" id="liRemove${i}" title="Remove">✕</button></td>
-  </tr>`;
-}
-/* The rate a verifier reads off the physical invoice is quoted in whatever
-   unit that invoice bills in (₹/PC, ₹/BAG, or ₹/KG) — not always ₹/kg like
-   the Company Rate always is. Rather than making the verifier do that
-   division by hand before typing (slow, and one wrong keystroke away from a
-   false "undercharge"), the app takes the rate exactly as printed — in
-   whatever unit the Qty/UOM selector for this line is currently set to —
-   and converts it to ₹/kg itself, using the same pack-size factor
-   (kg per PC / kg per BAG) already known from the UOM Conversion master. */
-/* Some invoices print a line's total Amount rather than a clean per-unit
-   rate — a verifier would otherwise have to divide that out in their head
-   before typing it in. rateMode:'total' lets them type the Amount and the
-   Qty exactly as billed instead, and this derives the per-unit rate (in
-   whatever unit the Qty/UOM selector is set to) from the two. */
-/* A low-wage data-entry operator reading a bill shouldn't have to decide
-   whether the number they're typing is a per-unit rate or the line's total
-   amount — that's exactly the kind of judgement call that causes mistakes.
-   So by default (rateMode:'auto') the app tries BOTH readings of whatever
-   was typed and picks whichever one lands closer to the Company Rate — a
-   real bill entry should be in the same ballpark as the company's own rate,
-   so the interpretation that isn't wildly off is almost always the correct
-   one. The operator can still force a specific reading via the toggle if
-   the auto-guess is ever wrong. */
-function resolveRateMode(li){
-  const mode = li.rateMode || 'auto';
-  if(mode!=='auto') return mode;
-  if(li.invoiceRate===''||li.invoiceRate==null||isNaN(Number(li.invoiceRate))) return 'total';
-  const hasQty = li.qty!==''&&li.qty!=null&&!isNaN(Number(li.qty))&&Number(li.qty)>0;
-  if(!hasQty) return 'unit';
-  if(li.companyRate==null) return 'total';
-  const asUnit = lineInvoiceRatePerKgPrecise({...li, rateMode:'unit'});
-  const asTotal = lineInvoiceRatePerKgPrecise({...li, rateMode:'total'});
-  if(asUnit==null) return 'total';
-  if(asTotal==null) return 'unit';
-  const gapUnit = Math.abs(asUnit - li.companyRate);
-  const gapTotal = Math.abs(asTotal - li.companyRate);
-  return gapTotal<=gapUnit ? 'total' : 'unit';
-}
-function lineUnitRatePrecise(li){
-  if(li.invoiceRate===''||li.invoiceRate==null||isNaN(Number(li.invoiceRate))) return null;
-  if(resolveRateMode(li)==='total'){
-    if(li.qty===''||li.qty==null||isNaN(Number(li.qty))||Number(li.qty)===0) return null;
-    return Number(li.invoiceRate) / Number(li.qty);
-  }
-  return Number(li.invoiceRate);
-}
-function lineInvoiceRatePerKgPrecise(li){
-  const unitRate = lineUnitRatePrecise(li);
-  if(unitRate==null) return null;
-  const opts = uomOptionsForProduct(li.productCode);
-  const opt = opts.find(o=>o.value===(li.uom||'KG')) || opts[0];
-  const factor = opt ? opt.factor : 1;
-  if(!factor) return null;
-  return unitRate / factor;
-}
-function lineInvoiceRatePerKg(li){
-  const p = lineInvoiceRatePerKgPrecise(li);
-  return p==null ? null : clamp2(p);
-}
-function lineDiffPrecise(li){
-  const invRateKg = lineInvoiceRatePerKgPrecise(li);
-  if(li.companyRate==null || invRateKg==null) return null;
-  return invRateKg - Number(li.companyRate);
-}
-function lineDiff(li){
-  const p = lineDiffPrecise(li);
-  return p==null ? null : clamp2(p);
-}
-/* Overcharge % of the Company Rate — the basis for the Negligible/Overcharge split. */
-function linePct(li){
-  const d = lineDiffPrecise(li);
-  if(d==null || !li.companyRate) return null;
-  return clamp2((d/li.companyRate)*100);
-}
-function lineStatus(li){
-  const d = lineDiff(li);
-  if(d==null) return null;
-  if(d>0.004){
-    const pct = li.companyRate ? (d/li.companyRate)*100 : null;
-    return (pct!=null && pct<1) ? 'negligible' : 'over';
-  }
-  if(d<-0.004) return 'under';
-  return 'match';
-}
-function lineTotal(li){
-  const d = lineDiffPrecise(li);
-  const qkg = qtyToKgPrecise(li);
-  if(d==null || qkg==null) return null;
-  return clamp2(d*qkg);
-}
 function statusColor(status){
   if(status==='over') return 'var(--danger)';
   if(status==='negligible') return 'var(--negligible)';
@@ -2464,34 +2486,256 @@ function statusColor(status){
   if(status==='match') return 'var(--success)';
   return 'inherit';
 }
-/* Builds a plain-English, numbers-shown explanation of why a line got its
-   status — this is what a verifier sees on hover, so "why is this Overcharge
-   and not Negligible" never has to be guessed at. */
-function statusExplain(obj, companyRate, invoiceRatePerKg, d, pct){
-  if(d==null) return 'Enter an invoice rate to see the calculation.';
+function renderLineItems(){
+  const f = STATE.billForm;
+  const div = $('#rcLineItems');
+  div.innerHTML = f.lineItems.map((li,i)=>renderProductCard(li,i, STATE._justAddedLine && i===f.lineItems.length-1)).join('');
+  STATE._justAddedLine = false;
+  f.lineItems.forEach((li,i)=> wireProductCard(i));
+}
+
+function componentUomOptions(li){
+  // Always offer all three units for selection — even when the pack/bag size
+  // isn't known yet, since that's exactly what the inline "enter it" fields
+  // (§2.1/§2.2) are for. uomOptionsForProduct's factor list is only used
+  // elsewhere (search-result hints); components resolve their own factor via
+  // resolvePackSizeKg/resolveBagSizeKg, which already fall back sensibly.
+  return [{value:'KG'}, {value:'PC'}, {value:'BAG'}];
+}
+
+function renderComponentRow(li, liIdx, comp, compIdx, canRemove){
+  const opts = componentUomOptions(li);
+  const resolved = resolveComponent(comp);
+  const rawQ = parseNum(comp.qty), rawR = parseNum(comp.rate), rawT = parseNum(comp.total);
+  const qtyVal = rawQ!=null ? comp.qty : (resolved.computed==='qty' && resolved.qty!=null ? resolved.qty : '');
+  const rateVal = rawR!=null ? comp.rate : (resolved.computed==='rate' && resolved.rate!=null ? resolved.rate : '');
+  const totalVal = rawT!=null ? comp.total : (resolved.computed==='total' && resolved.total!=null ? resolved.total : '');
+  const errMsg = resolved.error ? (COMPONENT_ERROR_MSG[resolved.error]||'') : '';
+  return `<div class="component-row" id="li${liIdx}_c${compIdx}_row">
+    <div class="component-field">
+      <label>UOM</label>
+      <select id="li${liIdx}_c${compIdx}_uom">${opts.map(o=>`<option value="${o.value}" ${comp.uom===o.value?'selected':''}>${o.value}</option>`).join('')}</select>
+    </div>
+    <div class="component-field">
+      <label>Qty</label>
+      <input type="number" step="any" id="li${liIdx}_c${compIdx}_qty" value="${esc(qtyVal)}" placeholder="qty" class="${resolved.computed==='qty'?'auto-filled':''}">
+    </div>
+    <div class="component-field">
+      <label>Rate (per ${esc(comp.uom)})</label>
+      <input type="number" step="any" id="li${liIdx}_c${compIdx}_rate" value="${esc(rateVal)}" placeholder="rate" class="${resolved.computed==='rate'?'auto-filled':''}">
+    </div>
+    <div class="component-field">
+      <label>Bill Amount (₹)</label>
+      <input type="number" step="any" id="li${liIdx}_c${compIdx}_total" value="${esc(totalVal)}" placeholder="amount" class="${resolved.computed==='total'?'auto-filled':''}">
+    </div>
+    <button type="button" class="icon-btn component-remove" id="li${liIdx}_c${compIdx}_remove" title="Remove this quantity line" ${canRemove?'':'style="visibility:hidden;"'}>✕</button>
+    <div class="component-err" id="li${liIdx}_c${compIdx}_err">${esc(errMsg)}</div>
+  </div>`;
+}
+
+function cardSummaryHtml(li){
+  const agg = aggregateLineItem(li);
+  if(agg.error==='empty' || agg.error==='need_more' || !li.productCode){
+    return `<div class="card-summary"><span class="cs-item small-muted">Enter Qty + Rate (or Amount) above to see the difference.</span></div>`;
+  }
+  if(agg.error){
+    return `<div class="card-summary"><span class="cs-item" style="color:var(--danger);">${esc(COMPONENT_ERROR_MSG[agg.error]||'Cannot calculate yet — check the values above.')}</span></div>`;
+  }
+  const sColor = statusColor(agg.status);
+  return `<div class="card-summary">
+    <span class="cs-item">Total Qty: <b>${agg.totalQtyKg} kg</b></span>
+    <span class="cs-item">Invoiced: <b>₹${fmtMoney(agg.totalInvoiced)}</b></span>
+    <span class="cs-item">Blended Rate: <b>₹${fmtMoney(agg.blendedRatePerKg)}/kg</b></span>
+    <span class="cs-item">vs Company: <b>₹${fmtMoney(li.companyRate)}/kg</b></span>
+    <span class="cs-status">
+      ${statusBadge(agg.status, statusExplainAggregate(li, agg), agg.pct)}
+      <b style="color:${sColor};font-size:14px;">${agg.diffAmount>0?'+':(agg.diffAmount<0?'-':'')}₹${fmtMoney(Math.abs(agg.diffAmount))}</b>
+    </span>
+  </div>`;
+}
+
+function packSizeFieldHtml(li, liIdx){
+  const p = resolvePackSizeKg(li);
+  if(p.source==='uom') return `<span class="pm-item">Pack Size: <b>${esc(li.packSize||(p.value+' kg'))}</b></span>`;
+  return `<span class="pm-item pack-size-field">Pack Size (kg/PC):
+    <input type="number" step="any" id="li${liIdx}_packSizeKg" value="${p.value!=null?p.value:''}" placeholder="?" class="${p.needsConfirm?'needs-confirm':''}">
+    <span class="unit-suffix">kg${p.needsConfirm?' — auto-guessed, please confirm':''}</span>
+  </span>`;
+}
+
+function anyComponentUsesBag(li){ return li.components.some(c=>c.uom==='BAG'); }
+
+function bagSizeInlineHtml(li, liIdx){
+  if(!anyComponentUsesBag(li)) return '';
+  const b = resolveBagSizeKg(li);
+  if(b.source==='uom') return `<div class="small-muted" style="margin-top:6px;">Bag size (from UOM master): <b>${b.value} kg</b></div>`;
+  const curVal = li.bagSizeValue!==''&&li.bagSizeValue!=null ? li.bagSizeValue : (b.rawValue!=null?b.rawValue:'');
+  const curUnit = li.bagSizeUnit || (b.unit||'KG');
+  return `<div class="bag-size-inline" id="li${liIdx}_bagSizeBox">
+    <span>⚠ Bag size needed:</span>
+    <input type="number" step="any" id="li${liIdx}_bagSizeValue" value="${esc(curVal)}" placeholder="e.g. 24">
+    <select id="li${liIdx}_bagSizeUnit">
+      <option value="KG" ${curUnit==='KG'?'selected':''}>KG</option>
+      <option value="PCS" ${curUnit==='PCS'?'selected':''}>PCS</option>
+    </select>
+    <span class="small-muted">(1 Bag = value ${curUnit==='PCS'?'× pack size':''})</span>
+  </div>`;
+}
+
+function renderProductCard(li, liIdx, isNew){
+  const canRemoveComp = li.components.length>1;
+  return `<div class="product-card ${isNew?'line-row-new':''}" id="liCard${liIdx}">
+    <button type="button" class="icon-btn product-card-remove" id="liRemove${liIdx}" title="Remove product">✕</button>
+    <div class="product-card-head">
+      <div class="product-card-search combo">
+        <input type="text" class="prodsearch ${li.productCode?'picked':''}" id="liSearch${liIdx}" placeholder="Search product name or code…" value="${esc(li.productName ? li.productName+(li.sku?(' — '+li.sku):'') : '')}">
+        ${li.productCode ? `<span class="prodsearch-check" title="Product selected">✓</span>` : ''}
+        <div id="liResults${liIdx}" class="combo-host"></div>
+      </div>
+      <div class="product-card-meta">
+        ${li.productCode ? `
+          <span class="pm-item">Code: <b>${esc(li.productCode)}</b></span>
+          <span class="pm-item">Category: <b>${esc(li.category||'—')}</b></span>
+          <span class="pm-item">Company Rate: <b>₹${li.companyRate!=null?fmtMoney(li.companyRate):'—'}/kg</b></span>
+          ${packSizeFieldHtml(li, liIdx)}
+        ` : ''}
+      </div>
+    </div>
+    ${li.productCode ? bagSizeInlineHtml(li, liIdx) : ''}
+    ${li.productCode ? `
+      <div id="liComponents${liIdx}">
+        ${li.components.map((c,ci)=>renderComponentRow(li, liIdx, c, ci, canRemoveComp)).join('')}
+      </div>
+      <button type="button" class="btn secondary small add-component-btn" id="liAddComp${liIdx}">+ Add quantity line</button>
+      <div id="liSummary${liIdx}">${cardSummaryHtml(li)}</div>
+    ` : ''}
+  </div>`;
+}
+
+function wireProductCard(liIdx){
+  const f = STATE.billForm;
+  const li = f.lineItems[liIdx];
+  const searchInput = $(`#liSearch${liIdx}`);
+  if(searchInput){
+    searchInput.addEventListener('input', e=> showProductResults(liIdx, e.target.value));
+    searchInput.addEventListener('focus', e=> showProductResults(liIdx, e.target.value));
+  }
+  const rm = $(`#liRemove${liIdx}`);
+  if(rm) rm.addEventListener('click', ()=>{ f.lineItems.splice(liIdx,1); if(!f.lineItems.length) f.lineItems.push(emptyLineItem()); renderLineItems(); });
+  if(!li.productCode) return;
+  const packEl = $(`#li${liIdx}_packSizeKg`);
+  if(packEl) packEl.addEventListener('input', e=>{
+    li.packSizeKgManual = e.target.value; li.packSizeConfirmed = true;
+    packEl.classList.remove('needs-confirm');
+    refreshCard(liIdx);
+  });
+  const bagValEl = $(`#li${liIdx}_bagSizeValue`);
+  const bagUnitEl = $(`#li${liIdx}_bagSizeUnit`);
+  function commitBagSize(){
+    li.bagSizeValue = bagValEl.value; li.bagSizeUnit = bagUnitEl.value;
+    if(li.bagSizeValue!=='' && !isNaN(Number(li.bagSizeValue))){
+      STATE.bagSizeByProductCode[li.productCode] = {value:Number(li.bagSizeValue), unit:li.bagSizeUnit};
+    }
+    refreshCard(liIdx);
+  }
+  if(bagValEl) bagValEl.addEventListener('input', commitBagSize);
+  if(bagUnitEl) bagUnitEl.addEventListener('change', commitBagSize);
+  li.components.forEach((comp,ci)=> wireComponentRow(liIdx, ci));
+  const addBtn = $(`#liAddComp${liIdx}`);
+  if(addBtn) addBtn.addEventListener('click', ()=>{
+    li.components.push(emptyComponent(li.components[li.components.length-1].uom));
+    refreshCard(liIdx);
+  });
+}
+
+function wireComponentRow(liIdx, compIdx){
+  const f = STATE.billForm;
+  const li = f.lineItems[liIdx];
+  const comp = li.components[compIdx];
+  const qtyEl = $(`#li${liIdx}_c${compIdx}_qty`);
+  const rateEl = $(`#li${liIdx}_c${compIdx}_rate`);
+  const totalEl = $(`#li${liIdx}_c${compIdx}_total`);
+  const uomEl = $(`#li${liIdx}_c${compIdx}_uom`);
+  const rmEl = $(`#li${liIdx}_c${compIdx}_remove`);
+  if(qtyEl) qtyEl.addEventListener('input', e=>{ comp.qty = e.target.value; updateComponentRow(liIdx, compIdx); });
+  if(rateEl) rateEl.addEventListener('input', e=>{ comp.rate = e.target.value; updateComponentRow(liIdx, compIdx); });
+  if(totalEl) totalEl.addEventListener('input', e=>{ comp.total = e.target.value; updateComponentRow(liIdx, compIdx); });
+  if(uomEl) uomEl.addEventListener('change', e=>{ comp.uom = e.target.value; refreshCard(liIdx); });
+  if(rmEl) rmEl.addEventListener('click', ()=>{ li.components.splice(compIdx,1); refreshCard(liIdx); });
+}
+
+// Targeted update: recompute one component's derived field + the card's
+// summary line, without re-rendering the whole card (keeps focus intact
+// while the operator is still typing).
+function updateComponentRow(liIdx, compIdx){
+  const f = STATE.billForm;
+  const li = f.lineItems[liIdx];
+  const comp = li.components[compIdx];
+  const resolved = resolveComponent(comp);
+  const rawQ = parseNum(comp.qty), rawR = parseNum(comp.rate), rawT = parseNum(comp.total);
+  const qtyEl = $(`#li${liIdx}_c${compIdx}_qty`);
+  const rateEl = $(`#li${liIdx}_c${compIdx}_rate`);
+  const totalEl = $(`#li${liIdx}_c${compIdx}_total`);
+  if(qtyEl && document.activeElement!==qtyEl){
+    if(rawQ==null && resolved.computed==='qty'){ qtyEl.value = resolved.qty; qtyEl.classList.add('auto-filled'); }
+    else { qtyEl.classList.remove('auto-filled'); if(rawQ==null) qtyEl.value=''; }
+  }
+  if(rateEl && document.activeElement!==rateEl){
+    if(rawR==null && resolved.computed==='rate'){ rateEl.value = resolved.rate; rateEl.classList.add('auto-filled'); }
+    else { rateEl.classList.remove('auto-filled'); if(rawR==null) rateEl.value=''; }
+  }
+  if(totalEl && document.activeElement!==totalEl){
+    if(rawT==null && resolved.computed==='total'){ totalEl.value = resolved.total; totalEl.classList.add('auto-filled'); }
+    else { totalEl.classList.remove('auto-filled'); if(rawT==null) totalEl.value=''; }
+  }
+  const errEl = $(`#li${liIdx}_c${compIdx}_err`);
+  if(errEl) errEl.textContent = resolved.error ? (COMPONENT_ERROR_MSG[resolved.error]||'') : '';
+  const summaryEl = $(`#liSummary${liIdx}`);
+  if(summaryEl) summaryEl.innerHTML = cardSummaryHtml(li);
+}
+
+// Full but targeted refresh of one card (components list + summary) — used
+// after structural changes (add/remove a quantity line, UOM switch, pack/bag
+// size edits) where a per-field patch isn't enough.
+function refreshCard(liIdx){
+  const f = STATE.billForm;
+  const li = f.lineItems[liIdx];
+  const card = $(`#liCard${liIdx}`);
+  if(!card) return;
+  card.outerHTML = renderProductCard(li, liIdx, false);
+  wireProductCard(liIdx);
+}
+
+function statusExplainAggregate(li, agg){
   const lines = [];
-  const uom = obj.uom || 'KG';
-  const mode = resolveRateMode(obj);
-  if(!obj.rateMode || obj.rateMode==='auto') lines.push(`(Auto-detected: the number you typed is being read as the ${mode==='total'?'TOTAL amount for this line':'PER-UNIT rate'}, because that's the reading closest to the Company Rate.)`);
-  const opt = uomOptionsForProduct(obj.productCode).find(o=>o.value===uom);
-  const packLabel = (opt && uom!=='KG') ? `${opt.factor} kg${obj.packSize?' — pack size '+obj.packSize:''}` : '';
-  if(mode==='total' && obj.qty){
-    const unitRate = lineUnitRatePrecise(obj);
-    lines.push(`Invoice Rate = ₹${fmtMoney(obj.invoiceRate)} total ÷ ${obj.qty} ${uom} = ₹${unitRate!=null?fmtMoney(unitRate):'—'}/${uom}`);
-    if(uom!=='KG') lines.push(`₹${unitRate!=null?fmtMoney(unitRate):'—'}/${uom} ÷ ${packLabel} = ₹${fmtMoney(invoiceRatePerKg)}/kg`);
-  } else if(uom!=='KG' && obj.invoiceRate!=null && obj.invoiceRate!==''){
-    lines.push(`Invoice Rate = ₹${fmtMoney(obj.invoiceRate)}/${uom} ÷ ${packLabel} = ₹${fmtMoney(invoiceRatePerKg)}/kg`);
-  }
-  lines.push(`Diff = Invoice Rate − Company Rate = ${fmtMoney(invoiceRatePerKg)} − ${fmtMoney(companyRate)} = ${d>0?'+':''}${clamp2(d)} ₹/kg`);
-  if(Math.abs(d)<0.004){ lines.push('Exact match (0.00) → Match.'); return lines.join('\n'); }
-  if(d>0){
-    lines.push(`Variance = Diff ÷ Company Rate × 100 = ${clamp2(d)} ÷ ${fmtMoney(companyRate)} × 100 = ${pct}%`);
-    lines.push(pct<1 ? `${pct}% is BELOW the 1% negligible threshold → Overcharge – Negligible.` : `${pct}% is AT OR ABOVE the 1% threshold → Overcharge.`);
-    if(pct>50) lines.push(`⚠ ${pct}% is unusually large for a real invoice — check the entered rate and unit before trusting this line.`);
-    return lines.join('\n');
-  }
-  lines.push('Invoice rate is below Company Rate → Undercharge. (Undercharge has no negligible band — any shortfall is flagged.)');
-  if(pct!=null && pct<-50) lines.push(`⚠ ${pct}% is unusually large for a real invoice — check the entered rate and unit before trusting this line.`);
+  agg.parts.forEach(p=>{
+    lines.push(`${p.uom} × ${p.qty} @ ₹${fmtMoney(p.rate)}/${p.uom} = ₹${fmtMoney(p.total)}`);
+  });
+  lines.push(`Total Qty (kg-equiv) = ${agg.totalQtyKg} kg`);
+  lines.push(`Total Invoiced = ₹${fmtMoney(agg.totalInvoiced)}`);
+  lines.push(`Blended Rate = Invoiced ÷ Qty(kg) = ₹${fmtMoney(agg.totalInvoiced)} ÷ ${agg.totalQtyKg} = ₹${fmtMoney(agg.blendedRatePerKg)}/kg`);
+  lines.push(`Expected (at Company Rate) = ₹${fmtMoney(li.companyRate)} × ${agg.totalQtyKg} = ₹${fmtMoney(agg.expectedAmount)}`);
+  lines.push(`Difference = Invoiced − Expected = ₹${fmtMoney(agg.totalInvoiced)} − ₹${fmtMoney(agg.expectedAmount)} = ${agg.diffAmount>0?'+':''}₹${fmtMoney(agg.diffAmount)}`);
+  if(agg.status==='match') lines.push('Within ₹0.01 → Match.');
+  else if(agg.status==='negligible') lines.push(`Variance ${agg.pct}% is BELOW the 1% negligible threshold → Overcharge – Negligible.`);
+  else if(agg.status==='over') lines.push(`Variance ${agg.pct}% is AT OR ABOVE the 1% threshold → Overcharge.`);
+  else lines.push('Invoiced is below expected → Undercharge. (Undercharge has no negligible band.)');
+  if(Math.abs(agg.pct)>50) lines.push(`⚠ ${agg.pct}% is unusually large — check the entered Qty/Rate/Amount and units before trusting this line.`);
+  return lines.join('\n');
+}
+function statusExplainSaved(b){
+  const lines = [];
+  if(b.componentsSummary) lines.push(`Components: ${b.componentsSummary}`);
+  lines.push(`Total Qty (kg-equiv) = ${b.qtyKg} kg`);
+  lines.push(`Total Invoiced = ₹${fmtMoney(b.totalInvoiced!=null?b.totalInvoiced:b.chargeAmt)}`);
+  lines.push(`Blended Rate = ₹${fmtMoney(b.blendedRate!=null?b.blendedRate:b.invoiceRate)}/kg`);
+  lines.push(`Expected (Company Rate × Qty) = ₹${fmtMoney(b.expectedAmount!=null?b.expectedAmount:clamp2(b.companyRate*b.qtyKg))}`);
+  lines.push(`Difference = ${b.chargeAmt>0?'+':''}₹${fmtMoney(b.chargeAmt)}`);
+  if(b.status==='match') lines.push('Within ₹0.01 → Match.');
+  else if(b.status==='negligible') lines.push(`Variance ${b.pct}% is BELOW the 1% negligible threshold → Overcharge – Negligible.`);
+  else if(b.status==='over') lines.push(`Variance ${b.pct}% is AT OR ABOVE the 1% threshold → Overcharge.`);
+  else lines.push('Invoiced is below expected → Undercharge. (Undercharge has no negligible band.)');
+  if(b.pct!=null && Math.abs(b.pct)>50) lines.push(`⚠ ${b.pct}% is unusually large — check the entered Qty/Rate/Amount and units before trusting this line.`);
   return lines.join('\n');
 }
 function statusBadge(status, tooltip, pct){
@@ -2502,99 +2746,10 @@ function statusBadge(status, tooltip, pct){
   else if(status==='negligible') badge = `<span class="badge negligible"${t}>Overcharge – Negligible</span>`;
   else if(status==='under') badge = `<span class="badge under"${t}>Undercharge</span>`;
   else badge = `<span class="badge match"${t}>Match</span>`;
-  // A variance this large almost always means the wrong unit was picked (e.g.
-  // a per-carton rate entered as PC) or a stray digit was typed — not a real
-  // overcharge — so it's flagged distinctly rather than left to look like an
-  // ordinary (if extreme) audit finding.
   if(pct!=null && Math.abs(pct)>50){
-    badge += `<span class="sanity-warn" title="Variance is ${pct>0?'+':''}${pct}% — unusually large for a real invoice. Double-check the entered rate and the selected unit (KG / PC / BAG); picking the wrong one is the most common cause of a number like this.">⚠ check rate/unit</span>`;
+    badge += `<span class="sanity-warn" title="Variance is ${pct>0?'+':''}${pct}% — unusually large for a real invoice. Double-check the entered Qty/Rate/Amount and units; a wrong unit is the most common cause of a number like this.">⚠ check values</span>`;
   }
   return badge;
-}
-function updateLineDiff(i){
-  const f = STATE.billForm;
-  // re-render just this row's computed cells without losing focus on whichever input the user is typing in.
-  const li = f.lineItems[i];
-  const d = lineDiff(li); const status = lineStatus(li); const pct = linePct(li);
-  const qtyKg = qtyToKg(li); const total = lineTotal(li);
-  const curUom = li.uom || 'KG';
-  const invRatePerKg = lineInvoiceRatePerKg(li);
-  const sColor = statusColor(status);
-  const diffCell = $(`#liDiff${i}`);
-  const pctCell = $(`#liPct${i}`);
-  const statusCell = $(`#liStatus${i}`);
-  const totalCell = $(`#liTotal${i}`);
-  const hintEl = $(`#liQtyKgHint${i}`);
-  const invHintEl = $(`#liInvRateHint${i}`);
-  if(diffCell){
-    diffCell.textContent = d==null?'—':(d>0?'+':'')+clamp2(d);
-    diffCell.style.color = sColor;
-  }
-  if(pctCell){
-    pctCell.textContent = pct==null?'—':(pct>0?'+':'')+pct+'%';
-    pctCell.style.color = sColor;
-  }
-  if(statusCell) statusCell.innerHTML = statusBadge(status, statusExplain(li, li.companyRate, invRatePerKg, d, pct), pct);
-  if(totalCell){
-    totalCell.textContent = total==null?'—':(total>0?'+':(total<0?'-':''))+'₹'+fmtMoney(Math.abs(total));
-    totalCell.style.color = sColor;
-  }
-  if(hintEl) hintEl.textContent = (qtyKg!=null && curUom!=='KG') ? ('= '+qtyKg+' kg') : '';
-  if(invHintEl) invHintEl.innerHTML = invRateHintHtml(li, lineUnitRatePrecise(li)!=null ? clamp2(lineUnitRatePrecise(li)) : null, invRatePerKg);
-  // Brief highlight flash on whatever just recalculated, so the live effect of
-  // typing a rate/qty is visibly obvious rather than a silent number change.
-  [diffCell, pctCell, totalCell].forEach(cell=>{
-    if(!cell) return;
-    cell.classList.remove('flash-update');
-    void cell.offsetWidth; // force reflow so the animation retriggers every time
-    cell.classList.add('flash-update');
-  });
-}
-
-
-/* ---- Typo-tolerant product search ---- */
-function levenshtein(a, b){
-  if(a===b) return 0;
-  const al=a.length, bl=b.length;
-  if(al===0) return bl;
-  if(bl===0) return al;
-  let prev = new Array(bl+1), curr = new Array(bl+1);
-  for(let j=0;j<=bl;j++) prev[j]=j;
-  for(let i=1;i<=al;i++){
-    curr[0]=i;
-    for(let j=1;j<=bl;j++){
-      const cost = a.charCodeAt(i-1)===b.charCodeAt(j-1) ? 0 : 1;
-      curr[j] = Math.min(prev[j]+1, curr[j-1]+1, prev[j-1]+cost);
-    }
-    const tmp = prev; prev = curr; curr = tmp;
-  }
-  return prev[bl];
-}
-/* Scores how well a (possibly misspelled) query matches a target string.
-   Exact substring wins outright; otherwise each query word is matched
-   against the target's words allowing a small, length-scaled edit distance,
-   so a typo like "sharbti" still finds "SHARBATI". */
-function fuzzyScore(query, target){
-  if(!query || !target) return 0;
-  if(target.includes(query)) return 1000 - Math.min(200, target.length - query.length);
-  const qWords = query.split(/\s+/).filter(Boolean);
-  const tWords = target.split(/\s+/).filter(Boolean);
-  if(!qWords.length) return 0;
-  let total = 0;
-  qWords.forEach(qw=>{
-    let best = 0;
-    tWords.forEach(tw=>{
-      if(tw.includes(qw)) best = Math.max(best, 70);
-      else if(qw.length>=3 && qw.includes(tw)) best = Math.max(best, 45);
-      else{
-        const allowed = qw.length<=4 ? 1 : (qw.length<=7 ? 2 : 3);
-        const dist = levenshtein(qw, tw);
-        if(dist<=allowed) best = Math.max(best, 55 - dist*12);
-      }
-    });
-    total += best;
-  });
-  return qWords.length ? total/qWords.length : 0;
 }
 function showProductResults(i, q){
   const f = STATE.billForm;
@@ -2633,11 +2788,21 @@ function showProductResults(i, q){
     const rr = latestByCode[code];
     const li = f.lineItems[i];
     li.productCode = rr.productCode; li.productName = rr.productName; li.sku = rr.sku; li.category = rr.category;
-    li.companyRate = rr.rate; li.gstPct = rr.gstPct; li.uom = 'KG';
+    li.companyRate = rr.rate; li.gstPct = rr.gstPct;
     const uomEntry = STATE.uomMap[rr.productCode];
     li.packSize = (uomEntry && uomEntry.packSize) || rr.sku || '';
+    li.packSizeKgManual = ''; li.packSizeConfirmed = false;
+    li.bagSizeValue = ''; li.bagSizeUnit = 'KG';
+    li.components = [emptyComponent('KG')];
     resultsDiv.innerHTML = '';
-    renderLineItems();
+    refreshCard(i);
+    const card = $(`#liCard${i}`);
+    if(card){
+      card.classList.add('just-picked');
+      card.scrollIntoView({behavior:'smooth', block:'nearest'});
+      const firstQty = $(`#li${i}_c0_qty`);
+      if(firstQty) setTimeout(()=>firstQty.focus(), 250);
+    }
   }));
 }
 
@@ -2650,8 +2815,9 @@ function saveBill(){
   if(!f.retailer.trim()){ errEl.textContent = 'Retailer / outlet name is required.'; return; }
   if(!f.billDateISO){ errEl.textContent = 'Bill date is required.'; return; }
   if(backendConfigured() && !f.verifiedBy){ errEl.textContent = f.verifierCode ? 'Verifier code not recognized — check the code and try again.' : 'Verified By (verifier code) is required.'; return; }
-  const validLines = f.lineItems.filter(li=> li.productCode && li.invoiceRate!=='' && li.invoiceRate!=null);
-  if(!validLines.length){ errEl.textContent = 'Add at least one product with an invoice rate.'; return; }
+  const validLines = f.lineItems.filter(li=> li.productCode && !aggregateLineItem(li).error);
+  const incompleteLines = f.lineItems.filter(li=> li.productCode && aggregateLineItem(li).error && aggregateLineItem(li).error!=='empty');
+  if(!validLines.length){ errEl.textContent = incompleteLines.length ? 'Finish entering every product line — some are still missing a value.' : 'Add at least one product with Qty + Rate/Amount filled in.'; return; }
 
   const billUid = uid('bill');
   const billDate = isoToDMYDate(f.billDateISO);
@@ -2662,24 +2828,23 @@ function saveBill(){
   }
   const newRecords = [];
   validLines.forEach(li=>{
-    const diff = lineDiff(li);
-    const status = lineStatus(li);
-    const pct = linePct(li);
-    const qty = li.qty!=='' && li.qty!=null ? Number(li.qty) : null;
-    const uom = li.uom || 'KG';
-    const qtyKg = qtyToKg(li);
-    const chargeAmt = qtyKg!=null ? lineTotal(li) : diff;
+    const agg = aggregateLineItem(li);
+    const componentsSummary = agg.parts.map(p=>`${p.uom}×${p.qty} @ ₹${fmtMoney(p.rate)}`).join('; ');
+    const bagInfo = resolveBagSizeKg(li);
+    const packInfo = resolvePackSizeKg(li);
     const record = {
       sl: BILL_SEQ++, billUid,
       dbCode: f.dbCode, dbName: f.dbName, pg: f.pg, location: f.location,
       beatCode: f.beatCode, beatName: f.beatName, so: f.so, asm: f.asm, rsm: f.rsm, dbActive: f.active,
       billType: f.billType, retailer: (f.retailer||'').toUpperCase(), billNo: (f.billNo||'').toUpperCase(), billDateStr: fmtDMY(billDate),
       productName: li.productName, productCode: li.productCode, sku: li.sku, category: li.category, packSize: li.packSize||li.sku||'',
-      companyRate: li.companyRate, invoiceRate: Number(li.invoiceRate), rateMode: resolveRateMode(li), gstPct: li.gstPct,
-      diff, pct, status, qty, uom, qtyKg, chargeAmt,
-      overchargeAmt: status==='over' ? chargeAmt : 0,
-      underchargeAmt: status==='under' ? clamp2(Math.abs(chargeAmt)) : 0,
-      negligibleAmt: status==='negligible' ? chargeAmt : 0,
+      companyRate: li.companyRate, invoiceRate: agg.blendedRatePerKg, gstPct: li.gstPct,
+      diff: agg.diffPerKg, pct: agg.pct, status: agg.status, qty: agg.totalQtyKg, uom: 'KG', qtyKg: agg.totalQtyKg, chargeAmt: agg.diffAmount,
+      packSizeKg: packInfo.value, bagSizeLabel: bagInfo.value ? `${bagInfo.value} kg` : '', componentsSummary,
+      totalInvoiced: agg.totalInvoiced, blendedRate: agg.blendedRatePerKg, expectedAmount: agg.expectedAmount,
+      overchargeAmt: agg.status==='over' ? agg.diffAmount : 0,
+      underchargeAmt: agg.status==='under' ? clamp2(Math.abs(agg.diffAmount)) : 0,
+      negligibleAmt: agg.status==='negligible' ? agg.diffAmount : 0,
       collectedBy: (f.collectedBy||'').toUpperCase(), designation: f.designation, verifiedBy: (f.verifiedBy||'').toUpperCase(), verifiedByCode: f.verifierCode||'', submissionStr: fmtDMY(subDate),
     };
     STATE.bills.push(record);
@@ -2818,24 +2983,26 @@ function renderReportTable(){
       <th>SL</th><th>DB Code</th><th>DB Name</th><th>Location</th><th>Beat Code</th><th>Beat Name</th>
       <th>SO Name</th><th>ASM Name</th><th>RSM Name</th><th>DB Status</th>
       <th>Retailer</th><th>Bill Type</th><th>Bill No</th><th>Bill Date</th>
-      <th>Product</th><th>Pack Size</th><th>Code</th><th class="num">Company Rate<br><span style="text-transform:none;">₹/kg</span></th><th class="num">Invoice Rate<br><span style="text-transform:none;">₹/kg</span></th><th class="num">Difference<br><span style="text-transform:none;">₹/kg</span></th>
-      <th class="num">Variance<br><span style="text-transform:none;">% of rate</span></th>
-      <th>Quantity</th>
+      <th>Product</th><th>Pack Size (kg)</th><th>Code</th><th class="num">Company Rate<br><span style="text-transform:none;">₹/kg</span></th>
+      <th>Components</th><th class="num">Total Qty<br><span style="text-transform:none;">kg-equiv</span></th><th class="num">Total Invoiced<br><span style="text-transform:none;">₹</span></th>
+      <th class="num">Blended Rate<br><span style="text-transform:none;">₹/kg</span></th><th class="num">Variance<br><span style="text-transform:none;">% of rate</span></th>
       <th>Status</th><th class="num">Overcharge Amt</th><th class="num">Undercharge Amt</th>
       <th>Bill Copy</th><th>Collected By</th><th>Designation</th><th>Verified By</th><th>Submitted</th><th></th>
     </tr></thead>
-    <tbody>${rows.map((b,idx)=>{ const sColor = statusColor(b.status); const bInvRatePerKg = lineInvoiceRatePerKg(b); const bUom = b.uom||'KG'; const bShowEntered = bUom!=='KG' || b.rateMode==='total'; const bEnteredLabel = b.rateMode==='total' ? `₹${fmtMoney(b.invoiceRate)} total ÷ ${b.qty||'?'} ${esc(bUom)}` : `₹${fmtMoney(b.invoiceRate)}/${esc(bUom)}`; return `<tr class="${b.status==='over'?'row-over':''}">
+    <tbody>${rows.map((b,idx)=>{ const sColor = statusColor(b.status); return `<tr class="${b.status==='over'?'row-over':''}">
       <td>${b.sl}</td><td style="font-family:var(--font-mono);">${esc(b.dbCode)}</td><td class="wrap">${esc(b.dbName)}</td><td>${esc(b.location)}</td>
       <td style="font-family:var(--font-mono);">${esc(b.beatCode||'—')}</td><td class="wrap">${esc(b.beatName||'—')}</td>
       <td>${esc(b.so||'—')}</td><td>${esc(b.asm||'—')}</td><td>${esc(b.rsm||'—')}</td><td>${dbStatusBadge(b.dbActive)}</td>
       <td class="wrap">${esc(b.retailer)}</td><td>${esc(b.billType)}</td>
       <td>${esc(b.billNo||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.billDateStr)}</td>
-      <td class="wrap">${esc(b.productName)}</td><td style="font-family:var(--font-mono);">${esc(b.packSize||b.sku||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.productCode)}</td>
-      <td class="num">${fmtMoney(b.companyRate)}</td><td class="num" title="${bShowEntered?`Entered as ${bEnteredLabel}`:''}">${fmtMoney(bInvRatePerKg)}${bShowEntered?`<div class="small-muted">${bEnteredLabel} entered</div>`:''}</td>
-      <td class="num" style="font-weight:700;color:${sColor};">${b.diff>0?'+':''}${clamp2(b.diff)}</td>
+      <td class="wrap">${esc(b.productName)}</td><td style="font-family:var(--font-mono);">${b.packSizeKg!=null?b.packSizeKg:'—'}</td><td style="font-family:var(--font-mono);">${esc(b.productCode)}</td>
+      <td class="num">${fmtMoney(b.companyRate)}</td>
+      <td class="wrap" style="font-family:var(--font-mono);font-size:11px;">${esc(b.componentsSummary||'—')}</td>
+      <td class="num">${b.qtyKg}</td>
+      <td class="num">${fmtMoney(b.totalInvoiced!=null?b.totalInvoiced:b.chargeAmt)}</td>
+      <td class="num" style="font-weight:700;color:${sColor};">${fmtMoney(b.blendedRate!=null?b.blendedRate:b.invoiceRate)}</td>
       <td class="num" style="font-weight:700;color:${sColor};">${b.pct==null?'—':(b.pct>0?'+':'')+b.pct+'%'}</td>
-      <td style="font-family:var(--font-mono);">${esc(qtyDisplay(b))}</td>
-      <td>${statusBadge(b.status, statusExplain(b, b.companyRate, bInvRatePerKg, b.diff, b.pct), b.pct)}</td>
+      <td>${statusBadge(b.status, statusExplainSaved(b), b.pct)}</td>
       <td class="num" style="font-weight:700;color:var(--danger);">${b.status==='over'?'₹'+fmtMoney(b.overchargeAmt):'—'}</td>
       <td class="num" style="font-weight:700;color:var(--warn);">${b.status==='under'?'₹'+fmtMoney(b.underchargeAmt):'—'}</td>
       <td>${billCopyCell(b)}</td>
@@ -2901,18 +3068,18 @@ async function exportExcelPro(){
       {header:'Bill No', key:'billNo', width:14},
       {header:'Bill Date', key:'billDateStr', width:12},
       {header:'Product', key:'productName', width:34},
-      {header:'Pack Size', key:'packSize', width:12},
+      {header:'Pack Size (kg)', key:'packSizeKg', width:12},
       {header:'Product Code', key:'productCode', width:13},
       {header:'GST %', key:'gstPct', width:8},
-      {header:'Company Rate', key:'companyRate', width:13},
-      {header:'Invoice Rate (₹/kg)', key:'invoiceRate', width:15},
-      {header:'Invoice Rate As Entered', key:'invoiceRateEntered', width:18},
-      {header:'Difference', key:'diff', width:12},
+      {header:'Company Rate (₹/kg)', key:'companyRate', width:14},
+      {header:'Bag Size', key:'bagSizeLabel', width:12},
+      {header:'Components', key:'componentsSummary', width:30},
+      {header:'Total Qty (kg-equiv)', key:'qtyKg', width:14},
+      {header:'Total Invoiced (₹)', key:'totalInvoiced', width:15},
+      {header:'Blended Rate (₹/kg)', key:'blendedRate', width:15},
       {header:'Variance %', key:'pctLabel', width:11},
       {header:'Status', key:'statusLabel', width:13},
-      {header:'Qty', key:'qty', width:9},
-      {header:'UOM', key:'uom', width:8},
-      {header:'Qty (KG)', key:'qtyKg', width:11},
+      {header:'Over/Undercharge (₹)', key:'diffAmountLabel', width:16},
       {header:'Overcharge Amt', key:'overchargeAmt', width:15},
       {header:'Undercharge Amt', key:'underchargeAmt', width:16},
       {header:'Bill Copy', key:'billCopy', width:13},
@@ -2976,8 +3143,9 @@ async function exportExcelPro(){
         sl:b.sl, dbCode:b.dbCode, dbName:b.dbName, location:b.location,
         beatCode:b.beatCode||'', beatName:b.beatName||'', so:b.so||'', asm:b.asm||'', rsm:b.rsm||'', dbStatusLabel,
         retailer:b.retailer, billType:b.billType, billNo:b.billNo||'', billDateStr:b.billDateStr,
-        productName:b.productName, packSize:b.packSize||b.sku||'', productCode:b.productCode, gstPct:b.gstPct, companyRate:b.companyRate,
-        invoiceRate: lineInvoiceRatePerKg(b), invoiceRateEntered: (b.rateMode==='total') ? `₹${fmtMoney(b.invoiceRate)} total ÷ ${b.qty||'?'} ${b.uom||'KG'}` : ((b.uom&&b.uom!=='KG') ? `₹${fmtMoney(b.invoiceRate)}/${b.uom}` : ''), diff:b.diff, pctLabel: b.pct==null?'':((b.pct>0?'+':'')+b.pct+'%'), statusLabel, qty:b.qty||'', uom:b.uom||'KG', qtyKg:b.qtyKg||'',
+        productName:b.productName, packSizeKg: b.packSizeKg!=null?b.packSizeKg:'', productCode:b.productCode, gstPct:b.gstPct, companyRate:b.companyRate,
+        bagSizeLabel: b.bagSizeLabel||'', componentsSummary: b.componentsSummary||'', qtyKg: b.qtyKg, totalInvoiced: b.totalInvoiced!=null?b.totalInvoiced:b.chargeAmt, blendedRate: b.blendedRate!=null?b.blendedRate:b.invoiceRate,
+        pctLabel: b.pct==null?'':((b.pct>0?'+':'')+b.pct+'%'), statusLabel, diffAmountLabel: (b.chargeAmt>0?'+':'')+fmtMoney(b.chargeAmt),
         overchargeAmt: b.status==='over' ? (b.overchargeAmt||0) : '',
         underchargeAmt: b.status==='under' ? (b.underchargeAmt||0) : '',
         billCopy: '', collectedBy:b.collectedBy||'', designation:b.designation||'', verifiedBy:b.verifiedBy||'', submissionStr:b.submissionStr,
