@@ -172,7 +172,7 @@ input,select,textarea{font-family:var(--font-body);}
 .auto-detect-tag{display:inline-block;background:var(--panel-3);color:var(--ink-faint);border-radius:4px;padding:1px 6px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
 
 /* ---- Product cards (multi-UOM component bill entry) ---- */
-.product-card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);padding:16px 18px;margin-bottom:14px;position:relative;}
+.product-card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);padding:16px 44px 16px 18px;margin-bottom:14px;position:relative;}
 .product-card-head{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-bottom:4px;}
 .product-card-search{flex:1 1 280px;min-width:240px;position:relative;}
 .product-card-search input.prodsearch.picked{border-color:var(--success);background:var(--success-soft, rgba(51,240,180,0.08));font-weight:600;padding-right:34px;}
@@ -182,7 +182,7 @@ input,select,textarea{font-family:var(--font-body);}
 .product-card-meta{display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding-top:9px;}
 .product-card-meta .pm-item{font-size:11.5px;color:var(--ink-soft);}
 .product-card-meta .pm-item b{color:var(--ink);font-family:var(--font-mono);}
-.product-card-remove{position:absolute;top:14px;right:16px;}
+.product-card-remove{position:absolute;top:14px;right:14px;background:var(--panel);}
 .pack-size-field{display:inline-flex;align-items:center;gap:5px;}
 .pack-size-field input{width:70px;padding:3px 6px;font-size:11.5px;border-radius:4px;border:1px solid var(--edge);background:var(--input-bg);color:var(--ink);font-family:var(--font-mono);}
 .pack-size-field input.needs-confirm{border-color:var(--warn);box-shadow:0 0 0 2px var(--warn-soft);}
@@ -477,7 +477,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v31';
+const APP_VERSION = 'v33';
 const WEB_APP_URL = 'PASTE_YOUR_WEB_APP_URL_HERE';
 function backendConfigured(){ return WEB_APP_URL && !WEB_APP_URL.includes('PASTE_YOUR_WEB_APP_URL_HERE'); }
 
@@ -3189,9 +3189,9 @@ async function exportExcelPro(){
           bcCell.font = {name:'Calibri', size:10, color:{argb:ACCENTINK}, underline:true};
         }
       }
-      ['companyRate','invoiceRate','diff','overchargeAmt','underchargeAmt'].forEach(k=>{
+      ['companyRate','blendedRate','totalInvoiced','overchargeAmt','underchargeAmt'].forEach(k=>{
         const idx = cols.findIndex(c=>c.key===k)+1;
-        row.getCell(idx).numFmt = '#,##0.00';
+        if(idx>0) row.getCell(idx).numFmt = '#,##0.00';
       });
       const fillColor = b.status==='over' ? DANGERSOFT : (b.status==='negligible' ? NEGLIGIBLESOFT : (b.status==='under' ? WARNSOFT : SUCCESSSOFT));
       row.eachCell({includeEmpty:true}, cell=>{
@@ -3200,16 +3200,17 @@ async function exportExcelPro(){
         if(!cell.font || !cell.font.underline) cell.font = {name:'Calibri', size:10, color:{argb:'FF1E2438'}};
       });
       const statusColorArgb = b.status==='over'?DANGER:(b.status==='negligible'?NEGLIGIBLE:(b.status==='under'?'FF9C6B12':'FF1E2438'));
-      const statusCell = row.getCell(cols.findIndex(c=>c.key==='statusLabel')+1);
-      statusCell.font = {name:'Calibri', size:10, bold:true, color:{argb: statusColorArgb}};
-      const pctCell = row.getCell(cols.findIndex(c=>c.key==='pctLabel')+1);
-      pctCell.font = {name:'Calibri', size:10, bold:true, color:{argb: statusColorArgb}};
-      const diffCell = row.getCell(cols.findIndex(c=>c.key==='diff')+1);
-      diffCell.font = {name:'Calibri', size:10, bold:true, color:{argb: statusColorArgb}};
-      const overCell = row.getCell(cols.findIndex(c=>c.key==='overchargeAmt')+1);
-      if(b.status==='over') overCell.font = {name:'Calibri', size:10, bold:true, color:{argb:DANGER}};
-      const underCell = row.getCell(cols.findIndex(c=>c.key==='underchargeAmt')+1);
-      if(b.status==='under') underCell.font = {name:'Calibri', size:10, bold:true, color:{argb:'FF9C6B12'}};
+      const cellByKey = (key)=>{ const idx = cols.findIndex(c=>c.key===key)+1; return idx>0 ? row.getCell(idx) : null; };
+      const statusCell = cellByKey('statusLabel');
+      if(statusCell) statusCell.font = {name:'Calibri', size:10, bold:true, color:{argb: statusColorArgb}};
+      const pctCell = cellByKey('pctLabel');
+      if(pctCell) pctCell.font = {name:'Calibri', size:10, bold:true, color:{argb: statusColorArgb}};
+      const diffCell = cellByKey('diffAmountLabel');
+      if(diffCell) diffCell.font = {name:'Calibri', size:10, bold:true, color:{argb: statusColorArgb}};
+      const overCell = cellByKey('overchargeAmt');
+      if(overCell && b.status==='over') overCell.font = {name:'Calibri', size:10, bold:true, color:{argb:DANGER}};
+      const underCell = cellByKey('underchargeAmt');
+      if(underCell && b.status==='under') underCell.font = {name:'Calibri', size:10, bold:true, color:{argb:'FF9C6B12'}};
       row.height = photoEmbedded ? 54 : 18;
       r++;
     });
