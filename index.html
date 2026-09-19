@@ -157,11 +157,13 @@ input,select,textarea{font-family:var(--font-body);}
   animation:corePulse 3.6s ease-in-out infinite;
 }
 .brand-text h1{
+
   font-size:24px;letter-spacing:-0.01em;
   background:linear-gradient(90deg, var(--ink) 30%, var(--cyan) 65%, var(--violet) 100%);
   -webkit-background-clip:text;background-clip:text;color:transparent;
 }
 .brand-text p{margin:3px 0 0;font-size:12.5px;color:var(--ink-soft);}
+.version-badge{display:inline-block;vertical-align:middle;font-size:11px;font-weight:700;font-family:var(--font-mono);background:var(--panel-2);color:var(--ink-soft);border:1px solid var(--edge);border-radius:5px;padding:2px 7px;margin-left:8px;letter-spacing:.02em;-webkit-background-clip:initial;background-clip:initial;-webkit-text-fill-color:initial;}
 .status-strip{display:flex;gap:8px;flex-wrap:wrap;}
 .rate-pipeline{display:inline-flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap;}
 .rate-pipeline span:not(.rate-pipeline-arrow){background:var(--panel-2);border:1px solid var(--edge);border-radius:100px;padding:3px 10px;font-family:var(--font-mono);font-size:10.5px;font-weight:600;color:var(--ink);}
@@ -472,6 +474,10 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
    Paste the Web App URL from Apps Script deployment here (see
    Deployment_Instructions.txt). Leave as-is to run fully offline/local,
    exactly as before — no login screen will appear. */
+// Bump this on every delivered file so the running app itself shows which
+// build is loaded — filenames alone get confused when several downloads
+// pile up with similar names, so this header badge is the source of truth.
+const APP_VERSION = 'v31';
 const WEB_APP_URL = 'PASTE_YOUR_WEB_APP_URL_HERE';
 function backendConfigured(){ return WEB_APP_URL && !WEB_APP_URL.includes('PASTE_YOUR_WEB_APP_URL_HERE'); }
 
@@ -719,7 +725,7 @@ function renderShell(){
       <div class="brand">
         <div class="brand-mark">RL</div>
         <div class="brand-text">
-          <h1>Rate Ledger</h1>
+          <h1>Rate Ledger <span class="version-badge" title="Build version — check this matches what support/chat referenced">${APP_VERSION}</span></h1>
           <p>Overinvoicing audit for the DB → retailer network</p>
         </div>
       </div>
