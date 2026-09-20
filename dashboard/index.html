@@ -496,59 +496,92 @@ function exportRowsToExcel(rows, filenamePrefix){
   XLSX.writeFile(wb, `${filenamePrefix}_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
-/* Same colored "Pro" look as Rate Ledger's own Excel export — red rows for
-   overcharge, amber for undercharge, blue for negligible — so a report
-   downloaded from the Dashboard is visually identical to one downloaded
-   from Rate Ledger itself, whichever screen someone happens to export from. */
+/* Same colored "Pro" look AND the SAME full column set as Rate Ledger's own
+   Excel export — so a report downloaded from anywhere (any Dashboard view,
+   by any Verifier or Auditor) is byte-for-byte the same shape and style as
+   one downloaded straight from Rate Ledger. Source rows here come from the
+   Sheet (PascalCase headers); a couple of columns Rate Ledger computes
+   in-browser (₹/PC rates) aren't stored as their own Sheet columns, so
+   they're recomputed here from PackSizeKg, which IS stored. */
 async function exportProExcel(rows, filenamePrefix, viewLabel){
   if(!rows || !rows.length){ toast('Nothing to export', 'err'); return; }
   const INK='FF1E2438', DANGER='FFB23A2E', DANGERSOFT='FFF3DEDA',
-        SUCCESSSOFT='FFDCEBE0', WARNSOFT='FFF1E4C6', NEGLIGIBLESOFT='FFDCE6F5', NEGLIGIBLE='FF2A5FD9', WHITE='FFFFFFFF';
+        SUCCESSSOFT='FFDCEBE0', WARNSOFT='FFF1E4C6', NEGLIGIBLESOFT='FFDCE6F5', NEGLIGIBLE='FF2A5FD9',
+        GSTMISMATCHSOFT='FFF1E8FC', GSTSUSPECTSOFT='FFFDF0DA', WHITE='FFFFFFFF';
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Report', {views:[{state:'frozen', ySplit:4}]});
+  wb.creator = 'Rate Ledger'; wb.created = new Date();
+  const ws = wb.addWorksheet('Overinvoicing Report', {views:[{state:'frozen', ySplit:5}]});
   const cols = [
-    {header:'SL', key:'sl', width:6}, {header:'Auditor Code', key:'AuditorCode', width:12}, {header:'Auditor Name', key:'AuditorName', width:20},
-    {header:'Verified By', key:'VerifiedBy', width:20}, {header:'DB Code', key:'DBCode', width:12}, {header:'DB Name', key:'DBName', width:24},
-    {header:'Location', key:'Location', width:16}, {header:'Retailer', key:'Retailer', width:22}, {header:'Bill Type', key:'BillType', width:12},
-    {header:'Bill Date', key:'BillDate', width:14}, {header:'Product', key:'ProductName', width:26}, {header:'Product Code', key:'ProductCode', width:14},
-    {header:'Company Rate (₹/kg)', key:'CompanyRate', width:16}, {header:'Invoice Rate (₹/kg)', key:'InvoiceRate', width:16},
-    {header:'Variance %', key:'VariancePct', width:12}, {header:'Status', key:'Status', width:14},
-    {header:'Overcharge Amt', key:'OverchargeAmt', width:15}, {header:'Undercharge Amt', key:'UnderchargeAmt', width:15},
-    {header:'Collected By', key:'CollectedBy', width:18}, {header:'Submitted', key:'Timestamp', width:18},
+    {header:'SL', key:'sl', width:6}, {header:'DB Code', key:'DBCode', width:11}, {header:'DB Name', key:'DBName', width:26},
+    {header:'Location', key:'Location', width:14}, {header:'Beat Code', key:'BeatCode', width:12}, {header:'Beat Name', key:'BeatName', width:22},
+    {header:'SO Name', key:'SOName', width:16}, {header:'ASM Name', key:'ASMName', width:16}, {header:'RSM Name', key:'RSMName', width:16},
+    {header:'DB Status', key:'DBStatus', width:11}, {header:'Retailer / Outlet', key:'Retailer', width:24}, {header:'Bill Type', key:'BillType', width:12},
+    {header:'Bill No', key:'BillNo', width:14}, {header:'Bill Date', key:'BillDate', width:12}, {header:'Product', key:'ProductName', width:34},
+    {header:'Pack Size (kg)', key:'PackSizeKg', width:12}, {header:'Product Code', key:'ProductCode', width:13}, {header:'GST %', key:'GSTPct', width:8},
+    {header:'Company Rate (₹/kg)', key:'CompanyRate', width:14}, {header:'Company Rate (₹/PC)', key:'CompanyRatePerPc', width:14},
+    {header:'Bag Size', key:'BagSizeLabel', width:12}, {header:'Components', key:'ComponentsSummary', width:30},
+    {header:'Total Qty (kg-equiv)', key:'QtyKG', width:14}, {header:'Total Invoiced (₹)', key:'TotalInvoiced', width:15},
+    {header:'Blended Rate (₹/kg)', key:'InvoiceRate', width:15}, {header:'Blended Rate (₹/PC)', key:'BlendedRatePerPc', width:15},
+    {header:'Diff (₹/kg)', key:'DiffPerKg', width:12}, {header:'Diff (₹/PC)', key:'DiffPerPc', width:12}, {header:'Diff (₹/BAG)', key:'DiffPerBag', width:13},
+    {header:'Variance %', key:'VariancePctLabel', width:11}, {header:'Status', key:'StatusLabel', width:13},
+    {header:'Over/Undercharge (₹)', key:'DiffAmountLabel', width:16}, {header:'Overcharge Amt', key:'OverchargeAmt', width:15},
+    {header:'Undercharge Amt', key:'UnderchargeAmt', width:16}, {header:'Wrong GST Charged (₹)', key:'GSTMismatchLabel', width:18},
+    {header:'Collected By', key:'CollectedBy', width:20}, {header:'Designation', key:'Designation', width:16},
+    {header:'Verified By', key:'VerifiedBy', width:20}, {header:'Submission Date', key:'SubmissionDate', width:15},
   ];
-  ws.columns = cols;
+  ws.columns = cols.map(c=>({key:c.key, width:c.width}));
   ws.mergeCells(1,1,1,cols.length);
-  ws.getCell(1,1).value = `RATE LEDGER — ${viewLabel.toUpperCase()}`;
-  ws.getCell(1,1).font = {name:'Space Grotesk', size:15, bold:true, color:{argb:INK}};
+  const titleCell = ws.getCell(1,1);
+  titleCell.value = `RATE LEDGER — OVERINVOICING AUDIT REPORT`;
+  titleCell.font = {name:'Calibri', size:14, bold:true, color:{argb:WHITE}};
+  titleCell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:INK}};
+  ws.getRow(1).height = 26;
+  const over = rows.filter(r=>r.Status==='over'), under = rows.filter(r=>r.Status==='under'), neg = rows.filter(r=>r.Status==='negligible');
+  const overAmt = over.reduce((s,r)=>s+(Number(r.OverchargeAmt)||0),0), underAmt = under.reduce((s,r)=>s+(Number(r.UnderchargeAmt)||0),0);
   ws.mergeCells(2,1,2,cols.length);
-  ws.getCell(2,1).value = `Generated ${new Date().toLocaleDateString('en-IN')} — ${rows.length} line(s)`;
+  ws.getCell(2,1).value = `Generated ${new Date().toLocaleDateString('en-IN')}  ·  ${rows.length} lines  ·  ${over.length} overcharge (₹${overAmt.toFixed(2)})  ·  ${under.length} undercharge (₹${underAmt.toFixed(2)})  ·  ${neg.length} negligible (<1%, excluded)`;
   ws.getCell(2,1).font = {name:'Calibri', size:10, italic:true, color:{argb:'FF6B6E76'}};
   const headerRow = ws.getRow(4);
   cols.forEach((c,i)=>{ headerRow.getCell(i+1).value = c.header; });
-  headerRow.eachCell(cell=>{
-    cell.font = {name:'Calibri', size:10, bold:true, color:{argb:WHITE}};
-    cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:INK}};
-    cell.alignment = {vertical:'middle'};
-  });
+  headerRow.eachCell(cell=>{ cell.font={name:'Calibri',size:10,bold:true,color:{argb:WHITE}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:INK}}; cell.alignment={vertical:'middle'}; });
   headerRow.height = 20;
-  let r = 5;
+  let r = 6;
   rows.forEach((row,idx)=>{
     const status = (row.Status||'').toLowerCase();
-    const fillColor = status==='over' ? DANGERSOFT : (status==='negligible' ? NEGLIGIBLESOFT : (status==='under' ? WARNSOFT : SUCCESSSOFT));
-    const sColor = status==='over' ? DANGER : (status==='negligible' ? NEGLIGIBLE : (status==='under' ? 'FF9C6B12' : 'FF1E7A4C'));
+    const fillColor = status==='over'?DANGERSOFT:(status==='negligible'?NEGLIGIBLESOFT:(status==='under'?WARNSOFT:SUCCESSSOFT));
+    const sColor = status==='over'?DANGER:(status==='negligible'?NEGLIGIBLE:(status==='under'?'FF9C6B12':'FF1E7A4C'));
+    const statusLabel = status==='over'?'OVERCHARGE':(status==='negligible'?'OVERCHARGE - NEGLIGIBLE':(status==='under'?'UNDERCHARGE':'MATCH'));
+    const packKg = Number(row.PackSizeKg)||null;
+    const companyRatePerPc = packKg ? (Number(row.CompanyRate)||0)*packKg : '';
+    const blendedRatePerPc = packKg ? (Number(row.InvoiceRate)||0)*packKg : '';
+    // TotalInvoiced isn't its own Sheet column (only the per-kg rate is) —
+    // it's exactly QtyKG × the blended rate, so derive it rather than add
+    // yet another column to migrate for.
+    const totalInvoiced = (row.TotalInvoiced!=null && row.TotalInvoiced!=='') ? row.TotalInvoiced : (Number(row.QtyKG)||0)*(Number(row.InvoiceRate)||0);
+    const vp = row.VariancePct==null||row.VariancePct===''?'':row.VariancePct;
+    const variancePctLabel = vp===''?'':((Number(vp)>0?'+':'')+vp+'%');
+    const chargeAmt = status==='over' ? Number(row.OverchargeAmt)||0 : (status==='under' ? -(Number(row.UnderchargeAmt)||0) : (Number(row.NegligibleAmt)||0));
+    const diffAmountLabel = (chargeAmt>0?'+':'')+chargeAmt.toFixed(2);
+    const gstMismatch = String(row.GSTMismatch).toUpperCase()==='TRUE';
+    const gstMismatchLabel = gstMismatch ? `${row.GSTPctCharged}% charged vs correct ${row.GSTPct}% = ${Number(row.GSTMismatchAmt)>0?'+':''}${row.GSTMismatchAmt}` : '';
+    const rowData = { sl:idx+1, ...row, CompanyRatePerPc:companyRatePerPc, BlendedRatePerPc:blendedRatePerPc, TotalInvoiced:totalInvoiced,
+      VariancePctLabel:variancePctLabel, StatusLabel:statusLabel, DiffAmountLabel:diffAmountLabel, GSTMismatchLabel:gstMismatchLabel };
     const excelRow = ws.getRow(r);
     cols.forEach((c,i)=>{
-      let v = c.key==='sl' ? idx+1 : row[c.key];
-      if(c.key==='Timestamp' && v) v = String(v).slice(0,19).replace('T',' ');
+      let v = rowData[c.key];
+      if(c.key==='SubmissionDate' && v) v = String(v).slice(0,19).replace('T',' ');
       excelRow.getCell(i+1).value = (v===undefined||v==='') ? null : v;
-      excelRow.getCell(i+1).fill = {type:'pattern', pattern:'solid', fgColor:{argb:fillColor}};
+      excelRow.getCell(i+1).fill = {type:'pattern', pattern:'solid', fgColor:{argb: gstMismatch ? (GSTMISMATCHSOFT) : fillColor}};
     });
-    excelRow.getCell(16).font = {bold:true, color:{argb:sColor}}; // Status col
-    excelRow.getCell(15).font = {bold:true, color:{argb:sColor}}; // Variance col
-    ['CompanyRate','InvoiceRate','OverchargeAmt','UnderchargeAmt'].forEach(k=>{
-      const idxCol = cols.findIndex(c=>c.key===k)+1;
-      if(idxCol>0) excelRow.getCell(idxCol).numFmt = '#,##0.00';
+    ['CompanyRate','CompanyRatePerPc','InvoiceRate','BlendedRatePerPc','TotalInvoiced','OverchargeAmt','UnderchargeAmt','DiffPerKg','DiffPerPc','DiffPerBag'].forEach(k=>{
+      const ci = cols.findIndex(c=>c.key===k)+1;
+      if(ci>0) excelRow.getCell(ci).numFmt = '#,##0.00';
     });
+    const byKey = k=>{ const ci=cols.findIndex(c=>c.key===k)+1; return ci>0?excelRow.getCell(ci):null; };
+    [byKey('StatusLabel'), byKey('VariancePctLabel'), byKey('DiffAmountLabel')].forEach(cell=>{ if(cell) cell.font={bold:true,color:{argb:sColor}}; });
+    if(status==='over'){ const c=byKey('OverchargeAmt'); if(c) c.font={bold:true,color:{argb:DANGER}}; }
+    if(status==='under'){ const c=byKey('UnderchargeAmt'); if(c) c.font={bold:true,color:{argb:'FF9C6B12'}}; }
+    if(gstMismatch){ const c=byKey('GSTMismatchLabel'); if(c){ c.font={bold:true,color:{argb:'FF9B59EB'}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:GSTMISMATCHSOFT}}; } }
     excelRow.height = 18;
     r++;
   });
