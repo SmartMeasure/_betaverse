@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
 :root{
   --void:#FFFFFF; --panel:#FFFFFF; --panel-2:#F4F5F7; --panel-3:#E7E9EC;
@@ -62,6 +63,7 @@ h1,h2,h3{font-family:var(--font-display);font-weight:600;margin:0;color:var(--in
 .btn:disabled{opacity:.5;cursor:not-allowed;}
 table{width:100%;border-collapse:collapse;font-size:12.5px;}
 .table-wrap{overflow-x:auto;border:1px solid var(--edge);border-radius:var(--radius);}
+tr.auditor-group-start td{border-top:2px solid var(--ink);}
 thead th{text-align:left;padding:9px 11px;background:var(--panel-3);color:var(--ink-soft);font-weight:600;font-size:10.8px;text-transform:uppercase;white-space:nowrap;}
 tbody td{padding:8px 11px;border-bottom:1px solid var(--edge-soft);white-space:nowrap;}
 tbody tr:last-child td{border-bottom:none;}
@@ -77,6 +79,22 @@ td.num{font-family:var(--font-mono);text-align:right;}
 .small-muted{font-size:11.5px;color:var(--ink-faint);}
 .section-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin:0 0 12px;}
 .empty-state{padding:40px 20px;text-align:center;color:var(--ink-faint);}
+.ultimate-loader{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:50px 20px;}
+.ultimate-loader svg{filter:drop-shadow(0 2px 8px rgba(0,0,0,.06));}
+.quick-range{display:flex;gap:6px;flex-wrap:wrap;}
+.quick-range button{background:var(--panel-2);border:1px solid var(--edge);border-radius:100px;padding:5px 13px;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink-soft);}
+.quick-range button:hover{background:var(--edge);}
+.quick-range button.sel{background:var(--ink);color:#fff;border-color:var(--ink);}
+.stale-banner{display:flex;align-items:center;gap:8px;background:var(--panel-2);border:1px solid var(--edge);border-radius:8px;padding:7px 12px;font-size:12px;color:var(--ink-soft);margin-bottom:12px;}
+.stale-banner .spin{width:11px;height:11px;border:2px solid var(--edge);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.micro-bar-row{display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer;}
+.micro-bar-row:hover{background:var(--panel-2);}
+.micro-bar-row .mb-label{width:160px;flex:none;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.micro-bar-row .mb-track{flex:1;height:16px;background:var(--panel-2);border-radius:4px;overflow:hidden;}
+.micro-bar-row .mb-fill{height:100%;border-radius:4px;}
+.micro-bar-row .mb-count{width:80px;flex:none;text-align:right;font-size:12px;font-weight:700;font-family:var(--font-mono);}
+.micro-bar-row.active{outline:2px solid var(--ink);border-radius:6px;}
 .toast-wrap{position:fixed;bottom:20px;right:20px;z-index:200;display:flex;flex-direction:column;gap:8px;}
 .toast{background:var(--ink);color:#fff;padding:11px 16px;border-radius:var(--radius-sm);font-size:13px;box-shadow:0 10px 26px rgba(0,0,0,.25);}
 .toast.err{background:var(--danger);}
@@ -114,6 +132,74 @@ async function backendGet(params){
   const qs = new URLSearchParams(params).toString();
   const res = await fetch(`${WEB_APP_URL}?${qs}`);
   return res.json();
+}
+/* ---------------- Local cache: instant repeat-opens ----------------
+   First open of a tab always hits the network. After that, the result is
+   cached in localStorage keyed by the exact query — reopening the SAME
+   tab/filter combo renders instantly from cache while a fresh copy loads
+   quietly in the background and silently updates the screen if anything
+   changed. This is what makes the Dashboard feel fast on every visit
+   after the first, without ever showing stale data for more than a beat. */
+const DASH_CACHE_TTL_MS = 6*60*60*1000; // background-refresh after 6h regardless
+function cacheKeyFor(params){ return 'dashCache_' + JSON.stringify(params, Object.keys(params).sort()); }
+function readCache(params){
+  try{
+    const raw = localStorage.getItem(cacheKeyFor(params));
+    if(!raw) return null;
+    const {t, data} = JSON.parse(raw);
+    return {data, ageMs: Date.now()-t};
+  }catch(e){ return null; }
+}
+function writeCache(params, data){
+  try{ localStorage.setItem(cacheKeyFor(params), JSON.stringify({t:Date.now(), data})); }catch(e){}
+}
+// onFirst: called immediately with cached data if any (fast paint).
+// onFresh: called once the network reply lands (always — even if same tab
+// has since been left, caller should re-check it's still the active view).
+async function cachedBackendGet(params, onFirst, onFresh){
+  const cached = readCache(params);
+  if(cached) onFirst(cached.data, cached.ageMs);
+  const fresh = await backendGet(params);
+  if(fresh.ok) writeCache(params, fresh);
+  onFresh(fresh, !!cached);
+}
+/* An "ultimate" percentage loader for the first-ever (uncached) load of a
+   screen — smoothly animates 0→90% while the request is in flight (we don't
+   get real byte progress from a JSON reply), then snaps to 100% and fades
+   when data actually arrives. Returns a stop() to call once data is in. */
+function ultimateLoaderHtml(id){
+  return `<div class="ultimate-loader" id="${id}">
+    <svg viewBox="0 0 120 120" width="88" height="88">
+      <circle cx="60" cy="60" r="52" fill="none" stroke="var(--edge)" stroke-width="8"/>
+      <circle cx="60" cy="60" r="52" fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"
+        id="${id}_ring" stroke-dasharray="${2*Math.PI*52}" stroke-dashoffset="${2*Math.PI*52}"
+        transform="rotate(-90 60 60)"/>
+      <text x="60" y="68" text-anchor="middle" font-size="26" font-weight="700" fill="var(--ink)" id="${id}_pct">0%</text>
+    </svg>
+    <div class="small-muted" style="margin-top:10px;" id="${id}_label">Fetching your data…</div>
+  </div>`;
+}
+function startUltimateLoader(id){
+  const ring = document.getElementById(id+'_ring');
+  const pctEl = document.getElementById(id+'_pct');
+  if(!ring||!pctEl) return ()=>{};
+  const C = 2*Math.PI*52;
+  let pct = 0, stopped = false;
+  const tick = ()=>{
+    if(stopped) return;
+    pct = Math.min(90, pct + (90-pct)*0.06 + 0.4);
+    ring.setAttribute('stroke-dashoffset', C*(1-pct/100));
+    pctEl.textContent = Math.round(pct)+'%';
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  return (finalLabel)=>{
+    stopped = true;
+    ring.setAttribute('stroke-dashoffset', 0);
+    pctEl.textContent = '100%';
+    const labelEl = document.getElementById(id+'_label');
+    if(labelEl && finalLabel) labelEl.textContent = finalLabel;
+  };
 }
 function $(sel, root){ return (root||document).querySelector(sel); }
 function $all(sel, root){ return Array.from((root||document).querySelectorAll(sel)); }
@@ -322,34 +408,84 @@ async function renderSubmissions(){
   body.innerHTML = `
     <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
       ${dateRangeBarHtml('sub', window.__subFrom, window.__subTo)}
-      <button class="btn accent" id="subExport" style="margin-left:auto;">⬇ Export Excel</button>
+      ${quickRangeHtml('sub')}
+      <div class="field"><label>Auditor</label><select id="subAuditorFilter"><option value="">All</option></select></div>
+      <div class="field"><label>Verifier</label><select id="subVerifierFilter"><option value="">All</option></select></div>
+      <button class="btn accent" id="subExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
     </div>
-    <div id="subContent"><div class="empty-state">Loading…</div></div>
+    <div id="subContent">${ultimateLoaderHtml('subLoader')}</div>
   `;
   wireDateRangeBar('sub', ()=>{
     window.__subFrom = $('#subFrom').value; window.__subTo = $('#subTo').value;
     renderSubmissions();
   });
+  wireQuickRange('sub', (from,to)=>{
+    window.__subFrom = from; window.__subTo = to;
+    renderSubmissions();
+  });
   const s = getSession();
-  const res = await backendGet({ action:'alldata', code:s.code, pin:s.pin, fromDate: window.__subFrom||'', toDate: window.__subTo||'' });
-  if(!res.ok){ $('#subContent').innerHTML = `<div class="empty-state">${esc(res.error||'Could not load data.')}</div>`; return; }
-  window.__subRows = res.rows;
-  renderSubmissionsTable(res.rows);
-  $('#subExport').addEventListener('click', ()=>exportRowsToExcel(window.__subRows, 'All_Submissions'));
+  const params = { action:'alldata', code:s.code, pin:s.pin, fromDate: window.__subFrom||'', toDate: window.__subTo||'' };
+  const stop = startUltimateLoader('subLoader');
+  let painted = false;
+  await cachedBackendGet(params,
+    (data)=>{ painted = true; stop('Loaded from local cache'); paintSubmissions(data.rows||[], true); },
+    (fresh)=>{
+      if(document.querySelector('.tab-btn.active')?.dataset.tab !== 'submissions') return;
+      if(!fresh.ok){ if(!painted) $('#subContent').innerHTML = `<div class="empty-state">${esc(fresh.error||'Could not load data.')}</div>`; return; }
+      stop();
+      paintSubmissions(fresh.rows, false);
+    }
+  );
+}
+function paintSubmissions(rows, isStale){
+  window.__subRows = rows;
+  $('#subExport').disabled = !rows.length;
+  $('#subExport').onclick = ()=>exportProExcel(window.__subFilteredRows||rows, 'All_Submissions', 'All Submissions');
+  const staleBanner = isStale ? `<div class="stale-banner"><span class="spin"></span> Refreshing in the background…</div>` : '';
+  $('#subContent').innerHTML = staleBanner + '<div id="subInner"></div>';
+  // Populate the Auditor/Verifier dropdowns from whatever names actually
+  // appear in this period's data, so the list is always accurate without a
+  // separate lookup — then group the table by whichever one is selected.
+  const auditors = [...new Set(rows.map(r=>r.AuditorName).filter(Boolean))].sort();
+  const verifiers = [...new Set(rows.map(r=>r.VerifiedBy).filter(Boolean))].sort();
+  $('#subAuditorFilter').innerHTML = `<option value="">All (${auditors.length})</option>` + auditors.map(a=>`<option value="${esc(a)}" ${window.__subAuditor===a?'selected':''}>${esc(a)}</option>`).join('');
+  $('#subVerifierFilter').innerHTML = `<option value="">All (${verifiers.length})</option>` + verifiers.map(v=>`<option value="${esc(v)}" ${window.__subVerifier===v?'selected':''}>${esc(v)}</option>`).join('');
+  $('#subAuditorFilter').addEventListener('change', e=>{ window.__subAuditor = e.target.value; applySubmissionFilters(); });
+  $('#subVerifierFilter').addEventListener('change', e=>{ window.__subVerifier = e.target.value; applySubmissionFilters(); });
+  applySubmissionFilters();
+}
+function applySubmissionFilters(){
+  let rows = window.__subRows||[];
+  if(window.__subAuditor) rows = rows.filter(r=>r.AuditorName===window.__subAuditor);
+  if(window.__subVerifier) rows = rows.filter(r=>r.VerifiedBy===window.__subVerifier);
+  // Grouped by Auditor first (then Verifier, then date) so one person's
+  // lines sit together instead of interleaved in submission order — this is
+  // the "arranged by auditor/verifier" view without needing a separate tab.
+  rows = [...rows].sort((a,b)=>
+    (a.AuditorName||'').localeCompare(b.AuditorName||'') ||
+    (a.VerifiedBy||'').localeCompare(b.VerifiedBy||'') ||
+    String(a.Timestamp||'').localeCompare(String(b.Timestamp||''))
+  );
+  window.__subFilteredRows = rows;
+  renderSubmissionsTable(rows);
 }
 function renderSubmissionsTable(rows){
-  const content = $('#subContent');
-  if(!rows.length){ content.innerHTML = '<div class="empty-state">No submissions in this period.</div>'; return; }
+  const content = $('#subInner');
+  if(!rows.length){ content.innerHTML = '<div class="empty-state">No submissions match these filters.</div>'; return; }
   const cols = ['Timestamp','AuditorCode','AuditorName','VerifiedBy','DBCode','DBName','Location','Retailer','BillDate','ProductName','ProductCode','CompanyRate','InvoiceRate','VariancePct','Status','OverchargeAmt','UnderchargeAmt'];
+  let lastAuditor = null;
   content.innerHTML = `<div class="table-wrap"><table>
     <thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map(r=>`<tr>${cols.map(c=>{
+    <tbody>${rows.map(r=>{
+      const newGroup = r.AuditorName!==lastAuditor;
+      lastAuditor = r.AuditorName;
+      return `<tr class="${newGroup?'auditor-group-start':''}">${cols.map(c=>{
       if(c==='Status') return `<td>${statusBadge(r[c])}</td>`;
       if(['CompanyRate','InvoiceRate','OverchargeAmt','UnderchargeAmt'].includes(c)) return `<td class="num">${fmtMoney(r[c])}</td>`;
       if(c==='VariancePct') return `<td class="num">${r[c]!=null && r[c]!==''?r[c]+'%':'—'}</td>`;
       if(c==='Timestamp') return `<td>${esc(String(r[c]).slice(0,19).replace('T',' '))}</td>`;
       return `<td>${esc(r[c])}</td>`;
-    }).join('')}</tr>`).join('')}</tbody>
+    }).join('')}</tr>`; }).join('')}</tbody>
   </table></div>`;
 }
 function exportRowsToExcel(rows, filenamePrefix){
@@ -358,6 +494,96 @@ function exportRowsToExcel(rows, filenamePrefix){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Data');
   XLSX.writeFile(wb, `${filenamePrefix}_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+/* Same colored "Pro" look as Rate Ledger's own Excel export — red rows for
+   overcharge, amber for undercharge, blue for negligible — so a report
+   downloaded from the Dashboard is visually identical to one downloaded
+   from Rate Ledger itself, whichever screen someone happens to export from. */
+async function exportProExcel(rows, filenamePrefix, viewLabel){
+  if(!rows || !rows.length){ toast('Nothing to export', 'err'); return; }
+  const INK='FF1E2438', DANGER='FFB23A2E', DANGERSOFT='FFF3DEDA',
+        SUCCESSSOFT='FFDCEBE0', WARNSOFT='FFF1E4C6', NEGLIGIBLESOFT='FFDCE6F5', NEGLIGIBLE='FF2A5FD9', WHITE='FFFFFFFF';
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Report', {views:[{state:'frozen', ySplit:4}]});
+  const cols = [
+    {header:'SL', key:'sl', width:6}, {header:'Auditor Code', key:'AuditorCode', width:12}, {header:'Auditor Name', key:'AuditorName', width:20},
+    {header:'Verified By', key:'VerifiedBy', width:20}, {header:'DB Code', key:'DBCode', width:12}, {header:'DB Name', key:'DBName', width:24},
+    {header:'Location', key:'Location', width:16}, {header:'Retailer', key:'Retailer', width:22}, {header:'Bill Type', key:'BillType', width:12},
+    {header:'Bill Date', key:'BillDate', width:14}, {header:'Product', key:'ProductName', width:26}, {header:'Product Code', key:'ProductCode', width:14},
+    {header:'Company Rate (₹/kg)', key:'CompanyRate', width:16}, {header:'Invoice Rate (₹/kg)', key:'InvoiceRate', width:16},
+    {header:'Variance %', key:'VariancePct', width:12}, {header:'Status', key:'Status', width:14},
+    {header:'Overcharge Amt', key:'OverchargeAmt', width:15}, {header:'Undercharge Amt', key:'UnderchargeAmt', width:15},
+    {header:'Collected By', key:'CollectedBy', width:18}, {header:'Submitted', key:'Timestamp', width:18},
+  ];
+  ws.columns = cols;
+  ws.mergeCells(1,1,1,cols.length);
+  ws.getCell(1,1).value = `RATE LEDGER — ${viewLabel.toUpperCase()}`;
+  ws.getCell(1,1).font = {name:'Space Grotesk', size:15, bold:true, color:{argb:INK}};
+  ws.mergeCells(2,1,2,cols.length);
+  ws.getCell(2,1).value = `Generated ${new Date().toLocaleDateString('en-IN')} — ${rows.length} line(s)`;
+  ws.getCell(2,1).font = {name:'Calibri', size:10, italic:true, color:{argb:'FF6B6E76'}};
+  const headerRow = ws.getRow(4);
+  cols.forEach((c,i)=>{ headerRow.getCell(i+1).value = c.header; });
+  headerRow.eachCell(cell=>{
+    cell.font = {name:'Calibri', size:10, bold:true, color:{argb:WHITE}};
+    cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:INK}};
+    cell.alignment = {vertical:'middle'};
+  });
+  headerRow.height = 20;
+  let r = 5;
+  rows.forEach((row,idx)=>{
+    const status = (row.Status||'').toLowerCase();
+    const fillColor = status==='over' ? DANGERSOFT : (status==='negligible' ? NEGLIGIBLESOFT : (status==='under' ? WARNSOFT : SUCCESSSOFT));
+    const sColor = status==='over' ? DANGER : (status==='negligible' ? NEGLIGIBLE : (status==='under' ? 'FF9C6B12' : 'FF1E7A4C'));
+    const excelRow = ws.getRow(r);
+    cols.forEach((c,i)=>{
+      let v = c.key==='sl' ? idx+1 : row[c.key];
+      if(c.key==='Timestamp' && v) v = String(v).slice(0,19).replace('T',' ');
+      excelRow.getCell(i+1).value = (v===undefined||v==='') ? null : v;
+      excelRow.getCell(i+1).fill = {type:'pattern', pattern:'solid', fgColor:{argb:fillColor}};
+    });
+    excelRow.getCell(16).font = {bold:true, color:{argb:sColor}}; // Status col
+    excelRow.getCell(15).font = {bold:true, color:{argb:sColor}}; // Variance col
+    ['CompanyRate','InvoiceRate','OverchargeAmt','UnderchargeAmt'].forEach(k=>{
+      const idxCol = cols.findIndex(c=>c.key===k)+1;
+      if(idxCol>0) excelRow.getCell(idxCol).numFmt = '#,##0.00';
+    });
+    excelRow.height = 18;
+    r++;
+  });
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${filenamePrefix}_${new Date().toISOString().slice(0,10)}.xlsx`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/* Weekly / Monthly / Today / All-time quick filter buttons, alongside the
+   existing From/To range — clicking one sets both dates and re-renders. */
+function quickRangeHtml(prefix){
+  return `<div class="quick-range" id="${prefix}QuickRange">
+    <button data-q="today">Today</button>
+    <button data-q="week">This Week</button>
+    <button data-q="month">This Month</button>
+    <button data-q="all">All Time</button>
+  </div>`;
+}
+function wireQuickRange(prefix, onPick){
+  const wrap = $(`#${prefix}QuickRange`);
+  if(!wrap) return;
+  wrap.querySelectorAll('button').forEach(btn=>btn.addEventListener('click', ()=>{
+    const now = new Date();
+    let from='', to='';
+    const iso = d => d.toISOString().slice(0,10);
+    if(btn.dataset.q==='today'){ from = to = iso(now); }
+    else if(btn.dataset.q==='week'){ const day=now.getDay()||7; const mon=new Date(now); mon.setDate(now.getDate()-day+1); from=iso(mon); to=iso(now); }
+    else if(btn.dataset.q==='month'){ from = iso(new Date(now.getFullYear(), now.getMonth(), 1)); to = iso(now); }
+    else { from=''; to=''; }
+    onPick(from, to);
+  }));
 }
 
 /* ==================== MANAGE USERS (Admin) ==================== */
@@ -430,77 +656,192 @@ async function addUserHandler(){
 async function renderMyVerified(){
   const body = $('#tabBody');
   body.innerHTML = `
-    ${dateRangeBarHtml('mv', window.__mvFrom, window.__mvTo)}
-    <div id="mvContent"><div class="empty-state">Loading…</div></div>
+    <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-bottom:4px;">
+      ${dateRangeBarHtml('mv', window.__mvFrom, window.__mvTo)}
+      ${quickRangeHtml('mv')}
+      <button class="btn accent" id="mvExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
+    </div>
+    <div id="mvContent">${ultimateLoaderHtml('mvLoader')}</div>
   `;
   wireDateRangeBar('mv', ()=>{
     window.__mvFrom = $('#mvFrom').value; window.__mvTo = $('#mvTo').value;
     renderMyVerified();
   });
+  wireQuickRange('mv', (from,to)=>{
+    window.__mvFrom = from; window.__mvTo = to;
+    renderMyVerified();
+  });
   const s = getSession();
-  const res = await backendGet({ action:'myverifieddata', code:s.code, pin:s.pin, fromDate: window.__mvFrom||'', toDate: window.__mvTo||'' });
+  const params = { action:'myverifieddata', code:s.code, pin:s.pin, fromDate: window.__mvFrom||'', toDate: window.__mvTo||'' };
+  const stop = startUltimateLoader('mvLoader');
+  let painted = false;
+  await cachedBackendGet(params,
+    (data)=>{ painted = true; stop('Loaded from local cache'); paintMyVerified(data.rows||[], true); },
+    (fresh, hadCache)=>{
+      if(document.querySelector('.tab-btn.active')?.dataset.tab !== 'myverified') return; // left the tab meanwhile
+      if(!fresh.ok){ if(!painted) $('#mvContent').innerHTML = `<div class="empty-state">${esc(fresh.error||'Could not load.')}</div>`; return; }
+      stop();
+      paintMyVerified(fresh.rows, false);
+    }
+  );
+}
+function paintMyVerified(rows, isStale){
   const el = $('#mvContent');
-  if(!res.ok){ el.innerHTML = `<div class="empty-state">${esc(res.error)}</div>`; return; }
-  const rows = res.rows;
   const over = rows.filter(r=>r.Status==='over');
   const under = rows.filter(r=>r.Status==='under');
   const neg = rows.filter(r=>r.Status==='negligible');
+  $('#mvExport').disabled = !rows.length;
+  $('#mvExport').onclick = ()=>exportProExcel(window.__mvFilteredRows||rows, 'Bills_I_Verified', 'Bills I Verified');
+  window.__mvAllRows = rows;
+  window.__mvFilteredRows = rows;
+  // Micro-level: which PRODUCT shows up most often in what I've verified,
+  // and its own over/under split — click a bar to filter the table below.
+  const byProduct = {};
+  rows.forEach(r=>{ const k=r.ProductName||'—'; (byProduct[k]=byProduct[k]||[]).push(r); });
+  const topProducts = Object.entries(byProduct).sort((a,b)=>b[1].length-a[1].length).slice(0,8);
+  const maxCount = topProducts.length ? topProducts[0][1].length : 1;
   el.innerHTML = `
+    ${isStale ? `<div class="stale-banner"><span class="spin"></span> Refreshing in the background…</div>` : ''}
     <div class="grid grid-4" style="margin-bottom:18px;">
       <div class="stat-card"><div class="stat-label">Lines Verified</div><div class="stat-value">${fmtInt(rows.length)}</div></div>
       <div class="stat-card"><div class="stat-label">Overcharge</div><div class="stat-value" style="color:var(--danger);">${fmtInt(over.length)}</div></div>
       <div class="stat-card"><div class="stat-label">Undercharge</div><div class="stat-value" style="color:var(--warn);">${fmtInt(under.length)}</div></div>
       <div class="stat-card"><div class="stat-label">Negligible</div><div class="stat-value" style="color:var(--negligible);">${fmtInt(neg.length)}</div></div>
     </div>
-    ${!rows.length ? '<div class="empty-state">No bills verified against your name in this period yet.</div>' : `
-    <div class="table-wrap"><table>
+    ${topProducts.length ? `
+    <div class="card" style="margin-bottom:16px;">
+      <div class="section-title">By Product — click to filter below</div>
+      ${topProducts.map(([name, list])=>{
+        const o = list.filter(r=>r.Status==='over').length;
+        return `<div class="micro-bar-row" data-product="${esc(name)}">
+          <div class="mb-label" title="${esc(name)}">${esc(name)}</div>
+          <div class="mb-track"><div class="mb-fill" style="width:${(list.length/maxCount)*100}%;background:${o>0?'var(--danger)':'var(--accent)'};"></div></div>
+          <div class="mb-count">${list.length} bill${list.length===1?'':'s'}</div>
+        </div>`;
+      }).join('')}
+    </div>` : ''}
+    <div id="mvTableWrap"></div>
+  `;
+  renderMyVerifiedTable(rows);
+  $all('.micro-bar-row', el).forEach(row=>row.addEventListener('click', ()=>{
+    const wasActive = row.classList.contains('active');
+    $all('.micro-bar-row', el).forEach(r=>r.classList.remove('active'));
+    if(wasActive){ window.__mvFilteredRows = rows; renderMyVerifiedTable(rows); return; }
+    row.classList.add('active');
+    const p = row.dataset.product;
+    const filtered = rows.filter(r=>(r.ProductName||'—')===p);
+    window.__mvFilteredRows = filtered;
+    renderMyVerifiedTable(filtered);
+  }));
+}
+function renderMyVerifiedTable(rows){
+  const wrap = $('#mvTableWrap');
+  if(!wrap) return;
+  if(!rows.length){ wrap.innerHTML = '<div class="empty-state">No bills verified against your name in this period yet.</div>'; return; }
+  wrap.innerHTML = `<div class="table-wrap"><table>
       <thead><tr><th>Bill Date</th><th>Retailer</th><th>Product</th><th>Collected By</th><th class="num">Company Rate</th><th class="num">Invoice Rate</th><th>Status</th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
         <td>${esc(r.BillDate)}</td><td>${esc(r.Retailer)}</td><td>${esc(r.ProductName)}</td><td>${esc(r.CollectedBy)}</td>
         <td class="num">${fmtMoney(r.CompanyRate)}</td><td class="num">${fmtMoney(r.InvoiceRate)}</td>
         <td>${statusBadge(r.Status)}</td>
       </tr>`).join('')}</tbody>
-    </table></div>`}
-  `;
+    </table></div>`;
 }
 
 /* ==================== MY DATA (Auditor) ==================== */
 async function renderMyData(){
   const body = $('#tabBody');
   body.innerHTML = `
-    ${dateRangeBarHtml('my', window.__myFrom, window.__myTo)}
-    <div id="myContent"><div class="empty-state">Loading…</div></div>
+    <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-bottom:4px;">
+      ${dateRangeBarHtml('my', window.__myFrom, window.__myTo)}
+      ${quickRangeHtml('my')}
+      <button class="btn accent" id="myExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
+    </div>
+    <div id="myContent">${ultimateLoaderHtml('myLoader')}</div>
   `;
   wireDateRangeBar('my', ()=>{
     window.__myFrom = $('#myFrom').value; window.__myTo = $('#myTo').value;
     renderMyData();
   });
+  wireQuickRange('my', (from,to)=>{
+    window.__myFrom = from; window.__myTo = to;
+    renderMyData();
+  });
   const s = getSession();
-  const res = await backendGet({ action:'mydata', code:s.code, pin:s.pin, fromDate: window.__myFrom||'', toDate: window.__myTo||'' });
+  const params = { action:'mydata', code:s.code, pin:s.pin, fromDate: window.__myFrom||'', toDate: window.__myTo||'' };
+  const stop = startUltimateLoader('myLoader');
+  let painted = false;
+  await cachedBackendGet(params,
+    (data)=>{ painted = true; stop('Loaded from local cache'); paintMyData(data.rows||[], true); },
+    (fresh)=>{
+      if(document.querySelector('.tab-btn.active')?.dataset.tab !== 'mydata') return;
+      if(!fresh.ok){ if(!painted) $('#myContent').innerHTML = `<div class="empty-state">${esc(fresh.error||'Could not load.')}</div>`; return; }
+      stop();
+      paintMyData(fresh.rows, false);
+    }
+  );
+}
+function paintMyData(rows, isStale){
   const el = $('#myContent');
-  if(!res.ok){ el.innerHTML = `<div class="empty-state">${esc(res.error)}</div>`; return; }
-  const rows = res.rows;
   const over = rows.filter(r=>r.Status==='over');
   const under = rows.filter(r=>r.Status==='under');
   const neg = rows.filter(r=>r.Status==='negligible');
+  $('#myExport').disabled = !rows.length;
+  $('#myExport').onclick = ()=>exportProExcel(window.__myFilteredRows||rows, 'My_Data', 'My Data');
+  window.__myAllRows = rows;
+  window.__myFilteredRows = rows;
+  const byProduct = {};
+  rows.forEach(r=>{ const k=r.ProductName||'—'; (byProduct[k]=byProduct[k]||[]).push(r); });
+  const topProducts = Object.entries(byProduct).sort((a,b)=>b[1].length-a[1].length).slice(0,8);
+  const maxCount = topProducts.length ? topProducts[0][1].length : 1;
   el.innerHTML = `
+    ${isStale ? `<div class="stale-banner"><span class="spin"></span> Refreshing in the background…</div>` : ''}
     <div class="grid grid-4" style="margin-bottom:18px;">
       <div class="stat-card"><div class="stat-label">Lines Submitted</div><div class="stat-value">${fmtInt(rows.length)}</div></div>
       <div class="stat-card"><div class="stat-label">Overcharge</div><div class="stat-value" style="color:var(--danger);">${fmtInt(over.length)}</div></div>
       <div class="stat-card"><div class="stat-label">Undercharge</div><div class="stat-value" style="color:var(--warn);">${fmtInt(under.length)}</div></div>
       <div class="stat-card"><div class="stat-label">Negligible</div><div class="stat-value" style="color:var(--negligible);">${fmtInt(neg.length)}</div></div>
     </div>
-    ${!rows.length ? '<div class="empty-state">No submissions in this period yet.</div>' : `
-    <div class="table-wrap"><table>
+    ${topProducts.length ? `
+    <div class="card" style="margin-bottom:16px;">
+      <div class="section-title">By Product — click to filter below</div>
+      ${topProducts.map(([name, list])=>{
+        const o = list.filter(r=>r.Status==='over').length;
+        return `<div class="micro-bar-row" data-product="${esc(name)}">
+          <div class="mb-label" title="${esc(name)}">${esc(name)}</div>
+          <div class="mb-track"><div class="mb-fill" style="width:${(list.length/maxCount)*100}%;background:${o>0?'var(--danger)':'var(--accent)'};"></div></div>
+          <div class="mb-count">${list.length} bill${list.length===1?'':'s'}</div>
+        </div>`;
+      }).join('')}
+    </div>` : ''}
+    <div id="myTableWrap"></div>
+  `;
+  renderMyDataTable(rows);
+  $all('.micro-bar-row', el).forEach(row=>row.addEventListener('click', ()=>{
+    const wasActive = row.classList.contains('active');
+    $all('.micro-bar-row', el).forEach(r=>r.classList.remove('active'));
+    if(wasActive){ window.__myFilteredRows = rows; renderMyDataTable(rows); return; }
+    row.classList.add('active');
+    const p = row.dataset.product;
+    const filtered = rows.filter(r=>(r.ProductName||'—')===p);
+    window.__myFilteredRows = filtered;
+    renderMyDataTable(filtered);
+  }));
+}
+function renderMyDataTable(rows){
+  const wrap = $('#myTableWrap');
+  if(!wrap) return;
+  if(!rows.length){ wrap.innerHTML = '<div class="empty-state">No submissions in this period yet.</div>'; return; }
+  wrap.innerHTML = `<div class="table-wrap"><table>
       <thead><tr><th>Bill Date</th><th>Retailer</th><th>Product</th><th class="num">Company Rate</th><th class="num">Invoice Rate</th><th>Status</th><th>Verified By</th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
         <td>${esc(r.BillDate)}</td><td>${esc(r.Retailer)}</td><td>${esc(r.ProductName)}</td>
         <td class="num">${fmtMoney(r.CompanyRate)}</td><td class="num">${fmtMoney(r.InvoiceRate)}</td>
         <td>${statusBadge(r.Status)}</td><td>${esc(r.VerifiedBy)}</td>
       </tr>`).join('')}</tbody>
-    </table></div>`}
-  `;
+    </table></div>`;
 }
+
 
 /* ==================== BOOT ==================== */
 function boot(){
