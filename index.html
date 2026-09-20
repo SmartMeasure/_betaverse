@@ -2240,8 +2240,8 @@ function freshBillForm(){
   return {
     dbCode:'', dbName:'', pg:'', location:'', beatCode:'', beatName:'', beats:[], so:'', asm:'', rsm:'', active:'',
     billType:'Tax Invoice', retailer:'', billNo:'', billDateISO: todayISO(), submissionISO: todayISO(),
-    collectedBy: session ? session.name : lsGet('collectedBy'),
-    designation: session ? (session.designation||'') : lsGet('designation'),
+    collectedBy: lsGet('collectedBy'),
+    designation: lsGet('designation'),
     verifierCode: isSelfVerifier ? session.code : verifierCode,
     // A Verifier who is logged in and doing their OWN bill entry can't
     // "verify" as anyone else — their own identity IS the verification, so
@@ -2322,10 +2322,6 @@ function renderRateCheck(){
         </div>
         <div class="hint">or type DDMMYY, e.g. 260826 = 26‑08‑26</div>
       </div>
-      ${backendConfigured() && getSession() ? `
-      <div class="field readonly"><label>Collected By</label><input type="text" value="${esc(f.collectedBy)}" readonly><div class="hint">From your login</div></div>
-      <div class="field readonly"><label>Designation</label><input type="text" value="${esc(f.designation||'—')}" readonly><div class="hint">From your login</div></div>
-      ` : `
       <div class="field"><label>Collected By</label>
         <input type="text" id="rcCollectedBy" list="rcCollectedByList" value="${esc(f.collectedBy)}" style="text-transform:uppercase;">
         <datalist id="rcCollectedByList">${lsGetList('collectedByList').map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
@@ -2337,7 +2333,6 @@ function renderRateCheck(){
           ${['Sales Officer','Merchandiser','ASM','ASE','RSM'].map(d=>`<option value="${d}" ${f.designation===d?'selected':''}>${d}</option>`).join('')}
         </select>
       </div>
-      `}
       ${backendConfigured() ? (
         (getSession() && getSession().role==='Verifier') ? `
       <div class="field"><label>Verified By</label>
