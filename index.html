@@ -495,7 +495,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v50';
+const APP_VERSION = 'v51';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 function backendConfigured(){ return WEB_APP_URL && !WEB_APP_URL.includes('PASTE_YOUR_WEB_APP_URL_HERE'); }
 
@@ -633,6 +633,71 @@ function downscaleImage(file, maxWidth, quality){
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+/* Stamps a dark footer strip onto an already-downscaled bill photo with the
+   DB/retailer, Collected By, Verified By, and — only when this bill has any
+   overcharge line — exactly which product(s) and by how much. Runs once at
+   save time (not at attach time) so it always reflects the final, complete
+   bill rather than whatever was filled in first. Returns a new dataUrl;
+   never mutates the original. */
+function wrapCanvasText(ctx, text, maxWidth){
+  const words = String(text).split(' ');
+  const lines = [];
+  let cur = '';
+  for(const w of words){
+    const test = cur ? cur+' '+w : w;
+    if(ctx.measureText(test).width > maxWidth && cur){ lines.push(cur); cur = w; }
+    else cur = test;
+  }
+  if(cur) lines.push(cur);
+  return lines;
+}
+function stampBillPhotoFooter(dataUrl, footerLines){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const W = img.width;
+      const PAD = 14, LINE_H = 20, TITLE_SIZE = 13, BODY_SIZE = 12;
+      const ctxMeasure = document.createElement('canvas').getContext('2d');
+      // Pre-measure how many wrapped lines this footer actually needs, so
+      // the strip is exactly tall enough — never cramped, never wasted.
+      let wrapped = [];
+      footerLines.forEach((line, i)=>{
+        ctxMeasure.font = (i===0 ? `700 ${TITLE_SIZE}px Arial` : `400 ${BODY_SIZE}px Arial`);
+        wrapCanvasText(ctxMeasure, line, W-PAD*2).forEach(l=>wrapped.push({text:l, bold:i===0}));
+      });
+      const footerH = PAD*2 + wrapped.length*LINE_H;
+      const canvas = document.createElement('canvas');
+      canvas.width = W; canvas.height = img.height + footerH;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      ctx.fillStyle = 'rgba(10,10,15,0.88)';
+      ctx.fillRect(0, img.height, W, footerH);
+      ctx.textBaseline = 'top';
+      let y = img.height + PAD;
+      wrapped.forEach(l=>{
+        ctx.font = l.bold ? `700 ${TITLE_SIZE}px Arial` : `400 ${BODY_SIZE}px Arial`;
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(l.text, PAD, y);
+        y += LINE_H;
+      });
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+/* Builds the footer's text lines from a saved bill record + its line items. */
+function billPhotoFooterLines(billRecord, lineItems){
+  const lines = [];
+  lines.push(`${billRecord.dbName||'—'} (${billRecord.dbCode||'—'})  —  ${billRecord.retailer||'—'}  —  ${billRecord.billDateStr||'—'}`);
+  lines.push(`Collected By: ${billRecord.collectedBy||'—'}    |    Verified By: ${billRecord.verifiedBy||'—'}`);
+  const overLines = (lineItems||[]).filter(li=>li._status==='over' && li._diffAmount>0);
+  if(overLines.length){
+    const detail = overLines.map(li=>`${li.productName} +₹${fmtMoney(li._diffAmount)}`).join(';  ');
+    lines.push(`⚠ Overcharge — ${detail}`);
+  }
+  return lines;
 }
 /* Animated readout — counts a stat-value node up from 0 to target on render. */
 function countUp(el, target, opts){
@@ -2978,7 +3043,7 @@ function showProductResults(i, q){
   }));
 }
 
-function saveBill(){
+async function saveBill(){
   const f = STATE.billForm;
   const errEl = $('#rcSaveErr');
   errEl.textContent = '';
@@ -2991,16 +3056,17 @@ function saveBill(){
   const incompleteLines = f.lineItems.filter(li=> li.productCode && aggregateLineItem(li).error && aggregateLineItem(li).error!=='empty');
   if(!validLines.length){ errEl.textContent = incompleteLines.length ? 'Finish entering every product line — some are still missing a value.' : 'Add at least one product with Qty + Rate/Amount filled in.'; return; }
 
+  const saveBtn = $('#rcSaveBill');
+  if(f.billCopy && saveBtn){ saveBtn.disabled = true; saveBtn.textContent = 'Stamping bill copy…'; }
+
   const billUid = uid('bill');
   const billDate = isoToDMYDate(f.billDateISO);
   const subDate = isoToDMYDate(f.submissionISO);
-  if(f.billCopy){
-    const savedName = `Bill_${billUid.replace('bill_','')}.${f.billCopy.ext.replace(/[^a-z0-9]/gi,'')||'jpg'}`;
-    STATE.billFiles[billUid] = { fileName: f.billCopy.fileName, ext: f.billCopy.ext, dataUrl: f.billCopy.dataUrl, savedName, kind: f.billCopy.kind || 'pdf' };
-  }
   const newRecords = [];
+  const lineSummaries = [];
   validLines.forEach(li=>{
     const agg = aggregateLineItem(li);
+    lineSummaries.push({ productName: li.productName, _status: agg.status, _diffAmount: agg.diffAmount });
     const componentsSummary = agg.parts.map(p=>`${p.uom}×${p.qty} @ ₹${fmtMoney(p.rate)}`).join('; ');
     const bagInfo = resolveBagSizeKg(li);
     const packInfo = resolvePackSizeKg(li);
@@ -3026,6 +3092,27 @@ function saveBill(){
     STATE.bills.push(record);
     newRecords.push(record);
   });
+  // Stamp the bill photo NOW, once the whole bill (every product line, its
+  // final status) is known — not at attach time — so the footer's overcharge
+  // detail is always complete and accurate, whatever order fields were filled.
+  if(f.billCopy){
+    const savedName = `Bill_${billUid.replace('bill_','')}.${f.billCopy.ext.replace(/[^a-z0-9]/gi,'')||'jpg'}`;
+    if(f.billCopy.kind==='image'){
+      try{
+        const footerLines = billPhotoFooterLines(
+          { dbName:f.dbName, dbCode:f.dbCode, retailer:(f.retailer||'').toUpperCase(), billDateStr:fmtDMY(billDate), collectedBy:(f.collectedBy||'').toUpperCase(), verifiedBy:(f.verifiedBy||'').toUpperCase() },
+          lineSummaries
+        );
+        const stampedUrl = await stampBillPhotoFooter(f.billCopy.dataUrl, footerLines);
+        STATE.billFiles[billUid] = { fileName: f.billCopy.fileName, ext: f.billCopy.ext, dataUrl: stampedUrl, savedName, kind: 'image' };
+      }catch(e){
+        STATE.billFiles[billUid] = { fileName: f.billCopy.fileName, ext: f.billCopy.ext, dataUrl: f.billCopy.dataUrl, savedName, kind: 'image' };
+      }
+    } else {
+      STATE.billFiles[billUid] = { fileName: f.billCopy.fileName, ext: f.billCopy.ext, dataUrl: f.billCopy.dataUrl, savedName, kind: f.billCopy.kind || 'pdf' };
+    }
+  }
+  if(saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Save bill to report'; }
   if(f.collectedBy && f.collectedBy.trim()) lsAddToList('collectedByList', f.collectedBy.trim());
   if(f.verifiedBy && f.verifiedBy.trim()) lsAddToList('verifiedByList', f.verifiedBy.trim());
 
@@ -3075,6 +3162,7 @@ function renderReports(){
     <div class="view-head">
       <div><h2>Reports</h2><p class="sub">Every product line checked in Rate Check, ready to filter and export.</p></div>
       <button class="btn accent" id="repExport">⬇ Export Excel (Pro format)</button>
+      <button class="btn secondary" id="repExportPhotos">📷 Download All Photos (ZIP)</button>
     </div>
     <div class="filterbar">
       <div class="field"><label>Location</label><select id="repLoc"><option value="">All</option>${locs.map(l=>`<option ${REP_FILTERS.location===l?'selected':''}>${esc(l)}</option>`).join('')}</select></div>
@@ -3094,6 +3182,7 @@ function renderReports(){
     <div id="repTableWrap"></div>
   `;
   $('#repExport').addEventListener('click', exportExcelPro);
+  $('#repExportPhotos').addEventListener('click', exportAllPhotosZip);
   ['repLoc','repDb','repBillType','repStatus','repFrom','repTo','repQ'].forEach(id=>{
     $('#'+id).addEventListener(id==='repQ'?'input':'change', ()=>{
       REP_FILTERS = {
@@ -3125,6 +3214,44 @@ function qtyDisplay(b){
   if(b.qty==null) return '—';
   if((b.uom||'KG')==='KG') return `${b.qty} kg`;
   return `${b.qty} ${b.uom}${b.qtyKg!=null?` (${b.qtyKg} kg)`:''}`;
+}
+function sanitizeFileName(s){ return String(s||'').replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g,'_').trim() || 'unknown'; }
+async function exportAllPhotosZip(){
+  const rows = filteredBills();
+  const seen = new Set();
+  const uniqueBills = [];
+  rows.forEach(b=>{
+    if(seen.has(b.billUid)) return;
+    const bf = STATE.billFiles[b.billUid];
+    if(!bf) return;
+    seen.add(b.billUid);
+    uniqueBills.push({b, bf});
+  });
+  if(!uniqueBills.length){ toast('No bill copies attached in the current filtered view', 'err'); return; }
+  const btn = $('#repExportPhotos');
+  const origLabel = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Packing photos…';
+  try{
+    const zip = new JSZip();
+    uniqueBills.forEach(({b, bf})=>{
+      const folder = sanitizeFileName(`${b.dbCode}_${b.dbName}`);
+      const fileBase = sanitizeFileName(`${b.dbCode}_${b.dbName}_${b.verifiedBy||'Unverified'}_${b.collectedBy||'Unknown'}_${b.billDateStr||''}_${b.billUid.replace('bill_','')}`);
+      const ext = (bf.ext||'jpg').replace(/[^a-z0-9]/gi,'') || (bf.kind==='pdf'?'pdf':'jpg');
+      const b64 = (bf.dataUrl.split(',')[1])||'';
+      zip.folder(folder).file(`${fileBase}.${ext}`, b64, {base64:true});
+    });
+    const blob = await zip.generateAsync({type:'blob'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `Bill_Photos_${new Date().toISOString().slice(0,10)}.zip`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast(`Downloaded ${uniqueBills.length} bill cop${uniqueBills.length===1?'y':'ies'}, organised by DB. Right-click the ZIP → Properties → Unblock before extracting.`, 'ok');
+  } catch(e){
+    toast('Could not build the photo ZIP — try again', 'err');
+  } finally {
+    btn.disabled = false; btn.innerHTML = origLabel;
+  }
 }
 function billCopyCell(b){
   const bf = STATE.billFiles[b.billUid];
