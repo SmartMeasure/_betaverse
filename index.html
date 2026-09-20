@@ -495,7 +495,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v47';
+const APP_VERSION = 'v49';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 function backendConfigured(){ return WEB_APP_URL && !WEB_APP_URL.includes('PASTE_YOUR_WEB_APP_URL_HERE'); }
 
@@ -506,9 +506,24 @@ function backendConfigured(){ return WEB_APP_URL && !WEB_APP_URL.includes('PASTE
    simple to read and audit). Because of that, treat this device as
    holding real credentials: use a lock screen / passcode on it. */
 const SESSION_KEY = 'rateLedger_session';
-function getSession(){ try{ return JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); }catch(e){ return null; } }
-function setSession(s){ try{ localStorage.setItem(SESSION_KEY, JSON.stringify(s)); }catch(e){} }
-function clearSession(){ try{ localStorage.removeItem(SESSION_KEY); }catch(e){} }
+// "Remember me" checked -> localStorage (survives closing the browser).
+// Unchecked -> sessionStorage only (gone once this tab/window is closed) —
+// either way, getSession() checks both so an existing session of either
+// kind is picked up.
+function getSession(){
+  try{
+    const s = sessionStorage.getItem(SESSION_KEY);
+    if(s) return JSON.parse(s);
+  }catch(e){}
+  try{ return JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); }catch(e){ return null; }
+}
+function setSession(s, remember){
+  try{
+    if(remember){ localStorage.setItem(SESSION_KEY, JSON.stringify(s)); sessionStorage.removeItem(SESSION_KEY); }
+    else { sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)); localStorage.removeItem(SESSION_KEY); }
+  }catch(e){}
+}
+function clearSession(){ try{ localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); }catch(e){} }
 
 /* Apps Script web apps don't handle CORS preflight (OPTIONS) requests, so
    POSTs must avoid triggering one: send the JSON body as plain text with
@@ -2219,6 +2234,7 @@ function lookupVerifierByCode(code){
 }
 function freshBillForm(){
   const session = getSession();
+  const isSelfVerifier = session && session.role === 'Verifier';
   const verifierCode = backendConfigured() ? lsGet('verifierCode') : '';
   const verifierMatch = backendConfigured() ? lookupVerifierByCode(verifierCode) : null;
   return {
@@ -2226,8 +2242,11 @@ function freshBillForm(){
     billType:'Tax Invoice', retailer:'', billNo:'', billDateISO: todayISO(), submissionISO: todayISO(),
     collectedBy: session ? session.name : lsGet('collectedBy'),
     designation: session ? (session.designation||'') : lsGet('designation'),
-    verifierCode: verifierCode,
-    verifiedBy: backendConfigured() ? (verifierMatch ? verifierMatch.name : '') : lsGet('verifiedBy'),
+    verifierCode: isSelfVerifier ? session.code : verifierCode,
+    // A Verifier who is logged in and doing their OWN bill entry can't
+    // "verify" as anyone else — their own identity IS the verification, so
+    // it's locked to their session name rather than offered as a lookup.
+    verifiedBy: isSelfVerifier ? session.name : (backendConfigured() ? (verifierMatch ? verifierMatch.name : '') : lsGet('verifiedBy')),
     lineItems: [], // {productCode, productName, sku, category, companyRate, gstPct, invoiceRate, qty}
     billCopy: null, // {fileName, ext, dataUrl} — attached bill photo/PDF, optional
   };
@@ -2240,7 +2259,13 @@ function renderRateCheck(){
   // Keep the auto-filled verifier name in sync with the code, in case the
   // verifiers list finished loading from the Sheet after this bill form was
   // first created (e.g. right after login, before the fetch resolves).
-  if(backendConfigured() && f.verifierCode){
+  // Skipped for a logged-in Verifier doing their own entry — their name is
+  // locked to their session identity, not re-derived from the list's
+  // loading state (which could otherwise blank it out for a moment).
+  const isSelfVerifier = getSession() && getSession().role==='Verifier';
+  if(isSelfVerifier){
+    f.verifiedBy = getSession().name;
+  } else if(backendConfigured() && f.verifierCode){
     const match = lookupVerifierByCode(f.verifierCode);
     f.verifiedBy = match ? match.name : '';
   }
@@ -2313,7 +2338,13 @@ function renderRateCheck(){
         </select>
       </div>
       `}
-      ${backendConfigured() ? `
+      ${backendConfigured() ? (
+        (getSession() && getSession().role==='Verifier') ? `
+      <div class="field"><label>Verified By</label>
+        <input type="text" value="${esc(f.verifiedBy)}" readonly style="background:var(--panel-2);color:var(--ink-soft);font-weight:600;">
+        <div class="hint">You're logged in as this Verifier — it's locked to your own name and can't be changed to anyone else.</div>
+      </div>
+      ` : `
       <div class="field"><label>Verified By <span class="colmap-req">*</span></label>
         <div class="verifier-combo">
           <div class="verifier-code-wrap">
@@ -2324,7 +2355,8 @@ function renderRateCheck(){
         </div>
         <div class="hint" id="rcVerifierHint" style="${(f.verifierCode && !f.verifiedBy) ? 'color:var(--danger);' : ''}">${!STATE.verifiersList.length ? 'No verifiers loaded yet — ask your Admin to add some, or check your connection.' : (f.verifierCode && !f.verifiedBy ? 'Code not recognized.' : 'Verifier types their own code — their name fills in automatically.')}</div>
       </div>
-      ` : `
+      `
+      ) : `
       <div class="field"><label>Verified By</label>
         <input type="text" id="rcVerifiedBy" list="rcVerifiedByList" value="${esc(f.verifiedBy)}" placeholder="Verifier's name" style="text-transform:uppercase;">
         <datalist id="rcVerifiedByList">${lsGetList('verifiedByList').map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
@@ -3541,7 +3573,13 @@ function renderLoginGate(errorMsg){
           </div>
         </div>
         <div class="field"><label>User Code</label><input type="text" id="loginCode" autocomplete="username" style="text-transform:uppercase;"></div>
-        <div class="field"><label>PIN</label><input type="password" id="loginPin" autocomplete="current-password"></div>
+        <div class="field"><label>PIN</label>
+          <div class="verifier-code-wrap" style="flex:none;">
+            <input type="password" id="loginPin" autocomplete="current-password" style="width:100%;">
+            <button type="button" class="eye-toggle" id="loginPinEye" tabindex="-1" title="Show/hide PIN">👁</button>
+          </div>
+        </div>
+        <label class="gst-toggle" style="margin:2px 0 14px;"><input type="checkbox" id="loginRemember" checked> Remember me on this device</label>
         ${errorMsg ? `<p style="color:var(--danger);font-size:12.5px;margin:-6px 0 12px;">${esc(errorMsg)}</p>` : ''}
         <button class="btn accent wide" id="loginBtn">Log In</button>
         <p class="small-muted" style="margin-top:16px;text-align:center;">Ask your Admin for a User Code and PIN.</p>
@@ -3551,12 +3589,13 @@ function renderLoginGate(errorMsg){
   const doLogin = async ()=>{
     const code = $('#loginCode').value.trim();
     const pin = $('#loginPin').value;
+    const remember = $('#loginRemember').checked;
     if(!code || !pin){ renderLoginGate('Enter both User Code and PIN.'); return; }
     const btn = $('#loginBtn'); btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Signing in…';
     try{
       const res = await backendPost({ action:'login', code, pin });
       if(res.ok){
-        setSession({ code:res.code, pin, name:res.name, role:res.role, designation:res.designation });
+        setSession({ code:res.code, pin, name:res.name, role:res.role, designation:res.designation }, remember);
         boot();
       } else {
         renderLoginGate(res.error || 'Login failed.');
@@ -3567,6 +3606,13 @@ function renderLoginGate(errorMsg){
   };
   $('#loginBtn').addEventListener('click', doLogin);
   $('#loginPin').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  const loginEye = $('#loginPinEye');
+  if(loginEye) loginEye.addEventListener('click', ()=>{
+    const pinEl = $('#loginPin');
+    const showing = pinEl.type==='text';
+    pinEl.type = showing ? 'password' : 'text';
+    loginEye.textContent = showing ? '👁' : '🙈';
+  });
   $('#loginCode').focus();
 }
 function logout(){
