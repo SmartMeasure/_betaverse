@@ -523,7 +523,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v54';
+const APP_VERSION = 'v56';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -2139,6 +2139,15 @@ function resolveComponent(comp){
   const hasQ = q!=null, hasR = r!=null, hasT = t!=null;
   const filled = [hasQ,hasR,hasT].filter(Boolean).length;
   if(filled<2) return {qty:q, rate:r, total:t, computed:null, error:'need_more'};
+  // All three given — the operator has typed an exact figure (e.g. the
+  // invoice's own precise Amount) that can differ from Qty×Rate by a paisa
+  // or two once the invoice's own tax rounding is factored in. Respect all
+  // three as-given rather than silently recomputing one over the operator's
+  // own number.
+  if(hasQ && hasR && hasT){
+    if(q<0||r<0) return {qty:q, rate:r, total:t, computed:null, error:'negative'};
+    return {qty:q, rate:r, total:t, computed:null, error:null};
+  }
   if(hasQ && hasR){
     if(q<0||r<0) return {qty:q, rate:r, total:null, computed:null, error:'negative'};
     return {qty:q, rate:r, total:clamp2(q*r), computed:'total', error:null};
@@ -2748,11 +2757,12 @@ function renderComponentRow(li, liIdx, comp, compIdx, canRemove){
     <div class="component-field">
       <label>Rate (per ${esc(comp.uom)})</label>
       <input type="number" step="any" id="li${liIdx}_c${compIdx}_rate" value="${esc(rateVal)}" placeholder="rate" class="${resolved.computed==='rate'?'auto-filled':''}">
-      ${(li.amountExcludesGst && li.gstPct>0 && rateVal!=='' && !isNaN(Number(rateVal))) ? `<div class="small-muted rate-incl-gst-hint" id="li${liIdx}_c${compIdx}_rateHint">= ₹${fmtMoney(Number(rateVal)*(1+li.gstPct/100))}/${esc(comp.uom)} incl. GST — check against invoice's "Rate (Incl. of Tax)"</div>` : `<div class="small-muted rate-incl-gst-hint" id="li${liIdx}_c${compIdx}_rateHint"></div>`}
+      ${(li.gstPct>0 && rateVal!=='' && !isNaN(Number(rateVal))) ? `<div class="small-muted rate-incl-gst-hint" id="li${liIdx}_c${compIdx}_rateHint">${li.amountExcludesGst ? `= ₹${fmtMoney(Number(rateVal)*(1+li.gstPct/100))}/${esc(comp.uom)} INCL. GST — check against invoice's "Net Amt / Rate (Incl. of Tax)"` : `= ₹${fmtMoney(Number(rateVal)/(1+li.gstPct/100))}/${esc(comp.uom)} EXCL. GST — check against invoice's plain "Rate" column`}</div>` : `<div class="small-muted rate-incl-gst-hint" id="li${liIdx}_c${compIdx}_rateHint"></div>`}
     </div>
     <div class="component-field">
       <label>Bill Amount (₹)</label>
       <input type="number" step="any" id="li${liIdx}_c${compIdx}_total" value="${esc(totalVal)}" placeholder="amount" class="${resolved.computed==='total'?'auto-filled':''}">
+      ${resolved.computed==='total' ? `<div class="small-muted" id="li${liIdx}_c${compIdx}_totalHint">Calculated from Rate × Qty — Rate is usually rounded on the invoice, so this can be a few paise off. For exact precision, type the invoice's own printed Amount here instead.</div>` : `<div class="small-muted" id="li${liIdx}_c${compIdx}_totalHint"></div>`}
     </div>
     <button type="button" class="icon-btn component-remove" id="li${liIdx}_c${compIdx}_remove" title="Remove this quantity line" ${canRemove?'':'style="visibility:hidden;"'}>✕</button>
     <div class="component-err" id="li${liIdx}_c${compIdx}_err">${esc(errMsg)}</div>
@@ -2770,6 +2780,11 @@ function cardSummaryHtml(li){
   const sColor = statusColor(agg.status);
   const showExclLine = (li.amountExcludesGst && agg.gstPct>0) || agg.gstMismatch;
   const gstLine = showExclLine ? `<span class="cs-item">Invoiced (excl. GST): <b>₹${fmtMoney(agg.totalInvoicedExclGst)}</b>${(li.amountExcludesGst && agg.gstPct>0)?` +${agg.gstPct}% GST →`:''}</span>` : '';
+  // When the box is UNCHECKED (amount already includes tax, as entered), show
+  // the reverse — what this would be WITHOUT tax — so whichever invoice
+  // column the operator is cross-checking against, both numbers are visible.
+  const reverseExclHint = (!li.amountExcludesGst && agg.gstPct>0 && !agg.gstMismatch)
+    ? `<span class="cs-item small-muted">(= ₹${fmtMoney(agg.totalInvoiced/(1+agg.gstPct/100))} excl. GST)</span>` : '';
   const gstMismatchBadge = agg.gstMismatch ? (
     agg.gstEntrySuspect
       ? `<span class="gst-mismatch-badge suspect" title="Excl-GST Amount is ₹${fmtMoney(agg.totalInvoicedExclGst)}. The 'Amount incl. GST' you entered (₹${fmtMoney(agg.amountInclGstShown)}) works out to ${agg.gstPctCharged}% GST — that's not a realistic GST rate, so this is probably the wrong number (e.g. a per-unit rate instead of this line's total). Double-check and re-enter it in the box above.">⚠ Check this entry — ₹${fmtMoney(agg.amountInclGstShown)} implies ${agg.gstPctCharged}% GST, which isn't realistic</span>`
@@ -2779,6 +2794,7 @@ function cardSummaryHtml(li){
     <span class="cs-item">Total Qty: <b>${agg.totalQtyKg} kg</b></span>
     ${gstLine}
     <span class="cs-item">Invoiced${li.amountExcludesGst&&agg.gstPct>0?' (incl. GST)':''}: <b>₹${fmtMoney(agg.totalInvoiced)}</b></span>
+    ${reverseExclHint}
     ${agg.gstMismatch ? `<span class="cs-item">Invoice's incl-GST figure: <b>₹${fmtMoney(agg.amountInclGstShown)}</b></span>` : ''}
     <span class="cs-item">Invoice Rate: <b>₹${fmtMoney(agg.blendedRatePerKg)}/kg</b>${(()=>{ const p=resolvePackSizeKg(li); return p.value!=null ? ` <span class="small-muted">(= ₹${fmtMoney(agg.blendedRatePerKg*p.value)}/PC)</span>` : ''; })()}</span>
     <span class="cs-item">vs Company: <b>₹${fmtMoney(li.companyRate)}/kg</b></span>
@@ -2949,13 +2965,21 @@ function updateComponentRow(liIdx, compIdx){
     if(rawT==null && resolved.computed==='total'){ totalEl.value = resolved.total; totalEl.classList.add('auto-filled'); }
     else { totalEl.classList.remove('auto-filled'); if(rawT==null) totalEl.value=''; }
   }
+  const totalHintEl = $(`#li${liIdx}_c${compIdx}_totalHint`);
+  if(totalHintEl){
+    totalHintEl.textContent = (resolved.computed==='total')
+      ? "Calculated from Rate × Qty — Rate is usually rounded on the invoice, so this can be a few paise off. For exact precision, type the invoice's own printed Amount here instead."
+      : '';
+  }
   const errEl = $(`#li${liIdx}_c${compIdx}_err`);
   if(errEl) errEl.textContent = resolved.error ? (COMPONENT_ERROR_MSG[resolved.error]||'') : '';
   const rateHintEl = $(`#li${liIdx}_c${compIdx}_rateHint`);
   if(rateHintEl){
     const rNow = rawR!=null ? rawR : (resolved.computed==='rate' ? resolved.rate : null);
-    if(li.amountExcludesGst && li.gstPct>0 && rNow!=null){
-      rateHintEl.textContent = `= ₹${fmtMoney(rNow*(1+li.gstPct/100))}/${comp.uom} incl. GST — check against invoice's "Rate (Incl. of Tax)"`;
+    if(li.gstPct>0 && rNow!=null){
+      rateHintEl.textContent = li.amountExcludesGst
+        ? `= ₹${fmtMoney(rNow*(1+li.gstPct/100))}/${comp.uom} INCL. GST — check against invoice's "Net Amt / Rate (Incl. of Tax)"`
+        : `= ₹${fmtMoney(rNow/(1+li.gstPct/100))}/${comp.uom} EXCL. GST — check against invoice's plain "Rate" column`;
     } else {
       rateHintEl.textContent = '';
     }
