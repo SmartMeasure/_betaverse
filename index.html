@@ -274,6 +274,34 @@ main{
 @keyframes savePulse{0%{box-shadow:0 0 0 0 rgba(15,168,107,.5);}70%{box-shadow:0 0 0 14px rgba(15,168,107,0);}100%{box-shadow:0 0 0 0 rgba(15,168,107,0);}}
 .save-pulse{animation:savePulse .8s ease-out;}
 .stat-card{transition:transform .2s ease, box-shadow .2s ease, border-color .2s;}
+.vault-card{display:flex;align-items:center;gap:26px;margin:22px 0;padding:22px 28px;border-radius:16px;cursor:pointer;user-select:none;
+  background:linear-gradient(135deg,#1a1c22 0%,#2b2e38 55%,#1a1c22 100%);border:1px solid #3a3e4a;
+  box-shadow:0 10px 30px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.04);transition:transform .25s ease, box-shadow .25s ease;}
+.vault-card:hover{transform:translateY(-3px);box-shadow:0 16px 40px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.06);}
+.vault-card:hover .vault-door{box-shadow:0 0 0 4px rgba(255,255,255,.06), 0 6px 18px rgba(0,0,0,.4);}
+.vault-door{position:relative;width:74px;height:74px;flex:none;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%, #9aa1ad 0%, #6b7280 45%, #3f434f 100%);
+  box-shadow:0 6px 18px rgba(0,0,0,.4);transition:box-shadow .25s ease;}
+.vault-dial{position:absolute;top:50%;left:50%;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;
+  background:radial-gradient(circle at 40% 35%, #e8e2c9 0%, #b8ab7a 50%, #7d7250 100%);
+  box-shadow:0 2px 6px rgba(0,0,0,.5), inset 0 1px 1px rgba(255,255,255,.4);
+  transition:transform .9s cubic-bezier(.5,0,.3,1);}
+.vault-dial-notch{position:absolute;top:3px;left:50%;width:3px;height:10px;margin-left:-1.5px;background:#4a4020;border-radius:2px;}
+.vault-bolt{position:absolute;width:7px;height:7px;border-radius:50%;background:#d8cf9a;box-shadow:0 1px 2px rgba(0,0,0,.5);transition:transform .5s ease, opacity .5s ease;}
+.vault-bolt.vb1{top:6px;left:50%;margin-left:-3.5px;}
+.vault-bolt.vb2{bottom:6px;left:50%;margin-left:-3.5px;}
+.vault-bolt.vb3{left:6px;top:50%;margin-top:-3.5px;}
+.vault-bolt.vb4{right:6px;top:50%;margin-top:-3.5px;}
+.vault-card.opening .vault-dial{transform:rotate(1080deg);}
+.vault-card.opening .vault-bolt.vb1{transform:translateY(-10px);opacity:0;}
+.vault-card.opening .vault-bolt.vb2{transform:translateY(10px);opacity:0;}
+.vault-card.opening .vault-bolt.vb3{transform:translateX(-10px);opacity:0;}
+.vault-card.opening .vault-bolt.vb4{transform:translateX(10px);opacity:0;}
+.vault-card.opening .vault-door{animation:vaultPulse .5s ease .5s;}
+@keyframes vaultPulse{0%{box-shadow:0 6px 18px rgba(0,0,0,.4);}50%{box-shadow:0 0 0 10px rgba(51,240,180,.25), 0 6px 18px rgba(0,0,0,.4);}100%{box-shadow:0 0 0 22px rgba(51,240,180,0), 0 6px 18px rgba(0,0,0,.4);}}
+.vault-text h3{margin:0 0 4px;color:#fff;font-size:17px;font-family:var(--font-display);}
+.vault-text p{margin:0;color:#b6bac4;font-size:12.5px;max-width:440px;}
+.vault-hint{margin-top:8px;color:#33F0B4;font-size:11.5px;font-weight:700;letter-spacing:.02em;}
 .stat-card:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(0,0,0,0.12);border-color:var(--edge);}
 .stat-value{transition:color .2s;}
 
@@ -495,8 +523,11 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v51';
+const APP_VERSION = 'v52';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
+// Where the separate Dashboard.html lives, relative to this file (or an
+// absolute URL) — change this if Dashboard is hosted somewhere else.
+const DASHBOARD_URL = 'dashboard/';
 function backendConfigured(){ return WEB_APP_URL && !WEB_APP_URL.includes('PASTE_YOUR_WEB_APP_URL_HERE'); }
 
 /* ---------------- Session (login identity) ----------------
@@ -989,6 +1020,8 @@ function renderDashboard(){
       <div class="stat-card" style="${negRows.length?'border-color:var(--negligible);':''}"><div class="stat-label" style="color:var(--negligible);">Overcharge – Negligible (&lt;1%)</div><div class="stat-value" id="cuNegInst" style="color:var(--negligible);">0</div><div class="stat-note">within tolerance, not flagged</div></div>
     </div>
 
+    ${backendConfigured() ? dataCenterVaultHtml() : ''}
+
     <div class="section-title">Setup checklist</div>
     <div class="grid-4">
       ${checklistCard('1 · DB Master', STATE.dbMaster.length? `${STATE.dbMaster.length} DBs loaded`:'Not uploaded', STATE.dbMaster.length>0)}
@@ -1013,12 +1046,46 @@ function renderDashboard(){
     </table></div>` : ''}
   `;
   const gs = $('#goSetup'); if(gs) gs.addEventListener('click', ()=>switchTab('setup'));
+  wireDataCenterVault();
   countUp($('#cuDbMaster'), STATE.dbMaster.length);
   countUp($('#cuRateSkus'), STATE.rateRows.length);
   countUp($('#cuBillsChecked'), uniqueBills);
   countUp($('#cuOverInst'), overRows.length);
   countUp($('#cuUnderInst'), underRows.length);
   countUp($('#cuNegInst'), negRows.length);
+}
+/* An intentionally showy "vault door" tile: clicking it plays a brief
+   unlock animation (dial spin, door swings open) and then hands off to the
+   Dashboard — reusing this same browser's session (copied into localStorage
+   right before navigating, so it works even if the person didn't check
+   "Remember me" here) so Dashboard opens already logged in as them. */
+function dataCenterVaultHtml(){
+  return `
+  <div class="vault-card" id="dataCenterVault">
+    <div class="vault-door" id="vaultDoor">
+      <div class="vault-dial"><div class="vault-dial-notch"></div></div>
+      <div class="vault-bolt vb1"></div><div class="vault-bolt vb2"></div><div class="vault-bolt vb3"></div><div class="vault-bolt vb4"></div>
+    </div>
+    <div class="vault-text">
+      <h3>Data Center</h3>
+      <p>Open the Dashboard — Analytics, all submissions, verifier activity, and Pro exports.</p>
+      <div class="vault-hint" id="vaultHint">Click the vault to enter →</div>
+    </div>
+  </div>`;
+}
+function wireDataCenterVault(){
+  const card = $('#dataCenterVault');
+  if(!card) return;
+  card.addEventListener('click', ()=>{
+    if(card.classList.contains('opening')) return;
+    card.classList.add('opening');
+    $('#vaultHint').textContent = 'Unlocking…';
+    // Make sure Dashboard (which only reads localStorage) can see this
+    // session even if "Remember me" was off (session-only) here.
+    const s = getSession();
+    if(s){ try{ localStorage.setItem(SESSION_KEY, JSON.stringify(s)); }catch(e){} }
+    setTimeout(()=>{ window.location.href = DASHBOARD_URL; }, 900);
+  });
 }
 function checklistCard(title, note, done, optional){
   return `<div class="stat-card" style="border-left:3px solid ${done?'var(--success)':(optional?'var(--edge)':'var(--warn)')}">
