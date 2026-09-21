@@ -585,6 +585,38 @@ async function exportProExcel(rows, filenamePrefix, viewLabel){
     excelRow.height = 18;
     r++;
   });
+  // Summary sheet — same structure as Rate Ledger's own Pro export, so both
+  // reports carry the identical at-a-glance overview alongside the detail.
+  const ws2 = wb.addWorksheet('Summary');
+  ws2.columns = [{width:28},{width:18},{width:18}];
+  ws2.getCell('A1').value = 'RATE LEDGER — SUMMARY';
+  ws2.getCell('A1').font = {size:13,bold:true,color:{argb:WHITE}};
+  ws2.mergeCells('A1:B1'); ws2.getCell('A1').fill={type:'pattern',pattern:'solid',fgColor:{argb:INK}};
+  ws2.getRow(1).height = 22;
+  const overCount = over.length, overAmt2 = over.reduce((s,rr)=>s+(Number(rr.OverchargeAmt)||0),0);
+  const underCount = under.length, underAmt2 = under.reduce((s,rr)=>s+(Number(rr.UnderchargeAmt)||0),0);
+  const negCount = neg.length, negAmt = neg.reduce((s,rr)=>s+(Number(rr.NegligibleAmt)||0),0);
+  const byLoc = {};
+  rows.forEach(rr=>{
+    const loc = rr.Location||'—';
+    byLoc[loc] = byLoc[loc] || {total:0, over:0, overAmt:0, under:0, underAmt:0};
+    byLoc[loc].total++;
+    if(rr.Status==='over'){ byLoc[loc].over++; byLoc[loc].overAmt += Number(rr.OverchargeAmt)||0; }
+    if(rr.Status==='under'){ byLoc[loc].under++; byLoc[loc].underAmt += Number(rr.UnderchargeAmt)||0; }
+  });
+  let sr = 3;
+  ws2.getCell(`A${sr}`).value='Total lines checked'; ws2.getCell(`B${sr}`).value=rows.length; sr++;
+  ws2.getCell(`A${sr}`).value='Overcharge instances (≥1% of rate)'; ws2.getCell(`B${sr}`).value=overCount; sr++;
+  ws2.getCell(`A${sr}`).value='Total overcharge value (₹)'; ws2.getCell(`B${sr}`).value=Number(overAmt2.toFixed(2)); sr++;
+  ws2.getCell(`A${sr}`).value='Undercharge instances'; ws2.getCell(`B${sr}`).value=underCount; sr++;
+  ws2.getCell(`A${sr}`).value='Total undercharge value (₹)'; ws2.getCell(`B${sr}`).value=Number(underAmt2.toFixed(2)); sr++;
+  ws2.getCell(`A${sr}`).value='Negligible instances (<1% of rate)'; ws2.getCell(`B${sr}`).value=negCount; sr++;
+  ws2.getCell(`A${sr}`).value='Total negligible value (₹, excluded from overcharge)'; ws2.getCell(`B${sr}`).value=Number(negAmt.toFixed(2)); sr+=2;
+  ws2.getCell(`A${sr}`).value='Location'; ws2.getCell(`B${sr}`).value='Overcharge lines'; ws2.getCell(`C${sr}`).value='Undercharge lines';
+  ws2.getRow(sr).eachCell(c=>{ c.font={bold:true,color:{argb:WHITE}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:INK}}; });
+  sr++;
+  Object.entries(byLoc).forEach(([loc,v])=>{ ws2.getCell(`A${sr}`).value=loc; ws2.getCell(`B${sr}`).value=v.over; ws2.getCell(`C${sr}`).value=v.under; sr++; });
+
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const url = URL.createObjectURL(blob);
