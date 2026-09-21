@@ -523,7 +523,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v52';
+const APP_VERSION = 'v54';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -2780,7 +2780,7 @@ function cardSummaryHtml(li){
     ${gstLine}
     <span class="cs-item">Invoiced${li.amountExcludesGst&&agg.gstPct>0?' (incl. GST)':''}: <b>₹${fmtMoney(agg.totalInvoiced)}</b></span>
     ${agg.gstMismatch ? `<span class="cs-item">Invoice's incl-GST figure: <b>₹${fmtMoney(agg.amountInclGstShown)}</b></span>` : ''}
-    <span class="cs-item">Blended Rate: <b>₹${fmtMoney(agg.blendedRatePerKg)}/kg</b>${(()=>{ const p=resolvePackSizeKg(li); return p.value!=null ? ` <span class="small-muted">(= ₹${fmtMoney(agg.blendedRatePerKg*p.value)}/PC)</span>` : ''; })()}</span>
+    <span class="cs-item">Invoice Rate: <b>₹${fmtMoney(agg.blendedRatePerKg)}/kg</b>${(()=>{ const p=resolvePackSizeKg(li); return p.value!=null ? ` <span class="small-muted">(= ₹${fmtMoney(agg.blendedRatePerKg*p.value)}/PC)</span>` : ''; })()}</span>
     <span class="cs-item">vs Company: <b>₹${fmtMoney(li.companyRate)}/kg</b></span>
     ${gstMismatchBadge}
     <span class="cs-status">
@@ -2842,10 +2842,8 @@ function renderProductCard(li, liIdx, isNew){
       </div>
     </div>
     ${li.productCode ? `
-      ${STATE.billForm.billType==='Tax Invoice'
-        ? `<div class="gst-toggle" style="cursor:default;"><span style="color:var(--success);">✓</span> Tax Invoice — GST (${li.gstPct||0}%) added automatically before comparing to Company Rate</div>`
-        : `<label class="gst-toggle"><input type="checkbox" id="li${liIdx}_gstToggle" ${li.amountExcludesGst?'checked':''}> ${li.amountExcludesGst ? `Bill Amount excludes GST — add ${li.gstPct||0}% before comparing to Company Rate` : `Bill Amount is final/all-inclusive — no GST adjustment (typical for a Hand Bill)`}</label>`
-      }
+      <label class="gst-toggle"><input type="checkbox" id="li${liIdx}_gstToggle" ${li.amountExcludesGst?'checked':''}> ${li.amountExcludesGst ? `Bill Amount excludes GST — add ${li.gstPct||0}% before comparing to Company Rate` : `Bill Amount is final/all-inclusive — no GST adjustment`}</label>
+      <div class="small-muted" style="margin-top:2px;">Some invoices' own "Amount"/"Net Amt" column already has tax baked in per line (uncheck above if so) — others add tax only at the very bottom (leave checked). Check this specific invoice.</div>
       ${(() => {
         const aggForHint = aggregateLineItem(li);
         const hasBase = !aggForHint.error && aggForHint.totalInvoicedExclGst>0;
@@ -3002,7 +3000,7 @@ function statusExplainAggregate(li, agg){
   if(agg.gstMismatch) lines.push(agg.gstEntrySuspect
     ? `GST check: excl-GST Amount ₹${fmtMoney(agg.totalInvoicedExclGst)} vs the incl-GST figure you entered (₹${fmtMoney(agg.amountInclGstShown)}) works out to ${agg.gstPctCharged}% — not a realistic GST rate. This entry is probably wrong (e.g. a per-unit rate instead of this line's total); double-check and re-enter it.`
     : `GST check: excl-GST Amount ₹${fmtMoney(agg.totalInvoicedExclGst)} vs invoice's own incl-GST figure ₹${fmtMoney(agg.amountInclGstShown)} → ${agg.gstPctCharged}% actually charged, vs correct ${agg.gstPct}% → ${agg.gstMismatchAmt>0?'+':''}₹${fmtMoney(agg.gstMismatchAmt)} wrong GST (tracked separately below).`);
-  lines.push(`Blended Rate = Invoiced ÷ Qty(kg) = ₹${fmtMoney(agg.totalInvoiced)} ÷ ${agg.totalQtyKg} = ₹${fmtMoney(agg.blendedRatePerKg)}/kg`);
+  lines.push(`Invoice Rate = Invoiced ÷ Qty(kg) = ₹${fmtMoney(agg.totalInvoiced)} ÷ ${agg.totalQtyKg} = ₹${fmtMoney(agg.blendedRatePerKg)}/kg`);
   lines.push(`Diff per kg = Blended − Company Rate = ${fmtMoney(agg.blendedRatePerKg)} − ${fmtMoney(li.companyRate)} = ${agg.diffPerKg>0?'+':''}₹${fmtMoney(agg.diffPerKg)}/kg`);
   if(agg.diffPerPc!=null) lines.push(`Diff per PC = Diff/kg × pack size = ${fmtMoney(agg.diffPerKg)} × ${resolvePackSizeKg(li).value}kg = ${agg.diffPerPc>0?'+':''}₹${fmtMoney(agg.diffPerPc)}/PC`);
   if(agg.diffPerBag!=null) lines.push(`Diff per BAG = Diff/kg × bag size = ${fmtMoney(agg.diffPerKg)} × ${resolveBagSizeKg(li).value}kg = ${agg.diffPerBag>0?'+':''}₹${fmtMoney(agg.diffPerBag)}/BAG`);
@@ -3028,7 +3026,7 @@ function statusExplainSaved(b){
   if(b.gstMismatch) lines.push(b.gstEntrySuspect
     ? `GST check: the incl-GST figure entered (₹${fmtMoney(b.amountInclGstShown)}) works out to ${b.gstPctCharged}% vs excl-GST Amount ₹${fmtMoney(b.totalInvoicedExclGst)} — not a realistic GST rate, likely a data-entry mistake on this line.`
     : `GST check: excl-GST Amount ₹${fmtMoney(b.totalInvoicedExclGst)} vs invoice's own incl-GST figure ₹${fmtMoney(b.amountInclGstShown)} → ${b.gstPctCharged}% actually charged, vs correct ${b.gstPct}% → ${b.gstMismatchAmt>0?'+':''}₹${fmtMoney(b.gstMismatchAmt)} wrong GST.`);
-  lines.push(`Blended Rate = ₹${fmtMoney(b.blendedRate!=null?b.blendedRate:b.invoiceRate)}/kg`);
+  lines.push(`Invoice Rate = ₹${fmtMoney(b.blendedRate!=null?b.blendedRate:b.invoiceRate)}/kg`);
   lines.push(`Expected (Company Rate × Qty) = ₹${fmtMoney(b.expectedAmount!=null?b.expectedAmount:clamp2(b.companyRate*b.qtyKg))}`);
   lines.push(`Difference = ${b.chargeAmt>0?'+':''}₹${fmtMoney(b.chargeAmt)}`);
   if(b.status==='match') lines.push('Within ₹0.01 → Match.');
@@ -3355,8 +3353,8 @@ function renderReportTable(){
       <th>Retailer</th><th>Bill Type</th><th>Bill No</th><th>Bill Date</th>
       <th>Product</th><th>Pack Size (kg)</th><th>Code</th><th class="num">Company Rate<br><span style="text-transform:none;">₹/kg</span></th>
       <th>Components</th><th class="num">Total Qty<br><span style="text-transform:none;">kg-equiv</span></th><th class="num">Total Invoiced<br><span style="text-transform:none;">₹</span></th>
-      <th class="num">Blended Rate<br><span style="text-transform:none;">₹/kg</span></th>
-      <th class="num">Blended Rate<br><span style="text-transform:none;">₹/PC</span></th>
+      <th class="num">Invoice Rate<br><span style="text-transform:none;">₹/kg</span></th>
+      <th class="num">Invoice Rate<br><span style="text-transform:none;">₹/PC</span></th>
       <th class="num">Diff<br><span style="text-transform:none;">₹/kg</span></th>
       <th class="num">Diff<br><span style="text-transform:none;">₹/PC</span></th>
       <th class="num">Diff<br><span style="text-transform:none;">₹/BAG</span></th>
@@ -3458,8 +3456,8 @@ async function exportExcelPro(){
       {header:'Components', key:'componentsSummary', width:30},
       {header:'Total Qty (kg-equiv)', key:'qtyKg', width:14},
       {header:'Total Invoiced (₹)', key:'totalInvoiced', width:15},
-      {header:'Blended Rate (₹/kg)', key:'blendedRate', width:15},
-      {header:'Blended Rate (₹/PC)', key:'blendedRatePerPc', width:15},
+      {header:'Invoice Rate (₹/kg)', key:'blendedRate', width:15},
+      {header:'Invoice Rate (₹/PC)', key:'blendedRatePerPc', width:15},
       {header:'Diff (₹/kg)', key:'diffPerKg', width:12},
       {header:'Diff (₹/PC)', key:'diffPerPc', width:12},
       {header:'Diff (₹/BAG)', key:'diffPerBag', width:13},
