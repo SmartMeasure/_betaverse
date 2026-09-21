@@ -51,6 +51,10 @@ h1,h2,h3{font-family:var(--font-display);font-weight:600;margin:0;color:var(--in
 .stat-value{font-family:var(--font-mono);font-size:26px;font-weight:600;margin-top:6px;}
 .stat-note{font-size:11.5px;color:var(--ink-faint);margin-top:4px;}
 .field{margin-bottom:14px;}
+.verifier-code-wrap{position:relative;}
+.verifier-code-wrap input{width:100%;padding-right:26px;}
+.eye-toggle{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:transparent;border:none;cursor:pointer;font-size:12px;padding:2px 4px;line-height:1;color:var(--ink-faint);}
+.eye-toggle:hover{color:var(--ink-soft);}
 .field label{display:block;font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin-bottom:5px;}
 .field input,.field select{width:100%;padding:9px 11px;border:1px solid var(--edge);border-radius:var(--radius-sm);background:var(--panel);color:var(--ink);font-size:13.5px;}
 .field input:focus,.field select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
@@ -233,7 +237,12 @@ function renderLogin(errorMsg){
           <div><h1 style="font-size:19px;">Rate Ledger</h1><p class="small-muted" style="margin-top:2px;">Dashboard sign-in</p></div>
         </div>
         <div class="field"><label>User Code</label><input type="text" id="loginCode" style="text-transform:uppercase;"></div>
-        <div class="field"><label>PIN</label><input type="password" id="loginPin"></div>
+        <div class="field"><label>PIN</label>
+          <div class="verifier-code-wrap" style="flex:none;">
+            <input type="password" id="loginPin" style="width:100%;">
+            <button type="button" class="eye-toggle" id="loginPinEye" tabindex="-1" title="Show/hide PIN">👁</button>
+          </div>
+        </div>
         ${errorMsg ? `<p style="color:var(--danger);font-size:12.5px;margin:-6px 0 12px;">${esc(errorMsg)}</p>` : ''}
         <button class="btn accent wide" id="loginBtn">Log In</button>
       </div>
@@ -252,6 +261,13 @@ function renderLogin(errorMsg){
   };
   $('#loginBtn').addEventListener('click', doLogin);
   $('#loginPin').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  const loginEye = $('#loginPinEye');
+  if(loginEye) loginEye.addEventListener('click', ()=>{
+    const pinEl = $('#loginPin');
+    const showing = pinEl.type==='text';
+    pinEl.type = showing ? 'password' : 'text';
+    loginEye.textContent = showing ? '👁' : '🙈';
+  });
   $('#loginCode').focus();
 }
 function logout(){ clearSession(); boot(); }
@@ -349,17 +365,46 @@ function renderAnalyticsContent(rows){
       <div class="stat-card"><div class="stat-label">Negligible</div><div class="stat-value" style="color:var(--negligible);">${fmtInt(neg.length)}</div></div>
     </div>
     <div class="grid grid-2" style="margin-bottom:18px;">
-      <div class="chart-card"><h3>Status Breakdown</h3><canvas id="chStatus" height="220"></canvas></div>
-      <div class="chart-card"><h3>Overcharge Value by Day</h3><canvas id="chTrend" height="220"></canvas></div>
+      <div class="chart-card"><h3>Status Breakdown</h3><div id="chStatusWrap"><canvas id="chStatus" height="220"></canvas></div></div>
+      <div class="chart-card"><h3>Overcharge Value by Day</h3><div id="chTrendWrap"><canvas id="chTrend" height="220"></canvas></div></div>
     </div>
     <div class="grid grid-2" style="margin-bottom:18px;">
-      <div class="chart-card"><h3>Top Auditors by Overcharge Lines</h3><canvas id="chAuditors" height="240"></canvas></div>
-      <div class="chart-card"><h3>Top Distributors by Overcharge Lines</h3><canvas id="chDBs" height="240"></canvas></div>
+      <div class="chart-card"><h3>Top Auditors by Overcharge Lines</h3><div id="chAuditorsWrap"><canvas id="chAuditors" height="240"></canvas></div></div>
+      <div class="chart-card"><h3>Top Distributors by Overcharge Lines</h3><div id="chDBsWrap"><canvas id="chDBs" height="240"></canvas></div></div>
     </div>
     <div class="chart-card">
-      <h3>Overcharge Lines by Category</h3><canvas id="chCategory" height="200"></canvas>
+      <h3>Overcharge Lines by Category</h3><div id="chCategoryWrap"><canvas id="chCategory" height="200"></canvas></div>
     </div>
   `;
+
+  function topN(field, n){
+    const m = {};
+    over.forEach(r=>{ const k=r[field]||'—'; m[k]=(m[k]||0)+1; });
+    return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,n);
+  }
+  const byDay = {};
+  rows.forEach(r=>{ if(r.Status==='over'){ const d=(r.BillDate||'').slice(0,10)||'?'; byDay[d]=(byDay[d]||0)+(Number(r.OverchargeAmt)||0); } });
+  const days = Object.keys(byDay).sort();
+  const topAud = topN('AuditorName', 8);
+  const topDB = topN('DBName', 8);
+  const topCat = topN('Category', 10);
+
+  // Chart.js loads from a CDN — if a firewall, ad-blocker, or offline moment
+  // blocks it, `Chart` never exists and every one of these would otherwise
+  // throw and leave the whole Analytics screen blank below the stat cards.
+  // Fall back to plain HTML/CSS bars (same look as the My Data breakdown)
+  // so the numbers are always visible even without the charting library.
+  if(typeof Chart === 'undefined'){
+    $('#chStatusWrap').innerHTML = simpleBarListHtml([
+      ['Overcharge', over.length, 'var(--danger)'], ['Overcharge – Negligible', neg.length, 'var(--negligible)'],
+      ['Undercharge', under.length, 'var(--warn)'], ['Match', match.length, 'var(--success)'],
+    ]);
+    $('#chTrendWrap').innerHTML = days.length ? simpleBarListHtml(days.map(d=>[d, Math.round(byDay[d]*100)/100, 'var(--danger)']), true) : '<div class="empty-state">No overcharge lines in this period.</div>';
+    $('#chAuditorsWrap').innerHTML = topAud.length ? simpleBarListHtml(topAud.map(([k,v])=>[k,v,'var(--ink)'])) : '<div class="empty-state">No overcharge lines.</div>';
+    $('#chDBsWrap').innerHTML = topDB.length ? simpleBarListHtml(topDB.map(([k,v])=>[k,v,'var(--danger)'])) : '<div class="empty-state">No overcharge lines.</div>';
+    $('#chCategoryWrap').innerHTML = topCat.length ? simpleBarListHtml(topCat.map(([k,v])=>[k,v,'var(--negligible)'])) : '<div class="empty-state">No overcharge lines.</div>';
+    return;
+  }
 
   chartInstances.push(new Chart($('#chStatus'), {
     type:'doughnut',
@@ -367,39 +412,35 @@ function renderAnalyticsContent(rows){
       datasets:[{ data:[over.length, neg.length, under.length, match.length], backgroundColor:['#D6234B','#2A5FD9','#B9791A','#0FA86B'] }] },
     options:{ plugins:{legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}}} }
   }));
-
-  const byDay = {};
-  rows.forEach(r=>{ if(r.Status==='over'){ const d=(r.BillDate||'').slice(0,10)||'?'; byDay[d]=(byDay[d]||0)+(Number(r.OverchargeAmt)||0); } });
-  const days = Object.keys(byDay).sort();
   chartInstances.push(new Chart($('#chTrend'), {
     type:'line',
     data:{ labels:days, datasets:[{ label:'Overcharge ₹', data:days.map(d=>Math.round(byDay[d]*100)/100), borderColor:'#D6234B', backgroundColor:'rgba(214,35,75,0.1)', fill:true, tension:.25 }] },
     options:{ plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}} }
   }));
-
-  function topN(field, n){
-    const m = {};
-    over.forEach(r=>{ const k=r[field]||'—'; m[k]=(m[k]||0)+1; });
-    return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,n);
-  }
-  const topAud = topN('AuditorName', 8);
   chartInstances.push(new Chart($('#chAuditors'), {
     type:'bar',
     data:{ labels:topAud.map(x=>x[0]), datasets:[{ label:'Overcharge lines', data:topAud.map(x=>x[1]), backgroundColor:'#101114' }] },
     options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}} }
   }));
-  const topDB = topN('DBName', 8);
   chartInstances.push(new Chart($('#chDBs'), {
     type:'bar',
     data:{ labels:topDB.map(x=>x[0]), datasets:[{ label:'Overcharge lines', data:topDB.map(x=>x[1]), backgroundColor:'#D6234B' }] },
     options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}} }
   }));
-  const topCat = topN('Category', 10);
   chartInstances.push(new Chart($('#chCategory'), {
     type:'bar',
     data:{ labels:topCat.map(x=>x[0]), datasets:[{ label:'Overcharge lines', data:topCat.map(x=>x[1]), backgroundColor:'#2A5FD9' }] },
     options:{ plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}} }
   }));
+}
+function simpleBarListHtml(items, isCurrency){
+  const max = Math.max(...items.map(i=>i[1]), 1);
+  return `<div style="padding:4px 0;">${items.map(([label,val,color])=>`
+    <div class="micro-bar-row" style="cursor:default;">
+      <div class="mb-label" title="${esc(String(label))}">${esc(String(label))}</div>
+      <div class="mb-track"><div class="mb-fill" style="width:${(val/max)*100}%;background:${color};"></div></div>
+      <div class="mb-count">${isCurrency?'₹'+fmtMoney(val):fmtInt(val)}</div>
+    </div>`).join('')}</div>`;
 }
 
 /* ==================== ALL SUBMISSIONS (Admin) ==================== */
@@ -521,7 +562,7 @@ async function exportProExcel(rows, filenamePrefix, viewLabel){
     {header:'Company Rate (₹/kg)', key:'CompanyRate', width:14}, {header:'Company Rate (₹/PC)', key:'CompanyRatePerPc', width:14},
     {header:'Bag Size', key:'BagSizeLabel', width:12}, {header:'Components', key:'ComponentsSummary', width:30},
     {header:'Total Qty (kg-equiv)', key:'QtyKG', width:14}, {header:'Total Invoiced (₹)', key:'TotalInvoiced', width:15},
-    {header:'Blended Rate (₹/kg)', key:'InvoiceRate', width:15}, {header:'Blended Rate (₹/PC)', key:'BlendedRatePerPc', width:15},
+    {header:'Invoice Rate (₹/kg)', key:'InvoiceRate', width:15}, {header:'Invoice Rate (₹/PC)', key:'BlendedRatePerPc', width:15},
     {header:'Diff (₹/kg)', key:'DiffPerKg', width:12}, {header:'Diff (₹/PC)', key:'DiffPerPc', width:12}, {header:'Diff (₹/BAG)', key:'DiffPerBag', width:13},
     {header:'Variance %', key:'VariancePctLabel', width:11}, {header:'Status', key:'StatusLabel', width:13},
     {header:'Over/Undercharge (₹)', key:'DiffAmountLabel', width:16}, {header:'Overcharge Amt', key:'OverchargeAmt', width:15},
