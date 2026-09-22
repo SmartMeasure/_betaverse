@@ -124,7 +124,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v3';
+const APP_VERSION = 'v4';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 
 /* Shared session with the Rate Ledger app: if this Dashboard is opened from
@@ -460,6 +460,7 @@ async function renderSubmissions(){
       <div class="field"><label>Auditor</label><select id="subAuditorFilter"><option value="">All</option></select></div>
       <div class="field"><label>Verifier</label><select id="subVerifierFilter"><option value="">All</option></select></div>
       <button class="btn accent" id="subExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
+      <button class="btn secondary" id="subExportPhotos" disabled>📷 Download All Photos (ZIP)</button>
     </div>
     <div id="subContent">${ultimateLoaderHtml('subLoader')}</div>
   `;
@@ -489,6 +490,8 @@ function paintSubmissions(rows, isStale){
   window.__subRows = rows;
   $('#subExport').disabled = !rows.length;
   $('#subExport').onclick = ()=>exportProExcel(window.__subFilteredRows||rows, 'All_Submissions', 'All Submissions');
+  $('#subExportPhotos').disabled = !rows.length;
+  $('#subExportPhotos').onclick = ()=>exportBillPhotosZip(window.__subFilteredRows||rows, $('#subExportPhotos'));
   const staleBanner = isStale ? `<div class="stale-banner"><span class="spin"></span> Refreshing in the background…</div>` : '';
   $('#subContent').innerHTML = staleBanner + '<div id="subInner"></div>';
   // Populate the Auditor/Verifier dropdowns from whatever names actually
@@ -685,6 +688,37 @@ async function exportProExcel(rows, filenamePrefix, viewLabel){
   URL.revokeObjectURL(url);
 }
 
+/* Bulk-downloads every bill photo currently on screen as one ZIP — the
+   actual zipping happens server-side (Code.gs), which avoids the CORS wall
+   that would block fetching Drive files directly from browser JS. Sends the
+   exact BillUIDs visible right now, so it matches whatever filters (date
+   range, Auditor/Verifier dropdown) are currently applied. */
+async function exportBillPhotosZip(rows, btn){
+  const uids = [...new Set(rows.filter(r=>r.BillCopyURL).map(r=>r.BillUID))];
+  if(!uids.length){ toast('No bill photos in the current filtered view', 'err'); return; }
+  const s = getSession();
+  const origLabel = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Packing photos…';
+  try{
+    const res = await backendPost({ action:'exportBillPhotosZip', code:s.code, pin:s.pin, billUids:uids });
+    if(!res.ok){ toast(res.error||'Could not build the photo ZIP', 'err'); return; }
+    const bin = atob(res.base64Zip);
+    const bytes = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], {type:'application/zip'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = res.fileName || `Bill_Photos_${new Date().toISOString().slice(0,10)}.zip`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast(`Downloaded ${res.count} bill photo${res.count===1?'':'s'}, organised by DB`, 'ok');
+  } catch(e){
+    toast('Could not build the photo ZIP — try again', 'err');
+  } finally {
+    btn.disabled = false; btn.innerHTML = origLabel;
+  }
+}
+
 /* Weekly / Monthly / Today / All-time quick filter buttons, alongside the
    existing From/To range — clicking one sets both dates and re-renders. */
 function quickRangeHtml(prefix){
@@ -784,6 +818,7 @@ async function renderMyVerified(){
       ${dateRangeBarHtml('mv', window.__mvFrom, window.__mvTo)}
       ${quickRangeHtml('mv')}
       <button class="btn accent" id="mvExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
+      <button class="btn secondary" id="mvExportPhotos" disabled>📷 Download All Photos (ZIP)</button>
     </div>
     <div id="mvContent">${ultimateLoaderHtml('mvLoader')}</div>
   `;
@@ -816,6 +851,8 @@ function paintMyVerified(rows, isStale){
   const neg = rows.filter(r=>r.Status==='negligible');
   $('#mvExport').disabled = !rows.length;
   $('#mvExport').onclick = ()=>exportProExcel(window.__mvFilteredRows||rows, 'Bills_I_Verified', 'Bills I Verified');
+  $('#mvExportPhotos').disabled = !rows.length;
+  $('#mvExportPhotos').onclick = ()=>exportBillPhotosZip(window.__mvFilteredRows||rows, $('#mvExportPhotos'));
   window.__mvAllRows = rows;
   window.__mvFilteredRows = rows;
   // Micro-level: which PRODUCT shows up most often in what I've verified,
@@ -880,6 +917,7 @@ async function renderMyData(){
       ${dateRangeBarHtml('my', window.__myFrom, window.__myTo)}
       ${quickRangeHtml('my')}
       <button class="btn accent" id="myExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
+      <button class="btn secondary" id="myExportPhotos" disabled>📷 Download All Photos (ZIP)</button>
     </div>
     <div id="myContent">${ultimateLoaderHtml('myLoader')}</div>
   `;
@@ -912,6 +950,8 @@ function paintMyData(rows, isStale){
   const neg = rows.filter(r=>r.Status==='negligible');
   $('#myExport').disabled = !rows.length;
   $('#myExport').onclick = ()=>exportProExcel(window.__myFilteredRows||rows, 'My_Data', 'My Data');
+  $('#myExportPhotos').disabled = !rows.length;
+  $('#myExportPhotos').onclick = ()=>exportBillPhotosZip(window.__myFilteredRows||rows, $('#myExportPhotos'));
   window.__myAllRows = rows;
   window.__myFilteredRows = rows;
   const byProduct = {};
