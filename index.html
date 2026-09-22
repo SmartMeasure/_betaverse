@@ -523,7 +523,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v56';
+const APP_VERSION = 'v58';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -2625,7 +2625,7 @@ function renderRateCheck(){
     const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
     const isImage = /^image\//.test(file.type) || ['jpg','jpeg','png','webp','gif'].includes(ext);
     if(isImage){
-      downscaleImage(file, 900, 0.75).then(dataUrl=>{
+      downscaleImage(file, 1600, 0.88).then(dataUrl=>{
         f.billCopy = { fileName: file.name, ext:'jpg', dataUrl, kind:'image' };
         renderRateCheck();
       }).catch(()=> toast('Could not read that image', 'err'));
@@ -3204,6 +3204,28 @@ async function saveBill(){
   if(saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Save bill to report'; }
   if(f.collectedBy && f.collectedBy.trim()) lsAddToList('collectedByList', f.collectedBy.trim());
   if(f.verifiedBy && f.verifiedBy.trim()) lsAddToList('verifiedByList', f.verifiedBy.trim());
+
+  // Upload the bill copy to Drive BEFORE submitting the rows, so the row(s)
+  // carry a link anyone (Admin, another device, Dashboard) can open — a
+  // photo that only ever lived in this browser's local memory was never
+  // visible to anyone else, which is exactly the gap this closes.
+  let billCopyUrl = '', billCopyDownloadUrl = '';
+  if(backendConfigured() && STATE.billFiles[billUid]){
+    const bf = STATE.billFiles[billUid];
+    if(saveBtn){ saveBtn.disabled = true; saveBtn.textContent = 'Uploading bill copy…'; }
+    try{
+      const mimeType = bf.kind==='pdf' ? 'application/pdf' : 'image/jpeg';
+      const base64Data = bf.dataUrl.split(',')[1] || '';
+      const session0 = getSession();
+      const upRes = await backendPost({ action:'uploadBillCopy', code:session0.code, pin:session0.pin, billUid, fileName: bf.savedName, mimeType, base64Data });
+      if(upRes.ok){ billCopyUrl = upRes.url; billCopyDownloadUrl = upRes.downloadUrl||upRes.url; }
+      else toast(`Bill saved, but the photo upload failed (${upRes.error||'unknown error'}) — it won't be visible to others until resubmitted`, 'err');
+    } catch(e){
+      toast('Bill saved, but the photo upload failed (connection issue) — it won\'t be visible to others until resubmitted', 'err');
+    }
+    if(saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Save bill to report'; }
+  }
+  if(billCopyUrl) newRecords.forEach(r => { r.billCopyUrl = billCopyUrl; r.billCopyDownloadUrl = billCopyDownloadUrl; });
 
   if(backendConfigured()){
     const session = getSession();
