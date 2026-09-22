@@ -303,6 +303,20 @@ main{
 .vault-text h3{margin:0 0 4px;color:#fff;font-size:17px;font-family:var(--font-display);}
 .vault-text p{margin:0;color:#b6bac4;font-size:12.5px;max-width:440px;}
 .vault-hint{margin-top:8px;color:#33F0B4;font-size:11.5px;font-weight:700;letter-spacing:.02em;}
+.rw-category{margin-bottom:22px;border:1px solid var(--edge);border-radius:12px;overflow:hidden;}
+.rw-category-head{background:var(--panel-2);padding:10px 16px;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.03em;display:flex;align-items:center;gap:10px;}
+.rw-category-count{font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink-soft);font-size:11.5px;}
+.rw-product-row{padding:14px 16px;border-top:1px solid var(--edge-soft);display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+.rw-product-name{flex:0 0 220px;display:flex;flex-direction:column;gap:2px;}
+.rw-timeline{display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1;}
+.rw-tl-rate{font-family:var(--font-mono);font-weight:700;font-size:13px;text-align:center;background:var(--panel-2);border-radius:8px;padding:5px 10px;line-height:1.5;}
+.rw-tl-date{font-weight:400;font-size:9.5px;color:var(--ink-faint);}
+.rw-tl-arrow{font-family:var(--font-mono);font-weight:700;font-size:11px;padding:3px 7px;border-radius:100px;white-space:nowrap;}
+.rw-tl-arrow.up{background:var(--danger-soft, rgba(214,35,75,.12));color:var(--danger);}
+.rw-tl-arrow.down{background:var(--success-soft, rgba(15,168,107,.12));color:var(--success);}
+.rw-net{flex:0 0 auto;font-weight:700;font-size:12.5px;padding:5px 12px;border-radius:100px;}
+.rw-net.up{background:var(--danger-soft, rgba(214,35,75,.12));color:var(--danger);}
+.rw-net.down{background:var(--success-soft, rgba(15,168,107,.12));color:var(--success);}
 .stat-card:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(0,0,0,0.12);border-color:var(--edge);}
 .stat-value{transition:color .2s;}
 
@@ -524,7 +538,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v60';
+const APP_VERSION = 'v61';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -842,8 +856,9 @@ const TABS = [
   {id:'dashboard', label:'Dashboard', num:'00'},
   {id:'setup', label:'Data Setup', num:'01'},
   {id:'ratemaster', label:'Rate Master', num:'02'},
-  {id:'ratecheck', label:'Rate Check', num:'03'},
-  {id:'reports', label:'Reports', num:'04'},
+  {id:'ratewall', label:'Rate Wall', num:'03'},
+  {id:'ratecheck', label:'Rate Check', num:'04'},
+  {id:'reports', label:'Reports', num:'05'},
 ];
 
 function setupComplete(){ return STATE.dbMaster.length>0 && STATE.priceGroupMap.length>0 && STATE.rateRows.length>0; }
@@ -871,6 +886,7 @@ function renderShell(){
       <section class="view" id="view-dashboard"></section>
       <section class="view" id="view-setup"></section>
       <section class="view" id="view-ratemaster"></section>
+      <section class="view" id="view-ratewall"></section>
       <section class="view" id="view-ratecheck"></section>
       <section class="view" id="view-reports"></section>
     </main>
@@ -949,7 +965,7 @@ function renderTabs(){
   const strip = $('#tabStrip');
   const btnHost = $('#tabButtons');
   btnHost.innerHTML = TABS.map(t=>{
-    const locked = (t.id==='ratemaster' || t.id==='ratecheck' || t.id==='reports') && !setupComplete();
+    const locked = (t.id==='ratemaster' || t.id==='ratewall' || t.id==='ratecheck' || t.id==='reports') && !setupComplete();
     return `<button class="tab-btn ${STATE.currentTab===t.id?'active':''}" data-tab="${t.id}" ${locked?'disabled title="Finish Data Setup first"':''}>
       <span class="tab-num">${t.num}</span> ${t.label}
     </button>`;
@@ -980,7 +996,7 @@ function renderStatusStrip(){
 }
 
 function switchTab(id){
-  if((id==='ratemaster'||id==='ratecheck'||id==='reports') && !setupComplete()){
+  if((id==='ratemaster'||id==='ratewall'||id==='ratecheck'||id==='reports') && !setupComplete()){
     toast('Finish Data Setup (Steps 1–3) first', 'err');
     id = 'setup';
   }
@@ -991,6 +1007,7 @@ function switchTab(id){
   if(id==='dashboard') renderDashboard();
   if(id==='setup') renderSetup();
   if(id==='ratemaster') renderRateMaster();
+  if(id==='ratewall') renderRateWall();
   if(id==='ratecheck') renderRateCheck();
   if(id==='reports') renderReports();
   renderTabs();
@@ -2363,6 +2380,180 @@ function renderRMTable(){
     });
     cell.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); cell.blur(); } });
   });
+}
+/* ---------------- Rate Wall — which products' rates changed this month,
+   full timeline per product, category-wise ---------------- */
+let RW_FILTERS = {location:'', category:''};
+function computeRateChanges(){
+  const groups = {};
+  STATE.rateRows.forEach(r=>{
+    const key = r.location+'|'+r.productCode;
+    (groups[key] = groups[key]||[]).push(r);
+  });
+  const results = [];
+  Object.values(groups).forEach(list=>{
+    list.sort((a,b)=>a.effDate-b.effDate);
+    const changes = [];
+    for(let i=1;i<list.length;i++){
+      if(list[i].rate !== list[i-1].rate){
+        changes.push({
+          date: list[i].effDateStr, from: list[i-1].rate, to: list[i].rate,
+          diff: clamp2(list[i].rate-list[i-1].rate),
+          pct: clamp2(((list[i].rate-list[i-1].rate)/list[i-1].rate)*100),
+        });
+      }
+    }
+    if(changes.length){
+      const first = list[0], last = list[list.length-1];
+      results.push({
+        productCode: first.productCode, productName: first.productName, category: first.category||'—',
+        location: first.location, sku: first.sku,
+        firstRate: first.rate, firstDate: first.effDateStr,
+        lastRate: last.rate, lastDate: last.effDateStr,
+        netDiff: clamp2(last.rate-first.rate), netPct: clamp2(((last.rate-first.rate)/first.rate)*100),
+        changes,
+      });
+    }
+  });
+  return results;
+}
+function renderRateWall(){
+  const view = $('#view-ratewall');
+  const locs = Array.from(new Set(STATE.rateRows.map(r=>r.location))).sort();
+  view.innerHTML = `
+    <div class="view-head">
+      <div><h2>Rate Wall</h2><p class="sub">Only products whose rate actually moved show up here — the full timeline of when and by how much, straight from your uploaded rate files.</p></div>
+    </div>
+    <div class="filterbar">
+      <div class="field"><label>Location</label><select id="rwLoc"><option value="">All</option>${locs.map(l=>`<option ${RW_FILTERS.location===l?'selected':''}>${esc(l)}</option>`).join('')}</select></div>
+      <div class="field" id="rwCatField"><label>Category</label><select id="rwCat"><option value="">All</option></select></div>
+      <div class="field grow"><label>Search product / code</label><input type="text" id="rwSearch" placeholder="Type product name or code…" value="${esc(RW_FILTERS.q||'')}"></div>
+      <button class="btn accent" id="rwExport" style="align-self:flex-end;">⬇ Export Excel (Pro format)</button>
+    </div>
+    <div id="rwContent"></div>
+  `;
+  $('#rwLoc').addEventListener('change', e=>{ RW_FILTERS.location=e.target.value; renderRateWallContent(); });
+  $('#rwSearch').addEventListener('input', e=>{ RW_FILTERS.q=e.target.value; renderRateWallContent(); });
+  $('#rwExport').addEventListener('click', exportRateWallExcel);
+  renderRateWallContent();
+}
+function renderRateWallContent(){
+  const content = $('#rwContent');
+  let changed = computeRateChanges();
+  if(RW_FILTERS.location) changed = changed.filter(c=>c.location===RW_FILTERS.location);
+  // Populate the Category dropdown from whatever's actually in the changed
+  // set for this location (not the whole rate master) — no point offering
+  // a category filter option with zero rate-changes in it.
+  const catSel = $('#rwCat');
+  if(catSel){
+    const cats = Array.from(new Set(changed.map(c=>c.category))).sort();
+    catSel.innerHTML = `<option value="">All (${cats.length})</option>` + cats.map(c=>`<option ${RW_FILTERS.category===c?'selected':''}>${esc(c)}</option>`).join('');
+    catSel.onchange = e=>{ RW_FILTERS.category=e.target.value; renderRateWallContent(); };
+  }
+  if(RW_FILTERS.category) changed = changed.filter(c=>c.category===RW_FILTERS.category);
+  if(RW_FILTERS.q){
+    const q = RW_FILTERS.q.toLowerCase();
+    changed = changed.filter(c=> c.productName.toLowerCase().includes(q) || c.productCode.includes(q));
+  }
+  window.__rwFiltered = changed;
+  if(!changed.length){ content.innerHTML = emptyState('📈','No rate changes found','Either nothing changed for these filters, or your rate file only has a single date per product (nothing to compare against).'); return; }
+
+  const increases = changed.filter(c=>c.netDiff>0).length;
+  const decreases = changed.filter(c=>c.netDiff<0).length;
+  const byCategory = {};
+  changed.forEach(c=>{ (byCategory[c.category] = byCategory[c.category]||[]).push(c); });
+  const catNames = Object.keys(byCategory).sort();
+
+  content.innerHTML = `
+    <div class="grid-4" style="margin-bottom:18px;">
+      <div class="stat-card"><div class="stat-label">Products Changed</div><div class="stat-value">${changed.length}</div></div>
+      <div class="stat-card"><div class="stat-label">Rate Increased</div><div class="stat-value" style="color:var(--danger);">${increases}</div></div>
+      <div class="stat-card"><div class="stat-label">Rate Decreased</div><div class="stat-value" style="color:var(--success);">${decreases}</div></div>
+      <div class="stat-card"><div class="stat-label">Total Rate Events</div><div class="stat-value">${changed.reduce((s,c)=>s+c.changes.length,0)}</div></div>
+    </div>
+    ${catNames.map(cat=>`
+      <div class="rw-category">
+        <div class="rw-category-head">${esc(cat)} <span class="rw-category-count">${byCategory[cat].length} product${byCategory[cat].length===1?'':'s'} changed</span></div>
+        ${byCategory[cat].map(p=>`
+          <div class="rw-product-row">
+            <div class="rw-product-name">
+              <b>${esc(p.productName)}</b>
+              <span class="small-muted" style="font-family:var(--font-mono);">${esc(p.productCode)} · ${esc(p.location)}</span>
+            </div>
+            <div class="rw-timeline">
+              <span class="rw-tl-rate">₹${fmtMoney(p.firstRate)}<br><span class="rw-tl-date">${esc(p.firstDate)}</span></span>
+              ${p.changes.map(ch=>`
+                <span class="rw-tl-arrow ${ch.diff>0?'up':'down'}">${ch.diff>0?'↑':'↓'} ${ch.diff>0?'+':''}${ch.pct}%</span>
+                <span class="rw-tl-rate">₹${fmtMoney(ch.to)}<br><span class="rw-tl-date">${esc(ch.date)}</span></span>
+              `).join('')}
+            </div>
+            <div class="rw-net ${p.netDiff>0?'up':'down'}">Net: ${p.netDiff>0?'+':''}₹${fmtMoney(p.netDiff)} (${p.netPct>0?'+':''}${p.netPct}%)</div>
+          </div>
+        `).join('')}
+      </div>
+    `).join('')}
+  `;
+}
+async function exportRateWallExcel(){
+  const changed = window.__rwFiltered || computeRateChanges();
+  if(!changed.length){ toast('Nothing to export — no rate changes in the current filters', 'err'); return; }
+  const btn = $('#rwExport');
+  const origText = btn.innerHTML;
+  btn.innerHTML = `<span class="loader"></span> Building workbook…`;
+  btn.disabled = true;
+  try{
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Rate Ledger'; wb.created = new Date();
+    const INK='FF1E2438', DANGER='FFB23A2E', DANGERSOFT='FFF3DEDA', SUCCESSSOFT='FFDCEBE0', SUCCESS='FF1E7A4C', WHITE='FFFFFFFF';
+    const ws = wb.addWorksheet('Rate Change Timeline', {views:[{state:'frozen', ySplit:5}]});
+    const cols = [
+      {header:'Category', key:'category', width:20}, {header:'Product', key:'product', width:32}, {header:'Product Code', key:'code', width:14},
+      {header:'Location', key:'location', width:14}, {header:'Change Date', key:'date', width:14},
+      {header:'Old Rate (₹/kg)', key:'from', width:15}, {header:'New Rate (₹/kg)', key:'to', width:15},
+      {header:'Diff (₹/kg)', key:'diff', width:13}, {header:'Change %', key:'pct', width:11},
+    ];
+    ws.columns = cols.map(c=>({key:c.key, width:c.width}));
+    ws.mergeCells(1,1,1,cols.length);
+    ws.getCell(1,1).value = 'RATE LEDGER — RATE CHANGE TIMELINE';
+    ws.getCell(1,1).font = {size:14, bold:true, color:{argb:WHITE}};
+    ws.getCell(1,1).fill = {type:'pattern', pattern:'solid', fgColor:{argb:INK}};
+    ws.getRow(1).height = 24;
+    const totalEvents = changed.reduce((s,c)=>s+c.changes.length,0);
+    ws.mergeCells(2,1,2,cols.length);
+    ws.getCell(2,1).value = `Generated ${new Date().toLocaleDateString('en-IN')}  ·  ${changed.length} products changed  ·  ${totalEvents} rate-change events`;
+    ws.getCell(2,1).font = {size:10, italic:true, color:{argb:'FF6B6E76'}};
+    const headerRow = ws.getRow(4);
+    cols.forEach((c,i)=>{ headerRow.getCell(i+1).value = c.header; });
+    headerRow.eachCell(cell=>{ cell.font={bold:true,color:{argb:WHITE}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:INK}}; });
+    headerRow.height = 20;
+    let r = 6;
+    // Sorted by Category then Product, so each product's own change-events
+    // stay grouped together and read top-to-bottom as a real timeline.
+    const sorted = changed.slice().sort((a,b)=> a.category.localeCompare(b.category) || a.productName.localeCompare(b.productName));
+    sorted.forEach(p=>{
+      p.changes.forEach(ch=>{
+        const row = ws.getRow(r);
+        const fill = ch.diff>0 ? DANGERSOFT : SUCCESSSOFT;
+        const font = ch.diff>0 ? DANGER : SUCCESS;
+        const vals = { category:p.category, product:p.productName, code:p.productCode, location:p.location, date:ch.date, from:ch.from, to:ch.to, diff:ch.diff, pct:(ch.pct>0?'+':'')+ch.pct+'%' };
+        cols.forEach((c,i)=>{ row.getCell(i+1).value = vals[c.key]; row.getCell(i+1).fill={type:'pattern',pattern:'solid',fgColor:{argb:fill}}; });
+        row.getCell(8).font = {bold:true,color:{argb:font}}; row.getCell(9).font = {bold:true,color:{argb:font}};
+        ['from','to','diff'].forEach(k=>{ const ci=cols.findIndex(c=>c.key===k)+1; row.getCell(ci).numFmt='#,##0.00'; });
+        r++;
+      });
+    });
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `Rate_Change_Timeline_${new Date().toISOString().slice(0,10)}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch(e){
+    toast('Could not build the Rate Wall export — try again', 'err');
+  } finally {
+    btn.innerHTML = origText; btn.disabled = false;
+  }
 }
 function emptyState(icon,title,body){
   return `<div class="empty-state"><div class="em-icon">${icon}</div><h3>${esc(title)}</h3><p>${esc(body)}</p></div>`;
