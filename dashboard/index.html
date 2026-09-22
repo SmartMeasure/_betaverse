@@ -35,6 +35,7 @@ h1,h2,h3{font-family:var(--font-display);font-weight:600;margin:0;color:var(--in
 .brand{display:flex;align-items:center;gap:12px;}
 .brand-mark{width:42px;height:42px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:16px;background:var(--panel-3);border:1px solid var(--edge);}
 .brand-text h1{font-size:20px;}
+.version-badge{display:inline-block;vertical-align:middle;font-size:10.5px;font-weight:700;font-family:var(--font-mono);background:var(--panel-2);color:var(--ink-soft);border:1px solid var(--edge);border-radius:5px;padding:2px 7px;margin-left:6px;letter-spacing:.02em;}
 .brand-text p{margin:2px 0 0;font-size:12px;color:var(--ink-soft);}
 .status-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--edge);border-radius:100px;background:var(--panel);font-size:11.5px;color:var(--ink-soft);}
 .status-dot{width:6px;height:6px;border-radius:50%;background:var(--success);}
@@ -51,6 +52,8 @@ h1,h2,h3{font-family:var(--font-display);font-weight:600;margin:0;color:var(--in
 .stat-value{font-family:var(--font-mono);font-size:26px;font-weight:600;margin-top:6px;}
 .stat-note{font-size:11.5px;color:var(--ink-faint);margin-top:4px;}
 .field{margin-bottom:14px;}
+.bill-copy-link{color:var(--accent);text-decoration:none;font-weight:600;font-size:12px;}
+.bill-copy-link:hover{text-decoration:underline;}
 .verifier-code-wrap{position:relative;}
 .verifier-code-wrap input{width:100%;padding-right:26px;}
 .eye-toggle{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:transparent;border:none;cursor:pointer;font-size:12px;padding:2px 4px;line-height:1;color:var(--ink-faint);}
@@ -118,6 +121,10 @@ td.num{font-family:var(--font-mono);text-align:right;}
 <script>
 /* ---------------- Backend config ----------------
    Same Web App URL as your Rate Ledger app — paste it here too. */
+// Bump this on every delivered file so the running app itself shows which
+// build is loaded — matches the same badge pattern in Rate Ledger, so a
+// screenshot of either app always confirms which version is actually open.
+const APP_VERSION = 'v3';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 
 /* Shared session with the Rate Ledger app: if this Dashboard is opened from
@@ -286,7 +293,7 @@ function renderShell(){
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark">RL</div>
-        <div class="brand-text"><h1>Rate Ledger</h1><p>Dashboard</p></div>
+        <div class="brand-text"><h1>Rate Ledger <span class="version-badge" title="Build version — check this matches what support/chat referenced">${APP_VERSION}</span></h1><p>Dashboard</p></div>
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
         <div class="status-chip"><span class="status-dot"></span>${esc(s.name)} (${esc(s.role)})</div>
@@ -510,17 +517,23 @@ function applySubmissionFilters(){
   window.__subFilteredRows = rows;
   renderSubmissionsTable(rows);
 }
+function billCopyLinkCell(r){
+  if(!r.BillCopyURL) return '<span class="small-muted">—</span>';
+  const dl = r.BillCopyDownloadURL || r.BillCopyURL;
+  return `<a href="${esc(r.BillCopyURL)}" target="_blank" rel="noopener" class="bill-copy-link">📷 View</a> · <a href="${esc(dl)}" class="bill-copy-link" download>⬇</a>`;
+}
 function renderSubmissionsTable(rows){
   const content = $('#subInner');
   if(!rows.length){ content.innerHTML = '<div class="empty-state">No submissions match these filters.</div>'; return; }
-  const cols = ['Timestamp','AuditorCode','AuditorName','VerifiedBy','DBCode','DBName','Location','Retailer','BillDate','ProductName','ProductCode','CompanyRate','InvoiceRate','VariancePct','Status','OverchargeAmt','UnderchargeAmt'];
+  const cols = ['Timestamp','AuditorCode','AuditorName','VerifiedBy','DBCode','DBName','Location','Retailer','BillDate','ProductName','ProductCode','CompanyRate','InvoiceRate','VariancePct','Status','OverchargeAmt','UnderchargeAmt','BillCopy'];
   let lastAuditor = null;
   content.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
+    <thead><tr>${cols.map(c=>`<th>${c==='BillCopy'?'Bill Copy':c}</th>`).join('')}</tr></thead>
     <tbody>${rows.map(r=>{
       const newGroup = r.AuditorName!==lastAuditor;
       lastAuditor = r.AuditorName;
       return `<tr class="${newGroup?'auditor-group-start':''}">${cols.map(c=>{
+      if(c==='BillCopy') return `<td>${billCopyLinkCell(r)}</td>`;
       if(c==='Status') return `<td>${statusBadge(r[c])}</td>`;
       if(['CompanyRate','InvoiceRate','OverchargeAmt','UnderchargeAmt'].includes(c)) return `<td class="num">${fmtMoney(r[c])}</td>`;
       if(c==='VariancePct') return `<td class="num">${r[c]!=null && r[c]!==''?r[c]+'%':'—'}</td>`;
@@ -568,7 +581,7 @@ async function exportProExcel(rows, filenamePrefix, viewLabel){
     {header:'Over/Undercharge (₹)', key:'DiffAmountLabel', width:16}, {header:'Overcharge Amt', key:'OverchargeAmt', width:15},
     {header:'Undercharge Amt', key:'UnderchargeAmt', width:16}, {header:'Wrong GST Charged (₹)', key:'GSTMismatchLabel', width:18},
     {header:'Collected By', key:'CollectedBy', width:20}, {header:'Designation', key:'Designation', width:16},
-    {header:'Verified By', key:'VerifiedBy', width:20}, {header:'Submission Date', key:'SubmissionDate', width:15},
+    {header:'Verified By', key:'VerifiedBy', width:20}, {header:'Submission Date', key:'SubmissionDate', width:15}, {header:'Bill Copy', key:'BillCopyURL', width:16},
   ];
   ws.columns = cols.map(c=>({key:c.key, width:c.width}));
   ws.mergeCells(1,1,1,cols.length);
@@ -611,7 +624,12 @@ async function exportProExcel(rows, filenamePrefix, viewLabel){
     cols.forEach((c,i)=>{
       let v = rowData[c.key];
       if(c.key==='SubmissionDate' && v) v = String(v).slice(0,19).replace('T',' ');
-      excelRow.getCell(i+1).value = (v===undefined||v==='') ? null : v;
+      if(c.key==='BillCopyURL' && v){
+        excelRow.getCell(i+1).value = { text:'View photo', hyperlink: v };
+        excelRow.getCell(i+1).font = { color:{argb:'FF2A5FD9'}, underline:true };
+      } else {
+        excelRow.getCell(i+1).value = (v===undefined||v==='') ? null : v;
+      }
       excelRow.getCell(i+1).fill = {type:'pattern', pattern:'solid', fgColor:{argb: gstMismatch ? (GSTMISMATCHSOFT) : fillColor}};
     });
     ['CompanyRate','CompanyRatePerPc','InvoiceRate','BlendedRatePerPc','TotalInvoiced','OverchargeAmt','UnderchargeAmt','DiffPerKg','DiffPerPc','DiffPerBag'].forEach(k=>{
@@ -845,11 +863,11 @@ function renderMyVerifiedTable(rows){
   if(!wrap) return;
   if(!rows.length){ wrap.innerHTML = '<div class="empty-state">No bills verified against your name in this period yet.</div>'; return; }
   wrap.innerHTML = `<div class="table-wrap"><table>
-      <thead><tr><th>Bill Date</th><th>Retailer</th><th>Product</th><th>Collected By</th><th class="num">Company Rate</th><th class="num">Invoice Rate</th><th>Status</th></tr></thead>
+      <thead><tr><th>Bill Date</th><th>Retailer</th><th>Product</th><th>Collected By</th><th class="num">Company Rate</th><th class="num">Invoice Rate</th><th>Status</th><th>Bill Copy</th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
         <td>${esc(r.BillDate)}</td><td>${esc(r.Retailer)}</td><td>${esc(r.ProductName)}</td><td>${esc(r.CollectedBy)}</td>
         <td class="num">${fmtMoney(r.CompanyRate)}</td><td class="num">${fmtMoney(r.InvoiceRate)}</td>
-        <td>${statusBadge(r.Status)}</td>
+        <td>${statusBadge(r.Status)}</td><td>${billCopyLinkCell(r)}</td>
       </tr>`).join('')}</tbody>
     </table></div>`;
 }
@@ -939,11 +957,11 @@ function renderMyDataTable(rows){
   if(!wrap) return;
   if(!rows.length){ wrap.innerHTML = '<div class="empty-state">No submissions in this period yet.</div>'; return; }
   wrap.innerHTML = `<div class="table-wrap"><table>
-      <thead><tr><th>Bill Date</th><th>Retailer</th><th>Product</th><th class="num">Company Rate</th><th class="num">Invoice Rate</th><th>Status</th><th>Verified By</th></tr></thead>
+      <thead><tr><th>Bill Date</th><th>Retailer</th><th>Product</th><th class="num">Company Rate</th><th class="num">Invoice Rate</th><th>Status</th><th>Verified By</th><th>Bill Copy</th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
         <td>${esc(r.BillDate)}</td><td>${esc(r.Retailer)}</td><td>${esc(r.ProductName)}</td>
         <td class="num">${fmtMoney(r.CompanyRate)}</td><td class="num">${fmtMoney(r.InvoiceRate)}</td>
-        <td>${statusBadge(r.Status)}</td><td>${esc(r.VerifiedBy)}</td>
+        <td>${statusBadge(r.Status)}</td><td>${esc(r.VerifiedBy)}</td><td>${billCopyLinkCell(r)}</td>
       </tr>`).join('')}</tbody>
     </table></div>`;
 }
