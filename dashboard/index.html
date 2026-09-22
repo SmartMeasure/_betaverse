@@ -539,8 +539,38 @@ function simpleBarListHtml(items, isCurrency){
 }
 
 /* ==================== ALL SUBMISSIONS (Admin) ==================== */
+// Parses a 'DD-MM-YYYY' BillDate string into a comparable Date (local
+// midnight) — mirrors Code.gs's own parseDMY_ so client-side filtering of
+// the background-prefetched full dataset gives identical results to what
+// the server would have returned for the same range.
+function parseDMYClient(s){
+  if(!s) return null;
+  const m = String(s).match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if(!m) return null;
+  return new Date(Number(m[3]), Number(m[2])-1, Number(m[1]));
+}
+function filterRowsByDateClient(rows, fromStr, toStr){
+  if(!fromStr && !toStr) return rows;
+  const from = fromStr ? new Date(fromStr+'T00:00:00') : null;
+  const to = toStr ? new Date(toStr+'T00:00:00') : null;
+  return rows.filter(r=>{
+    const bd = parseDMYClient(r.BillDate);
+    if(!bd) return true; // keep rows with an unparseable date rather than silently dropping them
+    if(from && bd < from) return false;
+    if(to && bd > to) return false;
+    return true;
+  });
+}
 async function renderSubmissions(){
   const body = $('#tabBody');
+  // First-ever visit to this tab defaults to "This Week" — small, fast — and
+  // a full background prefetch is kicked off right after, so switching to
+  // Month/All Time later is instant (filtered client-side) instead of
+  // waiting on the server again for every range change.
+  if(window.__subFrom===undefined && window.__subTo===undefined){
+    const now = new Date(); const day = now.getDay()||7; const mon = new Date(now); mon.setDate(now.getDate()-day+1);
+    window.__subFrom = mon.toISOString().slice(0,10); window.__subTo = now.toISOString().slice(0,10);
+  }
   body.innerHTML = `
     <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
       ${dateRangeBarHtml('sub', window.__subFrom, window.__subTo)}
@@ -554,15 +584,29 @@ async function renderSubmissions(){
   `;
   wireDateRangeBar('sub', ()=>{
     window.__subFrom = $('#subFrom').value; window.__subTo = $('#subTo').value;
-    renderSubmissions();
+    applyRangeToSubmissions();
   });
   wireQuickRange('sub', (from,to)=>{
     window.__subFrom = from; window.__subTo = to;
-    renderSubmissions();
+    applyRangeToSubmissions();
   });
+  await applyRangeToSubmissions(true);
+}
+// Renders whichever range is currently selected — instantly from the
+// background-prefetched full dataset if it's ready, otherwise via the
+// normal per-range server fetch (same as before this existed).
+async function applyRangeToSubmissions(isInitialLoad){
   const s = getSession();
+  if(window.__subFullDataset){
+    const filtered = filterRowsByDateClient(window.__subFullDataset, window.__subFrom||'', window.__subTo||'');
+    $('#subContent').innerHTML = `<div id="subInner"></div>`;
+    paintSubmissions(filtered, false);
+    if(isInitialLoad) prefetchAllSubmissionsInBackground(s);
+    return;
+  }
   const params = { action:'alldata', code:s.code, pin:s.pin, fromDate: window.__subFrom||'', toDate: window.__subTo||'' };
   const stop = startUltimateLoader('subLoader');
+  $('#subContent').innerHTML = ultimateLoaderHtml('subLoader');
   let painted = false;
   await cachedBackendGet(params,
     (data)=>{ painted = true; stop('Loaded from local cache'); paintSubmissions(data.rows||[], true); },
@@ -571,8 +615,23 @@ async function renderSubmissions(){
       if(!fresh.ok){ if(!painted) $('#subContent').innerHTML = `<div class="empty-state">${esc(fresh.error||'Could not load data.')}</div>`; return; }
       stop();
       paintSubmissions(fresh.rows, false);
+      if(isInitialLoad) prefetchAllSubmissionsInBackground(s);
     }
   );
+}
+// Fires once per tab-visit, right after the fast initial (This Week) paint
+// — pulls the FULL dataset quietly in the background. Once it lands, any
+// later Today/Week/Month/All Time/custom-range change is filtered from
+// this in memory instead of hitting the server again.
+function prefetchAllSubmissionsInBackground(s){
+  if(window.__subPrefetching || window.__subFullDataset) return;
+  window.__subPrefetching = true;
+  backendGet({ action:'alldata', code:s.code, pin:s.pin, fromDate:'', toDate:'' })
+    .then(res=>{
+      window.__subPrefetching = false;
+      if(res && res.ok){ window.__subFullDataset = res.rows; }
+    })
+    .catch(()=>{ window.__subPrefetching = false; });
 }
 function paintSubmissions(rows, isStale){
   window.__subRows = rows;
