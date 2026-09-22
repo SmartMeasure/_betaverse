@@ -124,8 +124,21 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v4';
-const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
+const APP_VERSION = 'v5';
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
+const BACKEND_URL_KEY = 'rateLedger_backendUrl';
+// The Web App URL is now editable from the login screen's "Connection
+// settings" (a wrong or outdated URL is a common cause of "login doesn't
+// work" — this lets it be fixed without touching the file) rather than only
+// being a hardcoded constant. Whatever was last saved here wins; otherwise
+// the default above is used.
+let WEB_APP_URL = (function(){
+  try{ return localStorage.getItem(BACKEND_URL_KEY) || DEFAULT_WEB_APP_URL; }catch(e){ return DEFAULT_WEB_APP_URL; }
+})();
+function setBackendUrl(url){
+  WEB_APP_URL = url;
+  try{ localStorage.setItem(BACKEND_URL_KEY, url); }catch(e){}
+}
 
 /* Shared session with the Rate Ledger app: if this Dashboard is opened from
    the same browser/origin as Rate Ledger, a user already logged in there
@@ -135,13 +148,30 @@ function getSession(){ try{ return JSON.parse(localStorage.getItem(SESSION_KEY)|
 function setSession(s){ try{ localStorage.setItem(SESSION_KEY, JSON.stringify(s)); }catch(e){} }
 function clearSession(){ try{ localStorage.removeItem(SESSION_KEY); }catch(e){} }
 
+// A hung request (dead deployment, bad network) used to leave the "ultimate
+// loader" stuck at 90% forever with no error, since fetch() has no built-in
+// timeout — nothing ever rejected, so the .catch() never fired. This aborts
+// after 20s and turns it into a proper error instead.
+const BACKEND_TIMEOUT_MS = 20000;
+async function fetchWithTimeout(url, options){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), BACKEND_TIMEOUT_MS);
+  try{
+    return await fetch(url, {...options, signal: controller.signal});
+  } catch(e){
+    if(e.name === 'AbortError') throw new Error('Request timed out — the Apps Script deployment may be asleep or unreachable. Try again in a few seconds.');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 async function backendPost(payload){
-  const res = await fetch(WEB_APP_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(payload) });
+  const res = await fetchWithTimeout(WEB_APP_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(payload) });
   return res.json();
 }
 async function backendGet(params){
   const qs = new URLSearchParams(params).toString();
-  const res = await fetch(`${WEB_APP_URL}?${qs}`);
+  const res = await fetchWithTimeout(`${WEB_APP_URL}?${qs}`);
   return res.json();
 }
 /* ---------------- Local cache: instant repeat-opens ----------------
@@ -170,7 +200,16 @@ function writeCache(params, data){
 async function cachedBackendGet(params, onFirst, onFresh){
   const cached = readCache(params);
   if(cached) onFirst(cached.data, cached.ageMs);
-  const fresh = await backendGet(params);
+  let fresh;
+  try{
+    fresh = await backendGet(params);
+  } catch(e){
+    // A thrown error here (timeout, network down, bad JSON) used to be an
+    // unhandled rejection — onFresh never fired, so the loader never got its
+    // stop() call and just sat at 90% forever with no explanation. Turn it
+    // into the same {ok:false, error} shape callers already know how to show.
+    fresh = { ok:false, error: e.message || 'Could not reach the server.' };
+  }
   if(fresh.ok) writeCache(params, fresh);
   onFresh(fresh, !!cached);
 }
@@ -252,9 +291,58 @@ function renderLogin(errorMsg){
         </div>
         ${errorMsg ? `<p style="color:var(--danger);font-size:12.5px;margin:-6px 0 12px;">${esc(errorMsg)}</p>` : ''}
         <button class="btn accent wide" id="loginBtn">Log In</button>
+        <div style="margin-top:16px;border-top:1px solid var(--edge);padding-top:12px;">
+          <button type="button" id="connToggle" style="background:none;border:none;padding:0;color:var(--ink-faint);font-size:11.5px;cursor:pointer;text-decoration:underline;">⚙ Connection settings</button>
+          <div id="connPanel" style="display:none;margin-top:10px;">
+            <div class="field">
+              <label>Google Apps Script Web App URL</label>
+              <input type="text" id="connUrl" value="${esc(WEB_APP_URL)}" placeholder="https://script.google.com/macros/s/AKfyc.../exec" style="font-family:var(--font-mono);font-size:11.5px;">
+            </div>
+            <div class="small-muted" style="margin-bottom:8px;">This must be the <b>Web app</b> URL from Deploy → Manage deployments (ends in <code>/exec</code>) — not a Library URL (<code>/macros/library/...</code>), which won't work here at all.</div>
+            <button type="button" class="btn wide" id="connEstablish">Establish Connection</button>
+            <div id="connResult" style="margin-top:8px;font-size:12px;"></div>
+          </div>
+        </div>
       </div>
     </div>
   `;
+  const connToggle = $('#connToggle');
+  const connPanel = $('#connPanel');
+  connToggle.addEventListener('click', ()=>{
+    connPanel.style.display = connPanel.style.display==='none' ? 'block' : 'none';
+  });
+  $('#connEstablish').addEventListener('click', async ()=>{
+    const url = $('#connUrl').value.trim();
+    const resultEl = $('#connResult');
+    if(!url){ resultEl.innerHTML = '<span style="color:var(--danger);">Paste a URL first.</span>'; return; }
+    if(url.includes('/macros/library/')){
+      resultEl.innerHTML = '<span style="color:var(--danger);">⚠ That\'s a Library URL — it won\'t work for data. You need the <b>Web app</b> URL (ends in /exec) from Deploy → Manage deployments.</span>';
+      return;
+    }
+    if(!url.includes('/macros/s/') || !url.endsWith('/exec')){
+      resultEl.innerHTML = '<span style="color:var(--danger);">⚠ Doesn\'t look like a Web app URL — it should look like https://script.google.com/macros/s/AKfyc.../exec</span>';
+      return;
+    }
+    const btn = $('#connEstablish');
+    btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Testing connection…';
+    const prevUrl = WEB_APP_URL;
+    WEB_APP_URL = url; // test with the candidate URL directly
+    try{
+      const res = await backendGet({ action:'verifiers' });
+      if(res && res.ok !== false){
+        setBackendUrl(url);
+        resultEl.innerHTML = '<span style="color:var(--success);">✓ Connected — sheet is reachable. You can log in now.</span>';
+      } else {
+        WEB_APP_URL = prevUrl;
+        resultEl.innerHTML = `<span style="color:var(--danger);">✗ Reached the URL, but it returned an error: ${esc(res && res.error || 'unknown')}</span>`;
+      }
+    } catch(e){
+      WEB_APP_URL = prevUrl;
+      resultEl.innerHTML = '<span style="color:var(--danger);">✗ Could not reach this URL at all — check it\'s deployed with "Anyone" access and try again.</span>';
+    } finally {
+      btn.disabled = false; btn.innerHTML = 'Establish Connection';
+    }
+  });
   const doLogin = async ()=>{
     const code = $('#loginCode').value.trim();
     const pin = $('#loginPin').value;
@@ -264,7 +352,7 @@ function renderLogin(errorMsg){
       const res = await backendPost({ action:'login', code, pin });
       if(res.ok){ setSession({code:res.code, pin, name:res.name, role:res.role, designation:res.designation}); boot(); }
       else renderLogin(res.error || 'Login failed.');
-    }catch(e){ renderLogin('Could not reach the server — check your connection.'); }
+    }catch(e){ renderLogin(e.message || 'Could not reach the server — check your connection.'); }
   };
   $('#loginBtn').addEventListener('click', doLogin);
   $('#loginPin').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
@@ -339,34 +427,21 @@ async function renderAnalytics(){
   const body = $('#tabBody');
   body.innerHTML = `
     ${dateRangeBarHtml('an', window.__anFrom, window.__anTo)}
-    <div id="anContent">${ultimateLoaderHtml('anLoader')}</div>
+    <div id="anContent"><div class="empty-state">Loading analytics…</div></div>
   `;
   wireDateRangeBar('an', ()=>{
     window.__anFrom = $('#anFrom').value; window.__anTo = $('#anTo').value;
     renderAnalytics();
   });
   const s = getSession();
-  const params = { action:'alldata', code:s.code, pin:s.pin, fromDate: window.__anFrom||'', toDate: window.__anTo||'' };
-  const stop = startUltimateLoader('anLoader');
-  let painted = false;
-  await cachedBackendGet(params,
-    (data)=>{
-      painted = true; stop('Loaded from local cache');
-      $('#anContent').innerHTML = `<div class="stale-banner"><span class="spin"></span> Refreshing in the background…</div><div id="anInner"></div>`;
-      renderAnalyticsContent(data.rows||[]);
-    },
-    (fresh)=>{
-      if(document.querySelector('.tab-btn.active')?.dataset.tab !== 'analytics') return;
-      if(!fresh.ok){ if(!painted) $('#anContent').innerHTML = `<div class="empty-state">${esc(fresh.error||'Could not load data.')}</div>`; return; }
-      stop();
-      $('#anContent').innerHTML = `<div id="anInner"></div>`;
-      renderAnalyticsContent(fresh.rows);
-    }
-  );
+  const res = await backendGet({ action:'alldata', code:s.code, pin:s.pin, fromDate: window.__anFrom||'', toDate: window.__anTo||'' });
+  if(!res.ok){ $('#anContent').innerHTML = `<div class="empty-state">${esc(res.error||'Could not load data.')}</div>`; return; }
+  const rows = res.rows;
+  renderAnalyticsContent(rows);
 }
 
 function renderAnalyticsContent(rows){
-  const content = $('#anInner') || $('#anContent');
+  const content = $('#anContent');
   destroyCharts();
   if(!rows.length){ content.innerHTML = '<div class="empty-state">No submissions in this period yet.</div>'; return; }
 
