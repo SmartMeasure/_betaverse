@@ -206,7 +206,8 @@ input,select,textarea{font-family:var(--font-body);}
 .card-summary .cs-item b{color:var(--ink);font-family:var(--font-mono);}
 .card-summary .cs-status{margin-left:auto;display:flex;align-items:center;gap:8px;}
 .diff-breakdown{font-family:var(--font-mono);font-size:11.5px;font-weight:700;background:var(--panel-3);padding:3px 9px;border-radius:100px;}
-.rate-incl-gst-hint{color:var(--negligible);font-family:var(--font-mono);margin-top:2px;}
+.rate-incl-gst-hint{color:var(--ink);background:var(--negligible-soft, rgba(42,95,217,0.08));border:1px solid var(--negligible, #2A5FD9);border-radius:6px;padding:4px 8px;margin-top:4px;font-size:12px;font-family:var(--font-mono);}
+.rate-basis-tag{font-weight:600;font-size:10.5px;color:var(--ink-soft);text-transform:none;letter-spacing:0;}
 .gst-toggle{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink-soft);margin-top:8px;cursor:pointer;user-select:none;}
 .gst-toggle input{width:14px;height:14px;cursor:pointer;}
 .gst-exception{margin-top:8px;}
@@ -523,7 +524,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v58';
+const APP_VERSION = 'v60';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -2625,7 +2626,7 @@ function renderRateCheck(){
     const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
     const isImage = /^image\//.test(file.type) || ['jpg','jpeg','png','webp','gif'].includes(ext);
     if(isImage){
-      downscaleImage(file, 1600, 0.88).then(dataUrl=>{
+      downscaleImage(file, 1100, 0.78).then(dataUrl=>{
         f.billCopy = { fileName: file.name, ext:'jpg', dataUrl, kind:'image' };
         renderRateCheck();
       }).catch(()=> toast('Could not read that image', 'err'));
@@ -2755,9 +2756,9 @@ function renderComponentRow(li, liIdx, comp, compIdx, canRemove){
       <input type="number" step="any" id="li${liIdx}_c${compIdx}_qty" value="${esc(qtyVal)}" placeholder="qty" class="${resolved.computed==='qty'?'auto-filled':''}">
     </div>
     <div class="component-field">
-      <label>Rate (per ${esc(comp.uom)})</label>
+      <label>Rate (per ${esc(comp.uom)})${li.gstPct>0 ? ` <span class="rate-basis-tag">${li.amountExcludesGst?'— you\'re entering EXCL. GST':'— you\'re entering INCL. GST'}</span>` : ''}</label>
       <input type="number" step="any" id="li${liIdx}_c${compIdx}_rate" value="${esc(rateVal)}" placeholder="rate" class="${resolved.computed==='rate'?'auto-filled':''}">
-      ${(li.gstPct>0 && rateVal!=='' && !isNaN(Number(rateVal))) ? `<div class="small-muted rate-incl-gst-hint" id="li${liIdx}_c${compIdx}_rateHint">${li.amountExcludesGst ? `= ₹${fmtMoney(Number(rateVal)*(1+li.gstPct/100))}/${esc(comp.uom)} INCL. GST — check against invoice's "Net Amt / Rate (Incl. of Tax)"` : `= ₹${fmtMoney(Number(rateVal)/(1+li.gstPct/100))}/${esc(comp.uom)} EXCL. GST — check against invoice's plain "Rate" column`}</div>` : `<div class="small-muted rate-incl-gst-hint" id="li${liIdx}_c${compIdx}_rateHint"></div>`}
+      ${(li.gstPct>0 && rateVal!=='' && !isNaN(Number(rateVal))) ? `<div class="rate-incl-gst-hint" id="li${liIdx}_c${compIdx}_rateHint">${li.amountExcludesGst ? `→ that's <b>₹${fmtMoney(Number(rateVal)*(1+li.gstPct/100))}/${esc(comp.uom)} INCL. GST</b> — match against invoice's "Net Amt / Rate (Incl. of Tax)"` : `→ that's <b>₹${fmtMoney(Number(rateVal)/(1+li.gstPct/100))}/${esc(comp.uom)} EXCL. GST</b> — match against invoice's plain "Rate" column`}</div>` : `<div class="rate-incl-gst-hint" id="li${liIdx}_c${compIdx}_rateHint"></div>`}
     </div>
     <div class="component-field">
       <label>Bill Amount (₹)</label>
@@ -2977,11 +2978,11 @@ function updateComponentRow(liIdx, compIdx){
   if(rateHintEl){
     const rNow = rawR!=null ? rawR : (resolved.computed==='rate' ? resolved.rate : null);
     if(li.gstPct>0 && rNow!=null){
-      rateHintEl.textContent = li.amountExcludesGst
-        ? `= ₹${fmtMoney(rNow*(1+li.gstPct/100))}/${comp.uom} INCL. GST — check against invoice's "Net Amt / Rate (Incl. of Tax)"`
-        : `= ₹${fmtMoney(rNow/(1+li.gstPct/100))}/${comp.uom} EXCL. GST — check against invoice's plain "Rate" column`;
+      rateHintEl.innerHTML = li.amountExcludesGst
+        ? `→ that's <b>₹${fmtMoney(rNow*(1+li.gstPct/100))}/${comp.uom} INCL. GST</b> — match against invoice's "Net Amt / Rate (Incl. of Tax)"`
+        : `→ that's <b>₹${fmtMoney(rNow/(1+li.gstPct/100))}/${comp.uom} EXCL. GST</b> — match against invoice's plain "Rate" column`;
     } else {
-      rateHintEl.textContent = '';
+      rateHintEl.innerHTML = '';
     }
   }
   const summaryEl = $(`#liSummary${liIdx}`);
@@ -3081,6 +3082,21 @@ function showProductResults(i, q){
   const billDate = isoToDMYDate(f.billDateISO);
   const qNorm = q.toUpperCase().trim().replace(/\s+/g,' ');
   let pool = STATE.rateRows.filter(r=> r.location===f.location && r.effDate<=billDate);
+  // A location with SOME rate data, but none dated on/before this bill's
+  // date, is a completely different problem from "no product matches this
+  // search" — the bill date is probably wrong (before the rate file even
+  // starts), not the search query. Flag that distinctly and specifically,
+  // instead of a generic "no product found" that looks like a typo issue.
+  if(!pool.length){
+    const anyForLocation = STATE.rateRows.filter(r=> r.location===f.location);
+    if(anyForLocation.length){
+      const earliest = anyForLocation.reduce((min,r)=> r.effDate<min.effDate?r:min, anyForLocation[0]);
+      resultsDiv.innerHTML = `<div class="combo-results"><div class="combo-empty" style="color:var(--danger);">⚠ No rate data for ${esc(f.location)} on or before this Bill Date. The earliest uploaded rate for ${esc(f.location)} starts from <b>${esc(earliest.effDateStr)}</b> — check the Bill Date above.</div></div>`;
+    } else {
+      resultsDiv.innerHTML = `<div class="combo-results"><div class="combo-empty" style="color:var(--danger);">⚠ No rate file uploaded for ${esc(f.location)} at all — go to Data Setup and upload one.</div></div>`;
+    }
+    return;
+  }
   // keep only the latest effective row per product code
   const latestByCode = {};
   pool.forEach(r=>{ if(!latestByCode[r.productCode] || r.effDate>latestByCode[r.productCode].effDate) latestByCode[r.productCode]=r; });
@@ -3205,28 +3221,6 @@ async function saveBill(){
   if(f.collectedBy && f.collectedBy.trim()) lsAddToList('collectedByList', f.collectedBy.trim());
   if(f.verifiedBy && f.verifiedBy.trim()) lsAddToList('verifiedByList', f.verifiedBy.trim());
 
-  // Upload the bill copy to Drive BEFORE submitting the rows, so the row(s)
-  // carry a link anyone (Admin, another device, Dashboard) can open — a
-  // photo that only ever lived in this browser's local memory was never
-  // visible to anyone else, which is exactly the gap this closes.
-  let billCopyUrl = '', billCopyDownloadUrl = '';
-  if(backendConfigured() && STATE.billFiles[billUid]){
-    const bf = STATE.billFiles[billUid];
-    if(saveBtn){ saveBtn.disabled = true; saveBtn.textContent = 'Uploading bill copy…'; }
-    try{
-      const mimeType = bf.kind==='pdf' ? 'application/pdf' : 'image/jpeg';
-      const base64Data = bf.dataUrl.split(',')[1] || '';
-      const session0 = getSession();
-      const upRes = await backendPost({ action:'uploadBillCopy', code:session0.code, pin:session0.pin, billUid, fileName: bf.savedName, mimeType, base64Data });
-      if(upRes.ok){ billCopyUrl = upRes.url; billCopyDownloadUrl = upRes.downloadUrl||upRes.url; }
-      else toast(`Bill saved, but the photo upload failed (${upRes.error||'unknown error'}) — it won't be visible to others until resubmitted`, 'err');
-    } catch(e){
-      toast('Bill saved, but the photo upload failed (connection issue) — it won\'t be visible to others until resubmitted', 'err');
-    }
-    if(saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Save bill to report'; }
-  }
-  if(billCopyUrl) newRecords.forEach(r => { r.billCopyUrl = billCopyUrl; r.billCopyDownloadUrl = billCopyDownloadUrl; });
-
   if(backendConfigured()){
     const session = getSession();
     if(session){
@@ -3253,6 +3247,28 @@ async function saveBill(){
     }
   } else {
     toast(`Saved bill with ${validLines.length} product line(s)`, 'ok');
+  }
+
+  // Photo upload happens AFTER the bill is already saved and the operator
+  // has moved on — never blocks "Save bill" itself, however slow the
+  // network or however big the photo. Once Drive returns a link, a second,
+  // lightweight call attaches it to the row(s) already sitting in the Sheet.
+  if(backendConfigured() && STATE.billFiles[billUid]){
+    const bf = STATE.billFiles[billUid];
+    const session1 = getSession();
+    (async () => {
+      try{
+        const mimeType = bf.kind==='pdf' ? 'application/pdf' : 'image/jpeg';
+        const base64Data = bf.dataUrl.split(',')[1] || '';
+        const upRes = await backendPost({ action:'uploadBillCopy', code:session1.code, pin:session1.pin, billUid, fileName: bf.savedName, mimeType, base64Data });
+        if(!upRes.ok){ toast(`Bill photo couldn't be uploaded (${upRes.error||'unknown error'}) — bill itself is saved fine`, 'err'); return; }
+        const atRes = await backendPost({ action:'attachBillCopyUrl', code:session1.code, pin:session1.pin, billUid, url:upRes.url, downloadUrl:upRes.downloadUrl });
+        if(atRes.ok) toast('Bill photo uploaded and linked', 'ok');
+        else toast(`Photo uploaded, but couldn't be linked to the bill (${atRes.error||'unknown error'})`, 'err');
+      } catch(e){
+        toast("Bill photo couldn't be uploaded (connection issue) — bill itself is saved fine", 'err');
+      }
+    })();
   }
 
   const keepHeader = { ...f, lineItems: [] };
