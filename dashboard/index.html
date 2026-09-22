@@ -339,21 +339,34 @@ async function renderAnalytics(){
   const body = $('#tabBody');
   body.innerHTML = `
     ${dateRangeBarHtml('an', window.__anFrom, window.__anTo)}
-    <div id="anContent"><div class="empty-state">Loading analytics…</div></div>
+    <div id="anContent">${ultimateLoaderHtml('anLoader')}</div>
   `;
   wireDateRangeBar('an', ()=>{
     window.__anFrom = $('#anFrom').value; window.__anTo = $('#anTo').value;
     renderAnalytics();
   });
   const s = getSession();
-  const res = await backendGet({ action:'alldata', code:s.code, pin:s.pin, fromDate: window.__anFrom||'', toDate: window.__anTo||'' });
-  if(!res.ok){ $('#anContent').innerHTML = `<div class="empty-state">${esc(res.error||'Could not load data.')}</div>`; return; }
-  const rows = res.rows;
-  renderAnalyticsContent(rows);
+  const params = { action:'alldata', code:s.code, pin:s.pin, fromDate: window.__anFrom||'', toDate: window.__anTo||'' };
+  const stop = startUltimateLoader('anLoader');
+  let painted = false;
+  await cachedBackendGet(params,
+    (data)=>{
+      painted = true; stop('Loaded from local cache');
+      $('#anContent').innerHTML = `<div class="stale-banner"><span class="spin"></span> Refreshing in the background…</div><div id="anInner"></div>`;
+      renderAnalyticsContent(data.rows||[]);
+    },
+    (fresh)=>{
+      if(document.querySelector('.tab-btn.active')?.dataset.tab !== 'analytics') return;
+      if(!fresh.ok){ if(!painted) $('#anContent').innerHTML = `<div class="empty-state">${esc(fresh.error||'Could not load data.')}</div>`; return; }
+      stop();
+      $('#anContent').innerHTML = `<div id="anInner"></div>`;
+      renderAnalyticsContent(fresh.rows);
+    }
+  );
 }
 
 function renderAnalyticsContent(rows){
-  const content = $('#anContent');
+  const content = $('#anInner') || $('#anContent');
   destroyCharts();
   if(!rows.length){ content.innerHTML = '<div class="empty-state">No submissions in this period yet.</div>'; return; }
 
