@@ -45,15 +45,33 @@ h1,h2,h3{font-family:var(--font-display);font-weight:600;margin:0;color:var(--in
 .card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);padding:18px 20px;}
 .grid{display:grid;gap:16px;}
 .grid-4{grid-template-columns:repeat(4,1fr);}
+.grid-5{grid-template-columns:repeat(5,1fr);}
+.grid-3{grid-template-columns:repeat(3,1fr);}
 .grid-2{grid-template-columns:1fr 1fr;}
 @media (max-width:900px){.grid-4{grid-template-columns:repeat(2,1fr);}.grid-2{grid-template-columns:1fr;}}
-.stat-card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);padding:16px 18px;}
+.stat-card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);padding:16px 18px;position:relative;overflow:hidden;transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;}
+.stat-card.clickable{cursor:pointer;}
+.stat-card.clickable:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(16,17,20,.10);border-color:var(--ink-faint);}
+.stat-card.clickable:active{transform:translateY(-1px);}
+.stat-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
+.stat-card-icon{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;flex:none;}
+.stat-card-hint{position:absolute;right:14px;bottom:12px;font-size:10.5px;font-weight:700;color:var(--ink-faint);opacity:0;transform:translateX(-4px);transition:opacity .15s ease, transform .15s ease;}
+.stat-card.clickable:hover .stat-card-hint{opacity:1;transform:translateX(0);}
+.stat-card-sub{font-size:11px;color:var(--ink-faint);margin-top:3px;}
 .stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);font-weight:600;}
 .stat-value{font-family:var(--font-mono);font-size:26px;font-weight:600;margin-top:6px;}
+.section-eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-faint);font-weight:700;margin:22px 0 10px;display:flex;align-items:center;gap:8px;}
+.section-eyebrow::after{content:'';flex:1;height:1px;background:var(--edge);}
+.chart-card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);padding:18px 20px;}
+.chart-card h3{font-size:13px;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.chart-card .click-hint{font-size:10px;font-weight:600;color:var(--ink-faint);text-transform:none;letter-spacing:0;margin-left:auto;}
 .stat-note{font-size:11.5px;color:var(--ink-faint);margin-top:4px;}
 .field{margin-bottom:14px;}
 .bill-copy-link{color:var(--accent);text-decoration:none;font-weight:600;font-size:12px;}
 .bill-copy-link:hover{text-decoration:underline;}
+.filter-chip{display:inline-flex;align-items:center;gap:6px;background:var(--ink);color:#fff;border-radius:100px;padding:5px 12px;font-size:12px;font-weight:600;margin:6px 6px 0 0;cursor:pointer;}
+.filter-chip b{font-weight:700;opacity:.7;}
+.filter-chip:hover b{opacity:1;}
 .verifier-code-wrap{position:relative;}
 .verifier-code-wrap input{width:100%;padding-right:26px;}
 .eye-toggle{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:transparent;border:none;cursor:pointer;font-size:12px;padding:2px 4px;line-height:1;color:var(--ink-faint);}
@@ -106,8 +124,6 @@ td.num{font-family:var(--font-mono);text-align:right;}
 .toast{background:var(--ink);color:#fff;padding:11px 16px;border-radius:var(--radius-sm);font-size:13px;box-shadow:0 10px 26px rgba(0,0,0,.25);}
 .toast.err{background:var(--danger);}
 .toast.ok{background:var(--success);}
-.chart-card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);padding:18px 20px;}
-.chart-card h3{font-size:13px;margin-bottom:14px;}
 .filterbar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px;}
 .filterbar .field{margin-bottom:0;min-width:150px;}
 .loader{width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:inline-block;}
@@ -124,7 +140,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v5';
+const APP_VERSION = 'v6';
 const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 const BACKEND_URL_KEY = 'rateLedger_backendUrl';
 // The Web App URL is now editable from the login screen's "Connection
@@ -366,13 +382,14 @@ function renderLogin(errorMsg){
   $('#loginCode').focus();
 }
 function logout(){ clearSession(); boot(); }
+function switchToTab(id){ ACTIVE_TAB = id; renderShell(); }
 
 /* ==================== SHELL ==================== */
 let ACTIVE_TAB = null;
 function renderShell(){
   const s = getSession();
   const tabs = s.role==='Admin'
-    ? [{id:'analytics',label:'Analytics'},{id:'submissions',label:'All Submissions'},{id:'users',label:'Manage Users'}]
+    ? [{id:'analytics',label:'Analytics'},{id:'performance',label:'Performance'},{id:'submissions',label:'All Submissions'},{id:'users',label:'Manage Users'}]
     : s.role==='Verifier'
     ? [{id:'myverified',label:'Bills I Verified'}]
     : [{id:'mydata',label:'My Data'}];
@@ -393,7 +410,7 @@ function renderShell(){
   `;
   $('#logoutBtn').addEventListener('click', logout);
   $all('.tab-btn').forEach(b=>b.addEventListener('click', ()=>{ ACTIVE_TAB=b.dataset.tab; renderShell(); }));
-  const renderers = { analytics:renderAnalytics, submissions:renderSubmissions, users:renderUsers, mydata:renderMyData, myverified:renderMyVerified };
+  const renderers = { analytics:renderAnalytics, performance:renderPerformance, submissions:renderSubmissions, users:renderUsers, mydata:renderMyData, myverified:renderMyVerified };
   (renderers[ACTIVE_TAB]||(()=>{}))();
 }
 
@@ -451,26 +468,72 @@ function renderAnalyticsContent(rows){
   const match = rows.filter(r=>r.Status==='match');
   const overAmt = over.reduce((s,r)=>s+(Number(r.OverchargeAmt)||0),0);
   const underAmt = under.reduce((s,r)=>s+(Number(r.UnderchargeAmt)||0),0);
+  // A bill often has several product lines — "6 overcharge LINES" can really
+  // be just 2 actual bills once you dedupe by BillUID. Both numbers matter
+  // (lines for volume of work, bills for "how many audits actually caught
+  // something"), so both get their own card.
+  const uniqueBillsOverIds = new Set(over.map(r=>r.BillUID));
+  const uniqueBillsUnderIds = new Set(under.map(r=>r.BillUID));
+  const uniqueBillsTotalIds = new Set(rows.map(r=>r.BillUID));
+  const uniqueDBsOverIds = new Set(over.map(r=>r.DBName));
+  const uniqueBillsNegIds = new Set(neg.map(r=>r.BillUID));
+  const rangeFilters = { fromDate: window.__anFrom||'', toDate: window.__anTo||'' };
+
+  const statCard = ({icon, iconBg, label, value, sub, filters})=>{
+    const clickAttr = filters ? `data-goto='${esc(JSON.stringify({...rangeFilters, ...filters}))}'` : '';
+    return `<div class="stat-card ${filters?'clickable':''}" ${clickAttr}>
+      <div class="stat-card-top">
+        <div>
+          <div class="stat-label">${label}</div>
+          <div class="stat-value">${value}</div>
+          ${sub?`<div class="stat-card-sub">${sub}</div>`:''}
+        </div>
+        <div class="stat-card-icon" style="background:${iconBg};">${icon}</div>
+      </div>
+      ${filters?`<div class="stat-card-hint">View bills →</div>`:''}
+    </div>`;
+  };
 
   content.innerHTML = `
-    <div class="grid grid-4" style="margin-bottom:18px;">
-      <div class="stat-card"><div class="stat-label">Lines Submitted</div><div class="stat-value">${fmtInt(rows.length)}</div></div>
-      <div class="stat-card"><div class="stat-label">Overcharge · ₹${fmtMoney(overAmt)}</div><div class="stat-value" style="color:var(--danger);">${fmtInt(over.length)}</div></div>
-      <div class="stat-card"><div class="stat-label">Undercharge · ₹${fmtMoney(underAmt)}</div><div class="stat-value" style="color:var(--warn);">${fmtInt(under.length)}</div></div>
-      <div class="stat-card"><div class="stat-label">Negligible</div><div class="stat-value" style="color:var(--negligible);">${fmtInt(neg.length)}</div></div>
+    <div class="section-eyebrow">Line-level</div>
+    <div class="grid grid-4" style="margin-bottom:8px;">
+      ${statCard({icon:'📋', iconBg:'var(--panel-2)', label:'Lines Submitted', value:fmtInt(rows.length), filters:{}})}
+      ${statCard({icon:'⚠️', iconBg:'var(--danger-soft)', label:'Overcharge Lines', value:fmtInt(over.length), sub:`₹${fmtMoney(overAmt)} total`, filters:{status:'over'}})}
+      ${statCard({icon:'↩️', iconBg:'var(--warn-soft)', label:'Undercharge Lines', value:fmtInt(under.length), sub:`₹${fmtMoney(underAmt)} total`, filters:{status:'under'}})}
+      ${statCard({icon:'≈', iconBg:'var(--negligible-soft)', label:'Negligible', value:fmtInt(neg.length), filters:{status:'negligible'}})}
+    </div>
+    <div class="section-eyebrow">Unique bills — how many actual audits, not lines</div>
+    <div class="grid grid-3" style="margin-bottom:8px;">
+      ${statCard({icon:'🧾', iconBg:'var(--panel-2)', label:'Total Unique Bills', value:fmtInt(uniqueBillsTotalIds.size), filters:{uniqueBillsOnly:true}})}
+      ${statCard({icon:'🔴', iconBg:'var(--danger-soft)', label:'Bills w/ Overcharge', value:fmtInt(uniqueBillsOverIds.size), sub:`${rows.length?Math.round(uniqueBillsOverIds.size/uniqueBillsTotalIds.size*100):0}% of all bills`, filters:{status:'over', uniqueBillsOnly:true}})}
+      ${statCard({icon:'🟡', iconBg:'var(--warn-soft)', label:'Bills w/ Undercharge', value:fmtInt(uniqueBillsUnderIds.size), sub:`${rows.length?Math.round(uniqueBillsUnderIds.size/uniqueBillsTotalIds.size*100):0}% of all bills`, filters:{status:'under', uniqueBillsOnly:true}})}
+    </div>
+    <div class="grid grid-3" style="margin-bottom:18px;">
+      ${statCard({icon:'🔵', iconBg:'var(--negligible-soft)', label:'Bills w/ Negligible Overcharge', value:fmtInt(uniqueBillsNegIds.size), sub:`${rows.length?Math.round(uniqueBillsNegIds.size/uniqueBillsTotalIds.size*100):0}% of all bills — under 1%, not flagged`, filters:{status:'negligible', uniqueBillsOnly:true}})}
+      ${statCard({icon:'🏢', iconBg:'var(--danger-soft)', label:'Distributors w/ Overcharge', value:fmtInt(uniqueDBsOverIds.size), sub:'unique DBs, at least 1 overcharge line', filters:{status:'over', uniqueBillsOnly:true}})}
+      ${statCard({icon:'🟢', iconBg:'var(--success-soft)', label:'Clean Bills', value:fmtInt(uniqueBillsTotalIds.size-new Set([...uniqueBillsOverIds,...uniqueBillsUnderIds,...uniqueBillsNegIds]).size), sub:'no over/undercharge/negligible line at all'})}
     </div>
     <div class="grid grid-2" style="margin-bottom:18px;">
-      <div class="chart-card"><h3>Status Breakdown</h3><div id="chStatusWrap"><canvas id="chStatus" height="220"></canvas></div></div>
-      <div class="chart-card"><h3>Overcharge Value by Day</h3><div id="chTrendWrap"><canvas id="chTrend" height="220"></canvas></div></div>
+      <div class="chart-card"><h3>🥧 Status Breakdown <span class="click-hint">click a segment</span></h3><div id="chStatusWrap"><canvas id="chStatus" height="220"></canvas></div></div>
+      <div class="chart-card"><h3>📈 Overcharge Value by Day <span class="click-hint">click a point</span></h3><div id="chTrendWrap"><canvas id="chTrend" height="220"></canvas></div></div>
     </div>
     <div class="grid grid-2" style="margin-bottom:18px;">
-      <div class="chart-card"><h3>Top Auditors by Overcharge Lines</h3><div id="chAuditorsWrap"><canvas id="chAuditors" height="240"></canvas></div></div>
-      <div class="chart-card"><h3>Top Distributors by Overcharge Lines</h3><div id="chDBsWrap"><canvas id="chDBs" height="240"></canvas></div></div>
+      <div class="chart-card"><h3>👤 Top Auditors by Overcharge Lines <span class="click-hint">click a bar</span></h3><div id="chAuditorsWrap"><canvas id="chAuditors" height="240"></canvas></div></div>
+      <div class="chart-card"><h3>🏢 Top Distributors by Overcharge Lines <span class="click-hint">click a bar</span></h3><div id="chDBsWrap"><canvas id="chDBs" height="240"></canvas></div></div>
     </div>
     <div class="chart-card">
-      <h3>Overcharge Lines by Category</h3><div id="chCategoryWrap"><canvas id="chCategory" height="200"></canvas></div>
+      <h3>📦 Overcharge Lines by Category <span class="click-hint">click a bar</span></h3><div id="chCategoryWrap"><canvas id="chCategory" height="200"></canvas></div>
     </div>
   `;
+  // Every clickable stat card routes through the exact same place any other
+  // click does — goToFilteredSubmissions — so the destination report is
+  // always the same familiar table/export, just pre-filtered differently.
+  $all('.stat-card.clickable', content).forEach(card=>{
+    card.addEventListener('click', ()=>{
+      const filters = JSON.parse(card.getAttribute('data-goto'));
+      goToFilteredSubmissions(filters);
+    });
+  });
 
   function topN(field, n){
     const m = {};
@@ -488,16 +551,20 @@ function renderAnalyticsContent(rows){
   // blocks it, `Chart` never exists and every one of these would otherwise
   // throw and leave the whole Analytics screen blank below the stat cards.
   // Fall back to plain HTML/CSS bars (same look as the My Data breakdown)
-  // so the numbers are always visible even without the charting library.
+  // so the numbers are always visible even without the charting library —
+  // and still clickable, routing to the same place the Chart.js bars do.
   if(typeof Chart === 'undefined'){
     $('#chStatusWrap').innerHTML = simpleBarListHtml([
-      ['Overcharge', over.length, 'var(--danger)'], ['Overcharge – Negligible', neg.length, 'var(--negligible)'],
-      ['Undercharge', under.length, 'var(--warn)'], ['Match', match.length, 'var(--success)'],
-    ]);
-    $('#chTrendWrap').innerHTML = days.length ? simpleBarListHtml(days.map(d=>[d, Math.round(byDay[d]*100)/100, 'var(--danger)']), true) : '<div class="empty-state">No overcharge lines in this period.</div>';
-    $('#chAuditorsWrap').innerHTML = topAud.length ? simpleBarListHtml(topAud.map(([k,v])=>[k,v,'var(--ink)'])) : '<div class="empty-state">No overcharge lines.</div>';
-    $('#chDBsWrap').innerHTML = topDB.length ? simpleBarListHtml(topDB.map(([k,v])=>[k,v,'var(--danger)'])) : '<div class="empty-state">No overcharge lines.</div>';
-    $('#chCategoryWrap').innerHTML = topCat.length ? simpleBarListHtml(topCat.map(([k,v])=>[k,v,'var(--negligible)'])) : '<div class="empty-state">No overcharge lines.</div>';
+      ['Overcharge', over.length, 'var(--danger)', {status:'over'}], ['Overcharge – Negligible', neg.length, 'var(--negligible)', {status:'negligible'}],
+      ['Undercharge', under.length, 'var(--warn)', {status:'under'}], ['Match', match.length, 'var(--success)', {status:'match'}],
+    ], false, rangeFilters);
+    $('#chTrendWrap').innerHTML = days.length ? simpleBarListHtml(days.map(d=>[d, Math.round(byDay[d]*100)/100, 'var(--danger)', {status:'over', fromDate:d, toDate:d}]), true, rangeFilters) : '<div class="empty-state">No overcharge lines in this period.</div>';
+    $('#chAuditorsWrap').innerHTML = topAud.length ? simpleBarListHtml(topAud.map(([k,v])=>[k,v,'var(--ink)', {status:'over', auditorName:k}]), false, rangeFilters) : '<div class="empty-state">No overcharge lines.</div>';
+    $('#chDBsWrap').innerHTML = topDB.length ? simpleBarListHtml(topDB.map(([k,v])=>[k,v,'var(--danger)', {status:'over', dbName:k}]), false, rangeFilters) : '<div class="empty-state">No overcharge lines.</div>';
+    $('#chCategoryWrap').innerHTML = topCat.length ? simpleBarListHtml(topCat.map(([k,v])=>[k,v,'var(--negligible)', {status:'over', category:k}]), false, rangeFilters) : '<div class="empty-state">No overcharge lines.</div>';
+    $all('.micro-bar-row[data-goto]', content).forEach(row=>{
+      row.addEventListener('click', ()=> goToFilteredSubmissions(JSON.parse(row.getAttribute('data-goto'))));
+    });
     return;
   }
 
@@ -505,37 +572,190 @@ function renderAnalyticsContent(rows){
     type:'doughnut',
     data:{ labels:['Overcharge','Overcharge – Negligible','Undercharge','Match'],
       datasets:[{ data:[over.length, neg.length, under.length, match.length], backgroundColor:['#D6234B','#2A5FD9','#B9791A','#0FA86B'] }] },
-    options:{ plugins:{legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}}} }
+    options:{ plugins:{legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}}}, onClick:(evt,els)=>{
+      if(!els.length) return;
+      const statuses = ['over','negligible','under','match'];
+      goToFilteredSubmissions({...rangeFilters, status: statuses[els[0].index]});
+    }, onHover:(evt,els)=>{ evt.native.target.style.cursor = els.length?'pointer':'default'; } }
   }));
   chartInstances.push(new Chart($('#chTrend'), {
     type:'line',
     data:{ labels:days, datasets:[{ label:'Overcharge ₹', data:days.map(d=>Math.round(byDay[d]*100)/100), borderColor:'#D6234B', backgroundColor:'rgba(214,35,75,0.1)', fill:true, tension:.25 }] },
-    options:{ plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}} }
+    options:{ plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}}, onClick:(evt,els)=>{
+      if(!els.length) return;
+      const d = days[els[0].index];
+      goToFilteredSubmissions({status:'over', fromDate:d, toDate:d});
+    }, onHover:(evt,els)=>{ evt.native.target.style.cursor = els.length?'pointer':'default'; } }
   }));
   chartInstances.push(new Chart($('#chAuditors'), {
     type:'bar',
     data:{ labels:topAud.map(x=>x[0]), datasets:[{ label:'Overcharge lines', data:topAud.map(x=>x[1]), backgroundColor:'#101114' }] },
-    options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}} }
+    options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}}, onClick:(evt,els)=>{
+      if(!els.length) return;
+      goToFilteredSubmissions({...rangeFilters, status:'over', auditorName: topAud[els[0].index][0]});
+    }, onHover:(evt,els)=>{ evt.native.target.style.cursor = els.length?'pointer':'default'; } }
   }));
   chartInstances.push(new Chart($('#chDBs'), {
     type:'bar',
     data:{ labels:topDB.map(x=>x[0]), datasets:[{ label:'Overcharge lines', data:topDB.map(x=>x[1]), backgroundColor:'#D6234B' }] },
-    options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}} }
+    options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}}, onClick:(evt,els)=>{
+      if(!els.length) return;
+      goToFilteredSubmissions({...rangeFilters, status:'over', dbName: topDB[els[0].index][0]});
+    }, onHover:(evt,els)=>{ evt.native.target.style.cursor = els.length?'pointer':'default'; } }
   }));
   chartInstances.push(new Chart($('#chCategory'), {
     type:'bar',
     data:{ labels:topCat.map(x=>x[0]), datasets:[{ label:'Overcharge lines', data:topCat.map(x=>x[1]), backgroundColor:'#2A5FD9' }] },
-    options:{ plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}} }
+    options:{ plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}}, onClick:(evt,els)=>{
+      if(!els.length) return;
+      goToFilteredSubmissions({...rangeFilters, status:'over', category: topCat[els[0].index][0]});
+    }, onHover:(evt,els)=>{ evt.native.target.style.cursor = els.length?'pointer':'default'; } }
   }));
 }
-function simpleBarListHtml(items, isCurrency){
+function simpleBarListHtml(items, isCurrency, rangeFilters){
   const max = Math.max(...items.map(i=>i[1]), 1);
-  return `<div style="padding:4px 0;">${items.map(([label,val,color])=>`
-    <div class="micro-bar-row" style="cursor:default;">
+  return `<div style="padding:4px 0;">${items.map(([label,val,color,filters])=>`
+    <div class="micro-bar-row" data-goto='${esc(JSON.stringify({...(rangeFilters||{}), ...filters}))}'>
       <div class="mb-label" title="${esc(String(label))}">${esc(String(label))}</div>
       <div class="mb-track"><div class="mb-fill" style="width:${(val/max)*100}%;background:${color};"></div></div>
       <div class="mb-count">${isCurrency?'₹'+fmtMoney(val):fmtInt(val)}</div>
     </div>`).join('')}</div>`;
+}
+
+/* ==================== PERFORMANCE (Admin) ====================
+   Verifier/Auditor-wise performance: how many UNIQUE BILLS each person
+   actually handled (not lines — a 5-line bill is still one bill), how many
+   of those had an overcharge/undercharge, and the ₹ impact — filterable by
+   date range exactly like Analytics, and every row routes into the same
+   familiar All Submissions table when clicked. */
+async function renderPerformance(){
+  const body = $('#tabBody');
+  body.innerHTML = `
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+      ${dateRangeBarHtml('pf', window.__pfFrom, window.__pfTo)}
+      ${quickRangeHtml('pf')}
+      <button class="btn accent" id="pfExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
+    </div>
+    <div id="pfContent">${ultimateLoaderHtml('pfLoader')}</div>
+  `;
+  wireDateRangeBar('pf', ()=>{
+    window.__pfFrom = $('#pfFrom').value; window.__pfTo = $('#pfTo').value;
+    renderPerformance();
+  });
+  wireQuickRange('pf', (from,to)=>{
+    window.__pfFrom = from; window.__pfTo = to;
+    renderPerformance();
+  });
+  const s = getSession();
+  const params = { action:'alldata', code:s.code, pin:s.pin, fromDate: window.__pfFrom||'', toDate: window.__pfTo||'' };
+  const stop = startUltimateLoader('pfLoader');
+  let painted = false;
+  await cachedBackendGet(params,
+    (data)=>{ painted = true; stop('Loaded from local cache'); paintPerformance(data.rows||[]); },
+    (fresh)=>{
+      if(document.querySelector('.tab-btn.active')?.dataset.tab !== 'performance') return;
+      if(!fresh.ok){ if(!painted) $('#pfContent').innerHTML = `<div class="empty-state">${esc(fresh.error||'Could not load data.')}</div>`; return; }
+      stop();
+      paintPerformance(fresh.rows);
+    }
+  );
+}
+function computePerformanceRows(rows, nameField){
+  const byPerson = {};
+  rows.forEach(r=>{
+    const name = r[nameField];
+    if(!name) return;
+    if(!byPerson[name]) byPerson[name] = { name, bills:new Set(), overBills:new Set(), underBills:new Set(), overAmt:0, underAmt:0, lines:0 };
+    const p = byPerson[name];
+    p.bills.add(r.BillUID);
+    p.lines++;
+    if(r.Status==='over'){ p.overBills.add(r.BillUID); p.overAmt += Number(r.OverchargeAmt)||0; }
+    if(r.Status==='under'){ p.underBills.add(r.BillUID); p.underAmt += Number(r.UnderchargeAmt)||0; }
+  });
+  return Object.values(byPerson).map(p=>({
+    name:p.name, uniqueBills:p.bills.size, lines:p.lines,
+    overBills:p.overBills.size, underBills:p.underBills.size,
+    overAmt:p.overAmt, underAmt:p.underAmt,
+  })).sort((a,b)=>b.uniqueBills-a.uniqueBills);
+}
+function paintPerformance(rows){
+  window.__pfRows = rows;
+  $('#pfExport').disabled = !rows.length;
+  $('#pfExport').onclick = ()=>{
+    const auditorRows = computePerformanceRows(rows, 'AuditorName').map(p=>({...p, role:'Auditor'}));
+    const verifierRows = computePerformanceRows(rows, 'VerifiedBy').map(p=>({...p, role:'Verifier'}));
+    exportPerformanceExcel([...auditorRows, ...verifierRows]);
+  };
+  if(!rows.length){ $('#pfContent').innerHTML = '<div class="empty-state">No submissions in this period yet.</div>'; return; }
+
+  const auditorPerf = computePerformanceRows(rows, 'AuditorName');
+  const verifierPerf = computePerformanceRows(rows, 'VerifiedBy');
+  const rangeFilters = { fromDate: window.__pfFrom||'', toDate: window.__pfTo||'' };
+
+  const perfTable = (list, roleLabel, filterKey)=>`
+    <div class="table-wrap"><table>
+      <thead><tr><th>${roleLabel}</th><th class="num">Unique Bills</th><th class="num">Lines</th><th class="num">Overcharge Bills</th><th class="num">₹ Overcharge</th><th class="num">Undercharge Bills</th><th class="num">₹ Undercharge</th></tr></thead>
+      <tbody>${list.map(p=>`<tr class="perf-row" data-goto='${esc(JSON.stringify({...rangeFilters, [filterKey]:p.name}))}'>
+        <td><b>${esc(p.name)}</b></td>
+        <td class="num">${fmtInt(p.uniqueBills)}</td>
+        <td class="num small-muted">${fmtInt(p.lines)}</td>
+        <td class="num" style="color:${p.overBills?'var(--danger)':'inherit'};font-weight:${p.overBills?700:400};">${fmtInt(p.overBills)}</td>
+        <td class="num" style="color:${p.overBills?'var(--danger)':'inherit'};">₹${fmtMoney(p.overAmt)}</td>
+        <td class="num" style="color:${p.underBills?'var(--warn)':'inherit'};font-weight:${p.underBills?700:400};">${fmtInt(p.underBills)}</td>
+        <td class="num" style="color:${p.underBills?'var(--warn)':'inherit'};">₹${fmtMoney(p.underAmt)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+
+  $('#pfContent').innerHTML = `
+    <div class="section-eyebrow">👤 Auditor performance <span class="click-hint" style="margin-left:8px;">click a row to view their bills</span></div>
+    ${auditorPerf.length ? perfTable(auditorPerf, 'Auditor', 'auditorName') : '<div class="empty-state">No auditor data.</div>'}
+    <div class="section-eyebrow">✅ Verifier performance <span class="click-hint" style="margin-left:8px;">click a row to view their bills</span></div>
+    ${verifierPerf.length ? perfTable(verifierPerf, 'Verifier', 'verifiedByName') : '<div class="empty-state">No verifier data.</div>'}
+  `;
+  $all('.perf-row', $('#pfContent')).forEach(row=>{
+    row.addEventListener('click', ()=> goToFilteredSubmissions(JSON.parse(row.getAttribute('data-goto'))));
+  });
+}
+async function exportPerformanceExcel(perfRows){
+  const INK='FF1E2438', DANGER='FFB23A2E', DANGERSOFT='FFF3DEDA', WARNSOFT='FFF1E4C6', WHITE='FFFFFFFF';
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Rate Ledger'; wb.created = new Date();
+  const ws = wb.addWorksheet('Performance', {views:[{state:'frozen', ySplit:4}]});
+  const cols = [
+    {header:'Role', key:'role', width:12}, {header:'Name', key:'name', width:24},
+    {header:'Unique Bills', key:'uniqueBills', width:14}, {header:'Lines', key:'lines', width:10},
+    {header:'Overcharge Bills', key:'overBills', width:16}, {header:'₹ Overcharge', key:'overAmt', width:15},
+    {header:'Undercharge Bills', key:'underBills', width:17}, {header:'₹ Undercharge', key:'underAmt', width:15},
+  ];
+  ws.columns = cols.map(c=>({key:c.key, width:c.width}));
+  ws.mergeCells(1,1,1,cols.length);
+  ws.getCell(1,1).value = 'RATE LEDGER — VERIFIER / AUDITOR PERFORMANCE';
+  ws.getCell(1,1).font = {size:14, bold:true, color:{argb:WHITE}};
+  ws.getCell(1,1).fill = {type:'pattern', pattern:'solid', fgColor:{argb:INK}};
+  ws.getRow(1).height = 24;
+  ws.mergeCells(2,1,2,cols.length);
+  ws.getCell(2,1).value = `Generated ${new Date().toLocaleDateString('en-IN')}`;
+  ws.getCell(2,1).font = {size:10, italic:true, color:{argb:'FF6B6E76'}};
+  const headerRow = ws.getRow(4);
+  cols.forEach((c,i)=>{ headerRow.getCell(i+1).value = c.header; });
+  headerRow.eachCell(cell=>{ cell.font={bold:true,color:{argb:WHITE}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:INK}}; });
+  headerRow.height = 20;
+  let r = 5;
+  perfRows.forEach(p=>{
+    const row = ws.getRow(r);
+    cols.forEach((c,i)=>{ row.getCell(i+1).value = p[c.key]; });
+    if(p.overBills>0){ row.getCell(5).fill={type:'pattern',pattern:'solid',fgColor:{argb:DANGERSOFT}}; row.getCell(5).font={bold:true,color:{argb:DANGER}}; }
+    if(p.underBills>0){ row.getCell(7).fill={type:'pattern',pattern:'solid',fgColor:{argb:WARNSOFT}}; }
+    ['overAmt','underAmt'].forEach(k=>{ const ci=cols.findIndex(c=>c.key===k)+1; row.getCell(ci).numFmt='#,##0.00'; });
+    r++;
+  });
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `Verifier_Auditor_Performance_${new Date().toISOString().slice(0,10)}.xlsx`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
 }
 
 /* ==================== ALL SUBMISSIONS (Admin) ==================== */
@@ -577,9 +797,17 @@ async function renderSubmissions(){
       ${quickRangeHtml('sub')}
       <div class="field"><label>Auditor</label><select id="subAuditorFilter"><option value="">All</option></select></div>
       <div class="field"><label>Verifier</label><select id="subVerifierFilter"><option value="">All</option></select></div>
+      <div class="field"><label>Status</label><select id="subStatusFilter">
+        <option value="">All</option>
+        <option value="over" ${window.__subStatus==='over'?'selected':''}>Overcharge</option>
+        <option value="under" ${window.__subStatus==='under'?'selected':''}>Undercharge</option>
+        <option value="negligible" ${window.__subStatus==='negligible'?'selected':''}>Negligible</option>
+        <option value="match" ${window.__subStatus==='match'?'selected':''}>Match</option>
+      </select></div>
       <button class="btn accent" id="subExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
       <button class="btn secondary" id="subExportPhotos" disabled>📷 Download All Photos (ZIP)</button>
     </div>
+    <div id="subActiveFilters" style="margin-top:2px;"></div>
     <div id="subContent">${ultimateLoaderHtml('subLoader')}</div>
   `;
   wireDateRangeBar('sub', ()=>{
@@ -650,12 +878,20 @@ function paintSubmissions(rows, isStale){
   $('#subVerifierFilter').innerHTML = `<option value="">All (${verifiers.length})</option>` + verifiers.map(v=>`<option value="${esc(v)}" ${window.__subVerifier===v?'selected':''}>${esc(v)}</option>`).join('');
   $('#subAuditorFilter').addEventListener('change', e=>{ window.__subAuditor = e.target.value; applySubmissionFilters(); });
   $('#subVerifierFilter').addEventListener('change', e=>{ window.__subVerifier = e.target.value; applySubmissionFilters(); });
+  $('#subStatusFilter').addEventListener('change', e=>{ window.__subStatus = e.target.value; applySubmissionFilters(); });
   applySubmissionFilters();
 }
 function applySubmissionFilters(){
   let rows = window.__subRows||[];
   if(window.__subAuditor) rows = rows.filter(r=>r.AuditorName===window.__subAuditor);
   if(window.__subVerifier) rows = rows.filter(r=>r.VerifiedBy===window.__subVerifier);
+  if(window.__subStatus) rows = rows.filter(r=>r.Status===window.__subStatus);
+  if(window.__subCategory) rows = rows.filter(r=>r.Category===window.__subCategory);
+  if(window.__subDBName) rows = rows.filter(r=>r.DBName===window.__subDBName);
+  if(window.__subUniqueBillsOnly){
+    const seen = new Set();
+    rows = rows.filter(r=>{ if(seen.has(r.BillUID)) return false; seen.add(r.BillUID); return true; });
+  }
   // Grouped by Auditor first (then Verifier, then date) so one person's
   // lines sit together instead of interleaved in submission order — this is
   // the "arranged by auditor/verifier" view without needing a separate tab.
@@ -666,7 +902,46 @@ function applySubmissionFilters(){
   );
   window.__subFilteredRows = rows;
   renderSubmissionsTable(rows);
+  renderActiveFilterChips();
 }
+// Every stat card / chart segment in Analytics routes here — same
+// destination, same report format, whatever was clicked — just with
+// different filters pre-applied, so "click anything" always lands on a
+// real, correctly-filtered list of the underlying bills.
+function goToFilteredSubmissions(filters){
+  filters = filters || {};
+  window.__subStatus = filters.status || '';
+  window.__subCategory = filters.category || '';
+  window.__subAuditor = filters.auditorName || '';
+  window.__subVerifier = filters.verifiedByName || '';
+  window.__subDBName = filters.dbName || '';
+  window.__subUniqueBillsOnly = !!filters.uniqueBillsOnly;
+  if(filters.fromDate!==undefined) window.__subFrom = filters.fromDate;
+  if(filters.toDate!==undefined) window.__subTo = filters.toDate;
+  switchToTab('submissions');
+}
+function renderActiveFilterChips(){
+  const el = $('#subActiveFilters');
+  if(!el) return;
+  const chips = [];
+  if(window.__subStatus) chips.push({label:`Status: ${statusLabelFor(window.__subStatus)}`, clear:()=>{window.__subStatus='';}});
+  if(window.__subCategory) chips.push({label:`Category: ${window.__subCategory}`, clear:()=>{window.__subCategory='';}});
+  if(window.__subAuditor) chips.push({label:`Auditor: ${window.__subAuditor}`, clear:()=>{window.__subAuditor='';}});
+  if(window.__subVerifier) chips.push({label:`Verifier: ${window.__subVerifier}`, clear:()=>{window.__subVerifier='';}});
+  if(window.__subDBName) chips.push({label:`Distributor: ${window.__subDBName}`, clear:()=>{window.__subDBName='';}});
+  if(window.__subUniqueBillsOnly) chips.push({label:'Unique bills only', clear:()=>{window.__subUniqueBillsOnly=false;}});
+  if(!chips.length){ el.innerHTML=''; return; }
+  el.innerHTML = chips.map((c,i)=>`<span class="filter-chip" data-chip="${i}">${esc(c.label)} <b>×</b></span>`).join('');
+  $all('.filter-chip', el).forEach((chip,i)=>chip.addEventListener('click', ()=>{
+    chips[i].clear();
+    // Keep the Auditor/Verifier dropdowns in sync when their chip is cleared.
+    $('#subAuditorFilter').value = window.__subAuditor||'';
+    $('#subVerifierFilter').value = window.__subVerifier||'';
+    $('#subStatusFilter').value = window.__subStatus||'';
+    applySubmissionFilters();
+  }));
+}
+function statusLabelFor(s){ return s==='over'?'Overcharge':(s==='under'?'Undercharge':(s==='negligible'?'Overcharge – Negligible':'Match')); }
 function billCopyLinkCell(r){
   if(!r.BillCopyURL) return '<span class="small-muted">—</span>';
   const dl = r.BillCopyDownloadURL || r.BillCopyURL;
