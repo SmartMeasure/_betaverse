@@ -140,7 +140,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v6';
+const APP_VERSION = 'v7';
 const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 const BACKEND_URL_KEY = 'rateLedger_backendUrl';
 // The Web App URL is now editable from the login screen's "Connection
@@ -950,7 +950,7 @@ function billCopyLinkCell(r){
 function renderSubmissionsTable(rows){
   const content = $('#subInner');
   if(!rows.length){ content.innerHTML = '<div class="empty-state">No submissions match these filters.</div>'; return; }
-  const cols = ['Timestamp','AuditorCode','AuditorName','VerifiedBy','DBCode','DBName','Location','Retailer','BillDate','ProductName','ProductCode','CompanyRate','InvoiceRate','VariancePct','Status','OverchargeAmt','UnderchargeAmt','BillCopy'];
+  const cols = ['Timestamp','AuditorCode','AuditorName','VerifiedBy','DBCode','DBName','Location','Retailer','BillDate','SOSubmitDate','ProductName','ProductCode','CompanyRate','InvoiceRate','VariancePct','Status','OverchargeAmt','UnderchargeAmt','BillCopy'];
   let lastAuditor = null;
   content.innerHTML = `<div class="table-wrap"><table>
     <thead><tr>${cols.map(c=>`<th>${c==='BillCopy'?'Bill Copy':c}</th>`).join('')}</tr></thead>
@@ -995,7 +995,7 @@ async function exportProExcel(rows, filenamePrefix, viewLabel){
     {header:'Location', key:'Location', width:14}, {header:'Beat Code', key:'BeatCode', width:12}, {header:'Beat Name', key:'BeatName', width:22},
     {header:'SO Name', key:'SOName', width:16}, {header:'ASM Name', key:'ASMName', width:16}, {header:'RSM Name', key:'RSMName', width:16},
     {header:'DB Status', key:'DBStatus', width:11}, {header:'Retailer / Outlet', key:'Retailer', width:24}, {header:'Bill Type', key:'BillType', width:12},
-    {header:'Bill No', key:'BillNo', width:14}, {header:'Bill Date', key:'BillDate', width:12}, {header:'Product', key:'ProductName', width:34},
+    {header:'Bill No', key:'BillNo', width:14}, {header:'Bill Date', key:'BillDate', width:12}, {header:'SO Submitted On', key:'SOSubmitDate', width:14}, {header:'Product', key:'ProductName', width:34},
     {header:'Pack Size (kg)', key:'PackSizeKg', width:12}, {header:'Product Code', key:'ProductCode', width:13}, {header:'GST %', key:'GSTPct', width:8},
     {header:'Company Rate (₹/kg)', key:'CompanyRate', width:14}, {header:'Company Rate (₹/PC)', key:'CompanyRatePerPc', width:14},
     {header:'Bag Size', key:'BagSizeLabel', width:12}, {header:'Components', key:'ComponentsSummary', width:30},
