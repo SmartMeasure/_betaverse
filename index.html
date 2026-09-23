@@ -538,7 +538,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v63';
+const APP_VERSION = 'v65';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -2860,7 +2860,7 @@ function freshBillForm(){
   const verifierMatch = backendConfigured() ? lookupVerifierByCode(verifierCode) : null;
   return {
     dbCode:'', dbName:'', pg:'', location:'', beatCode:'', beatName:'', beats:[], so:'', asm:'', rsm:'', active:'',
-    billType:'Tax Invoice', retailer:'', billNo:'', billDateISO: todayISO(), submissionISO: todayISO(),
+    billType:'Tax Invoice', retailer:'', billNo:'', billDateISO: todayISO(), soSubmissionISO: todayISO(), submissionISO: todayISO(),
     collectedBy: lsGet('collectedBy'),
     designation: lsGet('designation'),
     verifierCode: isSelfVerifier ? session.code : verifierCode,
@@ -2943,6 +2943,11 @@ function renderRateCheck(){
         </div>
         <div class="hint">or type DDMMYY, e.g. 260826 = 26‑08‑26</div>
       </div>
+      <div class="field">
+        <label>SO Submitted On <span class="colmap-req">*</span></label>
+        <input type="date" id="rcSoSubmitDate" value="${f.soSubmissionISO||''}">
+        <div class="hint">Date the Sales Officer handed this bill over to you — not the invoice's own date</div>
+      </div>
       <div class="field"><label>Collected By</label>
         <input type="text" id="rcCollectedBy" list="rcCollectedByList" value="${esc(f.collectedBy)}" style="text-transform:uppercase;">
         <datalist id="rcCollectedByList">${lsGetList('collectedByList').map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
@@ -2979,7 +2984,7 @@ function renderRateCheck(){
         <div class="hint">Remembered until you clear cache</div>
       </div>
       `}
-      <div class="field"><label>Submission Date</label><input type="date" id="rcSubDate" value="${f.submissionISO}"></div>
+      <div class="field"><label>Submission Date</label><input type="date" id="rcSubDate" value="${f.submissionISO}" disabled title="Always today's date — not editable, so it reliably reflects when the bill was actually submitted."><div class="hint">Auto-set to today — not editable</div></div>
     </div>
     <div class="field" style="max-width:420px;">
       <label>Bill Copy (photo / PDF) <span class="small-muted" style="text-transform:none;font-weight:400;">— optional; a photo is embedded right into the exported Excel, a PDF is linked via a Bills folder</span></label>
@@ -3031,6 +3036,8 @@ function renderRateCheck(){
   });
   $('#rcBillNo').addEventListener('input', e=> f.billNo=e.target.value);
   $('#rcBillDate').addEventListener('change', e=>{ f.billDateISO=e.target.value; const q=$('#rcBillDateQuick'); if(q){ q.value=''; q.classList.remove('quick-ok','quick-bad'); } recomputeAllLineRates(); renderLineItems(); });
+  const soSubmitEl = $('#rcSoSubmitDate');
+  if(soSubmitEl) soSubmitEl.addEventListener('change', e=> f.soSubmissionISO=e.target.value);
   const rcQuick = $('#rcBillDateQuick');
   if(rcQuick) rcQuick.addEventListener('input', e=>{
     e.target.value = e.target.value.replace(/\D/g,'').slice(0,6);
@@ -3096,7 +3103,7 @@ function renderRateCheck(){
       verifierEyeEl.textContent = showing ? '👁' : '🙈';
     });
   }
-  $('#rcSubDate').addEventListener('change', e=> f.submissionISO=e.target.value);
+  // Submission Date is disabled/auto-only now — no change listener needed.
   const bcInput = $('#rcBillCopyInput');
   if(bcInput) bcInput.addEventListener('change', e=>{
     const file = e.target.files[0];
@@ -3635,6 +3642,7 @@ async function saveBill(){
   if(!f.location){ errEl.textContent = "This DB's location could not be resolved — fix the Price Group Mapping."; return; }
   if(!f.retailer.trim()){ errEl.textContent = 'Retailer / outlet name is required.'; return; }
   if(!f.billDateISO){ errEl.textContent = 'Bill date is required.'; return; }
+  if(!f.soSubmissionISO){ errEl.textContent = "'SO Submitted On' date is required."; return; }
   if(backendConfigured() && !f.verifiedBy){ errEl.textContent = f.verifierCode ? 'Verifier code not recognized — check the code and try again.' : 'Verified By (verifier code) is required.'; return; }
   const validLines = f.lineItems.filter(li=> li.productCode && !aggregateLineItem(li).error);
   const incompleteLines = f.lineItems.filter(li=> li.productCode && aggregateLineItem(li).error && aggregateLineItem(li).error!=='empty');
@@ -3645,7 +3653,8 @@ async function saveBill(){
 
   const billUid = uid('bill');
   const billDate = isoToDMYDate(f.billDateISO);
-  const subDate = isoToDMYDate(f.submissionISO);
+  const soSubmitDate = isoToDMYDate(f.soSubmissionISO);
+  const subDate = isoToDMYDate(todayISO()); // always the actual moment of saving — never a stale value from whenever the form happened to be opened
   const newRecords = [];
   const lineSummaries = [];
   validLines.forEach(li=>{
@@ -3658,7 +3667,7 @@ async function saveBill(){
       sl: BILL_SEQ++, billUid,
       dbCode: f.dbCode, dbName: f.dbName, pg: f.pg, location: f.location,
       beatCode: f.beatCode, beatName: f.beatName, so: f.so, asm: f.asm, rsm: f.rsm, dbActive: f.active,
-      billType: f.billType, retailer: (f.retailer||'').toUpperCase(), billNo: (f.billNo||'').toUpperCase(), billDateStr: fmtDMY(billDate),
+      billType: f.billType, retailer: (f.retailer||'').toUpperCase(), billNo: (f.billNo||'').toUpperCase(), billDateStr: fmtDMY(billDate), soSubmitDateStr: fmtDMY(soSubmitDate),
       productName: li.productName, productCode: li.productCode, sku: li.sku, category: li.category, packSize: li.packSize||li.sku||'',
       companyRate: li.companyRate, invoiceRate: agg.blendedRatePerKg, gstPct: li.gstPct,
       diff: agg.diffPerKg, diffPerPc: agg.diffPerPc, diffPerBag: agg.diffPerBag, pct: agg.pct, status: agg.status, qty: agg.totalQtyKg, uom: 'KG', qtyKg: agg.totalQtyKg, chargeAmt: agg.diffAmount,
@@ -4005,6 +4014,7 @@ async function exportExcelPro(){
       {header:'Bill Type', key:'billType', width:12},
       {header:'Bill No', key:'billNo', width:14},
       {header:'Bill Date', key:'billDateStr', width:12},
+      {header:'SO Submitted On', key:'soSubmitDateStr', width:14},
       {header:'Product', key:'productName', width:34},
       {header:'Pack Size (kg)', key:'packSizeKg', width:12},
       {header:'Product Code', key:'productCode', width:13},
@@ -4086,7 +4096,7 @@ async function exportExcelPro(){
       const vals = {
         sl:b.sl, dbCode:b.dbCode, dbName:b.dbName, location:b.location,
         beatCode:b.beatCode||'', beatName:b.beatName||'', so:b.so||'', asm:b.asm||'', rsm:b.rsm||'', dbStatusLabel,
-        retailer:b.retailer, billType:b.billType, billNo:b.billNo||'', billDateStr:b.billDateStr,
+        retailer:b.retailer, billType:b.billType, billNo:b.billNo||'', billDateStr:b.billDateStr, soSubmitDateStr:b.soSubmitDateStr||'',
         productName:b.productName, packSizeKg: b.packSizeKg!=null?b.packSizeKg:'', productCode:b.productCode, gstPct:b.gstPct, companyRate:b.companyRate, companyRatePerPc: b.companyRatePerPc!=null?b.companyRatePerPc:'',
         bagSizeLabel: b.bagSizeLabel||'', componentsSummary: b.componentsSummary||'', qtyKg: b.qtyKg, totalInvoiced: b.totalInvoiced!=null?b.totalInvoiced:b.chargeAmt, blendedRate: b.blendedRate!=null?b.blendedRate:b.invoiceRate, blendedRatePerPc: b.blendedRatePerPc!=null?b.blendedRatePerPc:'',
         diffPerKg: b.diff, diffPerPc: b.diffPerPc!=null?b.diffPerPc:'', diffPerBag: b.diffPerBag!=null?b.diffPerBag:'',
