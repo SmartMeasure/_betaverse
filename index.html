@@ -312,11 +312,11 @@ main{
 .rw-tl-rate{font-family:var(--font-mono);font-weight:700;font-size:13px;text-align:center;background:var(--panel-2);border-radius:8px;padding:5px 10px;line-height:1.5;}
 .rw-tl-date{font-weight:400;font-size:9.5px;color:var(--ink-faint);}
 .rw-tl-arrow{font-family:var(--font-mono);font-weight:700;font-size:11px;padding:3px 7px;border-radius:100px;white-space:nowrap;}
-.rw-tl-arrow.up{background:var(--danger-soft, rgba(214,35,75,.12));color:var(--danger);}
-.rw-tl-arrow.down{background:var(--success-soft, rgba(15,168,107,.12));color:var(--success);}
+.rw-tl-arrow.up{background:var(--success-soft, rgba(15,168,107,.12));color:var(--success);}
+.rw-tl-arrow.down{background:var(--danger-soft, rgba(214,35,75,.12));color:var(--danger);}
 .rw-net{flex:0 0 auto;font-weight:700;font-size:12.5px;padding:5px 12px;border-radius:100px;}
-.rw-net.up{background:var(--danger-soft, rgba(214,35,75,.12));color:var(--danger);}
-.rw-net.down{background:var(--success-soft, rgba(15,168,107,.12));color:var(--success);}
+.rw-net.up{background:var(--success-soft, rgba(15,168,107,.12));color:var(--success);}
+.rw-net.down{background:var(--danger-soft, rgba(214,35,75,.12));color:var(--danger);}
 .stat-card:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(0,0,0,0.12);border-color:var(--edge);}
 .stat-value{transition:color .2s;}
 
@@ -538,7 +538,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v61';
+const APP_VERSION = 'v63';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -622,6 +622,51 @@ async function retryPendingSubmissions(silent){
   renderSyncBanner();
 }
 
+/* ---------------- Pending bill-copy uploads (same idea as above) ----------
+   A bill's photo uploads in the background AFTER the bill itself is safely
+   saved — but unlike the bill-row submit, that upload+attach pair had no
+   retry queue at all: one network hiccup on either call (this has actually
+   happened on a slow/filtered office network) and the photo was gone for
+   good, with no way to know it needed resubmitting. This queues it exactly
+   like a pending submission, and both the boot-time check and the sync
+   banner's "Retry now" now cover photos too. */
+const PENDING_PHOTOS_KEY = 'rateLedger_pendingPhotos';
+function getPendingPhotos(){ try{ return JSON.parse(localStorage.getItem(PENDING_PHOTOS_KEY)||'[]'); }catch(e){ return []; } }
+function setPendingPhotos(list){ try{ localStorage.setItem(PENDING_PHOTOS_KEY, JSON.stringify(list)); }catch(e){ /* localStorage full — the photo stays only in STATE.billFiles for this session */ } }
+function queuePendingPhoto(billUid, fileName, mimeType, base64Data){
+  const list = getPendingPhotos();
+  // Don't pile up duplicate queue entries for the same bill if it's retried
+  // more than once before succeeding.
+  if(list.some(p=>p.billUid===billUid)) return;
+  list.push({ billUid, fileName, mimeType, base64Data, queuedAt: new Date().toISOString() });
+  setPendingPhotos(list);
+}
+async function uploadAndAttachOnePhoto_(session, billUid, fileName, mimeType, base64Data){
+  const upRes = await backendPost({ action:'uploadBillCopy', code:session.code, pin:session.pin, billUid, fileName, mimeType, base64Data });
+  if(!upRes.ok) return { ok:false, error: upRes.error || 'Upload failed' };
+  const atRes = await backendPost({ action:'attachBillCopyUrl', code:session.code, pin:session.pin, billUid, url:upRes.url, downloadUrl:upRes.downloadUrl });
+  if(!atRes.ok) return { ok:false, error: atRes.error || 'Could not link the photo to the bill' };
+  return { ok:true };
+}
+async function retryPendingPhotos(silent){
+  if(!backendConfigured()) return;
+  const session = getSession();
+  if(!session) return;
+  const list = getPendingPhotos();
+  if(!list.length) return;
+  const remaining = [];
+  let sent = 0;
+  for(const item of list){
+    try{
+      const res = await uploadAndAttachOnePhoto_(session, item.billUid, item.fileName, item.mimeType, item.base64Data);
+      if(res.ok) sent++; else remaining.push(item);
+    }catch(e){ remaining.push(item); }
+  }
+  setPendingPhotos(remaining);
+  if(sent && !silent) toast(`${sent} pending bill photo(s) uploaded and linked`, 'ok');
+  renderSyncBanner();
+}
+
 /* ---------------- Global state ---------------- */
 const STATE = {
   dbMaster: [],        // {code, name, pg, pgName, active, beatCode, beatName, so, asm, rsm}
@@ -645,6 +690,183 @@ const STATE = {
 };
 
 let BILL_SEQ = 1;
+
+/* ---------------- Local persistence (IndexedDB) ----------------
+   Saved bills used to live only in the in-memory STATE.bills array — a
+   refresh (or an accidental tab close) wiped them, which is why the
+   footer has always warned "export your report first". Every "Save bill
+   to report" now ALSO writes those same records into IndexedDB, and the
+   app restores from there on boot — so refreshing no longer loses
+   anything, and "export" reads straight from what's already local rather
+   than needing a slow re-fetch. Bill-copy photos are stored here too
+   (they can be several hundred KB each; IndexedDB handles that far
+   better than localStorage's ~5MB cap). */
+const IDB_NAME = 'RateLedgerLocalDB';
+const IDB_VERSION = 1;
+let __idbPromise = null;
+function openIDB(){
+  if(__idbPromise) return __idbPromise;
+  __idbPromise = new Promise((resolve, reject)=>{
+    if(!window.indexedDB){ reject(new Error('IndexedDB not supported in this browser')); return; }
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = (e)=>{
+      const db = e.target.result;
+      if(!db.objectStoreNames.contains('bills')) db.createObjectStore('bills', {keyPath:'sl'});
+      if(!db.objectStoreNames.contains('billFiles')) db.createObjectStore('billFiles', {keyPath:'billUid'});
+      if(!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', {keyPath:'key'});
+    };
+    req.onsuccess = (e)=> resolve(e.target.result);
+    req.onerror = ()=> reject(req.error);
+  });
+  return __idbPromise;
+}
+async function idbPutAll(storeName, records){
+  if(!records.length) return;
+  try{
+    const db = await openIDB();
+    await new Promise((resolve, reject)=>{
+      const tx = db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      records.forEach(r=>store.put(r));
+      tx.oncomplete = resolve; tx.onerror = ()=>reject(tx.error);
+    });
+  } catch(e){ /* IndexedDB unavailable (private browsing, old browser) — bills still work for this session, just won't survive a refresh */ }
+}
+async function idbGetAll(storeName){
+  try{
+    const db = await openIDB();
+    return await new Promise((resolve, reject)=>{
+      const tx = db.transaction(storeName, 'readonly');
+      const req = tx.objectStore(storeName).getAll();
+      req.onsuccess = ()=> resolve(req.result||[]);
+      req.onerror = ()=> reject(req.error);
+    });
+  } catch(e){ return []; }
+}
+async function idbClearStore(storeName){
+  try{
+    const db = await openIDB();
+    await new Promise((resolve, reject)=>{
+      const tx = db.transaction(storeName, 'readwrite');
+      tx.objectStore(storeName).clear();
+      tx.oncomplete = resolve; tx.onerror = ()=>reject(tx.error);
+    });
+  } catch(e){}
+}
+async function idbSetMeta(key, value){
+  try{ const db = await openIDB(); await new Promise((res,rej)=>{ const tx=db.transaction('meta','readwrite'); tx.objectStore('meta').put({key,value}); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); } catch(e){}
+}
+async function idbGetMeta(key){
+  try{ const db = await openIDB(); return await new Promise((res,rej)=>{ const tx=db.transaction('meta','readonly'); const req=tx.objectStore('meta').get(key); req.onsuccess=()=>res(req.result?req.result.value:null); req.onerror=()=>rej(req.error); }); } catch(e){ return null; }
+}
+
+/* ---------------- Connected local folder (File System Access API) ----------
+   Chrome/Edge only (Firefox/Safari don't support this API at all — every
+   function below checks for it and falls back to the normal browser
+   download/upload dialogs when it's missing, so nothing breaks elsewhere).
+   Lets a person pick ONE folder on their own machine, once, containing two
+   subfolders this app then uses automatically:
+     Reports/               — every export lands here, auto-sorted into a
+                               per-date subfolder, filename stamped with
+                               date + time + the current Verified By name
+     Upload Data Master/     — DB Master / UOM / Rate files etc. can be
+                               picked from a quick list of what's already in
+                               this folder instead of the OS file dialog
+   The folder handle itself is remembered (IndexedDB) so it doesn't need to
+   be picked again every session — only re-CONFIRMED, since browsers require
+   a fresh user gesture to actually reuse write access. */
+const REPORTS_SUBFOLDER = 'Reports';
+const UPLOADS_SUBFOLDER = 'Upload Data Master';
+function fsApiSupported(){ return typeof window.showDirectoryPicker === 'function'; }
+async function connectLocalFolder(){
+  if(!fsApiSupported()){ toast('Your browser doesn\'t support connecting a local folder (Chrome or Edge only) — uploads/exports will use the normal file dialogs instead', 'err'); return; }
+  try{
+    const handle = await window.showDirectoryPicker({mode:'readwrite'});
+    await handle.getDirectoryHandle(REPORTS_SUBFOLDER, {create:true});
+    await handle.getDirectoryHandle(UPLOADS_SUBFOLDER, {create:true});
+    STATE.connectedFolder = handle;
+    await idbSetMeta('connectedFolderHandle', handle);
+    toast(`Connected "${handle.name}" — "${REPORTS_SUBFOLDER}" and "${UPLOADS_SUBFOLDER}" are ready inside it`, 'ok');
+    renderStatusStrip();
+    return handle;
+  } catch(e){
+    if(e.name!=='AbortError') toast('Could not connect that folder: '+e.message, 'err');
+    return null;
+  }
+}
+// Tries to silently reuse a previously-connected folder at boot. Browsers
+// only allow this WITHOUT re-prompting if permission is already 'granted'
+// from earlier in the same browsing session; otherwise this leaves
+// STATE.connectedFolder unset and the person sees the "Connect folder"
+// button rather than a broken silent-fail — reconnecting is one click.
+async function tryRestoreLocalFolder(){
+  if(!fsApiSupported()) return false;
+  try{
+    const handle = await idbGetMeta('connectedFolderHandle');
+    if(!handle) return false;
+    const perm = await handle.queryPermission({mode:'readwrite'});
+    if(perm === 'granted'){ STATE.connectedFolder = handle; return true; }
+    STATE.connectedFolderNeedsReconnect = handle; // known folder, just needs a click to re-grant
+    return false;
+  } catch(e){ return false; }
+}
+async function writeExportToConnectedFolder(fileName, blob){
+  const root = STATE.connectedFolder;
+  if(!root) return false;
+  try{
+    const reportsDir = await root.getDirectoryHandle(REPORTS_SUBFOLDER, {create:true});
+    const dateFolder = new Date().toISOString().slice(0,10); // one folder per calendar date; every export that day lands in the same one
+    const dayDir = await reportsDir.getDirectoryHandle(dateFolder, {create:true});
+    const fileHandle = await dayDir.getFileHandle(fileName, {create:true});
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return true;
+  } catch(e){
+    toast('Could not save into the connected folder (' + e.message + ') — downloaded normally instead', 'err');
+    return false;
+  }
+}
+// Builds the "<date>_<time>_<verifier>" stamp used in every export filename
+// saved into the connected folder, so the folder itself never needs
+// opening to know who exported what and when.
+function exportFileStamp(){
+  const now = new Date();
+  const date = now.toISOString().slice(0,10);
+  const time = now.toTimeString().slice(0,8).replace(/:/g,'-');
+  const session = getSession();
+  const who = session ? session.name : (STATE.billForm && STATE.billForm.verifiedBy) || 'Unknown';
+  return `${date}_${time}_${sanitizeFileName(who)}`;
+}
+// Lists files sitting in the "Upload Data Master" subfolder so an upload
+// button can offer them as one-click picks instead of the OS file dialog.
+// Returns [] (not an error) if no folder is connected or it's empty.
+async function listUploadMasterFiles(){
+  const root = STATE.connectedFolder;
+  if(!root) return [];
+  try{
+    const uploadsDir = await root.getDirectoryHandle(UPLOADS_SUBFOLDER, {create:true});
+    const files = [];
+    for await (const [name, handle] of uploadsDir.entries()){
+      if(handle.kind==='file' && !name.startsWith('.')) files.push({name, handle});
+    }
+    return files.sort((a,b)=>a.name.localeCompare(b.name));
+  } catch(e){ return []; }
+}
+async function fileHandleToFile(handle){ return await handle.getFile(); }
+
+// Called once at boot — restores whatever was saved locally before any
+// refresh, so STATE.bills/STATE.billFiles/BILL_SEQ pick up right where
+// the last session left off instead of starting empty.
+async function restoreLocalBillsFromIDB(){
+  const [bills, files] = await Promise.all([idbGetAll('bills'), idbGetAll('billFiles')]);
+  if(bills.length){
+    STATE.bills = bills;
+    BILL_SEQ = Math.max(...bills.map(b=>Number(b.sl)||0)) + 1;
+  }
+  files.forEach(f=>{ STATE.billFiles[f.billUid] = f; });
+  return bills.length;
+}
 
 /* ---------------- Small utils ---------------- */
 function $(sel, root){ return (root||document).querySelector(sel); }
@@ -890,7 +1112,7 @@ function renderShell(){
       <section class="view" id="view-ratecheck"></section>
       <section class="view" id="view-reports"></section>
     </main>
-    <footer class="appfoot">${backendConfigured() ? 'Bills you save are submitted to your organisation\'s Google Sheet, in addition to this local report.' : 'All data stays in this browser — nothing is uploaded to a server.'} Refreshing clears bills/rate master data (export your report first), but your Collected By / Designation / Verified By stay remembered on this device until you clear browser data.</footer>
+    <footer class="appfoot">${backendConfigured() ? 'Bills you save are submitted to your organisation\'s Google Sheet, in addition to this local report.' : 'All data stays in this browser — nothing is uploaded to a server.'} Saved bills and their photos now survive a refresh (stored locally on this device) — only your Rate Master / DB Master uploads clear on refresh, so re-upload those after reopening. Your Collected By / Designation / Verified By stay remembered too, until you clear browser data.</footer>
   `;
   renderTabs();
   renderStatusStrip();
@@ -911,13 +1133,17 @@ function renderSyncBanner(){
   if(!el) return;
   if(!backendConfigured()){ el.innerHTML=''; return; }
   const pending = getPendingSubmissions().length;
+  const pendingPhotos = getPendingPhotos().length;
   const s = STATE.syncStatus;
-  if(pending<=0 && s.state!=='error'){ el.innerHTML=''; return; }
+  if(pending<=0 && pendingPhotos<=0 && s.state!=='error'){ el.innerHTML=''; return; }
   const isErr = s.state==='error';
+  const parts = [];
+  if(pending>0) parts.push(`${pending} bill line(s) not yet in the Sheet`);
+  if(pendingPhotos>0) parts.push(`${pendingPhotos} bill photo(s) not yet uploaded`);
   el.innerHTML = `
     <div class="sync-banner ${isErr?'err':'warn'}">
       <div>
-        <strong>${pending>0 ? `${pending} bill line(s) not yet in the Sheet.` : 'Sheet sync issue.'}</strong>
+        <strong>${parts.length ? parts.join(' · ')+'.' : 'Sheet sync issue.'}</strong>
         ${s.message ? `<span class="sync-banner-msg">${esc(s.message)}</span>` : ''}
       </div>
       <button class="btn small" id="syncRetryBtn">Retry now</button>
@@ -926,6 +1152,7 @@ function renderSyncBanner(){
   if(btn) btn.addEventListener('click', async ()=>{
     btn.disabled = true; btn.textContent = 'Retrying…';
     await retryPendingSubmissions(false);
+    await retryPendingPhotos(false);
     renderSyncBanner();
   });
 }
@@ -1039,6 +1266,7 @@ function renderDashboard(){
     </div>
 
     ${backendConfigured() ? dataCenterVaultHtml() : ''}
+    ${localFolderCardHtml()}
 
     <div class="section-title">Setup checklist</div>
     <div class="grid-4">
@@ -1065,6 +1293,7 @@ function renderDashboard(){
   `;
   const gs = $('#goSetup'); if(gs) gs.addEventListener('click', ()=>switchTab('setup'));
   wireDataCenterVault();
+  wireLocalFolderCard();
   countUp($('#cuDbMaster'), STATE.dbMaster.length);
   countUp($('#cuRateSkus'), STATE.rateRows.length);
   countUp($('#cuBillsChecked'), uniqueBills);
@@ -1103,6 +1332,57 @@ function wireDataCenterVault(){
     const s = getSession();
     if(s){ try{ localStorage.setItem(SESSION_KEY, JSON.stringify(s)); }catch(e){} }
     setTimeout(()=>{ window.location.href = DASHBOARD_URL; }, 900);
+  });
+}
+function localFolderCardHtml(){
+  if(!fsApiSupported()){
+    return `<div class="card" style="margin:14px 0;">
+      <div class="section-title">Connected Folder</div>
+      <div class="small-muted">Your browser doesn't support connecting a local folder (this needs Chrome or Edge). Uploads and exports will use the normal file dialogs.</div>
+    </div>`;
+  }
+  if(STATE.connectedFolder){
+    return `<div class="card" style="margin:14px 0;display:flex;align-items:center;gap:14px;">
+      <div style="font-size:22px;">📁</div>
+      <div style="flex:1;">
+        <div style="font-weight:700;">Connected: "${esc(STATE.connectedFolder.name)}"</div>
+        <div class="small-muted">Exports save straight into "${REPORTS_SUBFOLDER}/&lt;date&gt;/" · Uploads can be quick-picked from "${UPLOADS_SUBFOLDER}"</div>
+      </div>
+      <button class="btn small" id="reconnectFolderBtn">Change folder</button>
+    </div>`;
+  }
+  if(STATE.connectedFolderNeedsReconnect){
+    return `<div class="card" style="margin:14px 0;display:flex;align-items:center;gap:14px;border-color:var(--warn);">
+      <div style="font-size:22px;">📁</div>
+      <div style="flex:1;">
+        <div style="font-weight:700;">Folder connection needs re-confirming</div>
+        <div class="small-muted">"${esc(STATE.connectedFolderNeedsReconnect.name)}" was connected before — click to re-grant access for this session.</div>
+      </div>
+      <button class="btn small accent" id="reconnectFolderBtn">Reconnect</button>
+    </div>`;
+  }
+  return `<div class="card" style="margin:14px 0;display:flex;align-items:center;gap:14px;">
+    <div style="font-size:22px;">📁</div>
+    <div style="flex:1;">
+      <div style="font-weight:700;">Connect a local folder</div>
+      <div class="small-muted">One folder on this device with "${REPORTS_SUBFOLDER}" and "${UPLOADS_SUBFOLDER}" subfolders — exports save straight in, uploads can be picked without hunting for the file.</div>
+    </div>
+    <button class="btn small accent" id="reconnectFolderBtn">Connect folder</button>
+  </div>`;
+}
+function wireLocalFolderCard(){
+  const btn = $('#reconnectFolderBtn');
+  if(!btn) return;
+  btn.addEventListener('click', async ()=>{
+    if(STATE.connectedFolderNeedsReconnect){
+      try{
+        const handle = STATE.connectedFolderNeedsReconnect;
+        const perm = await handle.requestPermission({mode:'readwrite'});
+        if(perm==='granted'){ STATE.connectedFolder = handle; STATE.connectedFolderNeedsReconnect = null; toast(`Reconnected "${handle.name}"`, 'ok'); renderDashboard(); return; }
+      } catch(e){}
+    }
+    await connectLocalFolder();
+    renderDashboard();
   });
 }
 function checklistCard(title, note, done, optional){
@@ -2383,7 +2663,11 @@ function renderRMTable(){
 }
 /* ---------------- Rate Wall — which products' rates changed this month,
    full timeline per product, category-wise ---------------- */
-let RW_FILTERS = {location:'', category:''};
+let RW_FILTERS = {location:'', category:'', pg:''};
+function pgsForLocation_(location){
+  const pgs = STATE.priceGroupMap.filter(p=>p.location===location).map(p=>p.pg);
+  return Array.from(new Set(pgs));
+}
 function computeRateChanges(){
   const groups = {};
   STATE.rateRows.forEach(r=>{
@@ -2407,7 +2691,7 @@ function computeRateChanges(){
       const first = list[0], last = list[list.length-1];
       results.push({
         productCode: first.productCode, productName: first.productName, category: first.category||'—',
-        location: first.location, sku: first.sku,
+        location: first.location, sku: first.sku, pg: pgsForLocation_(first.location).join(', ')||'—',
         firstRate: first.rate, firstDate: first.effDateStr,
         lastRate: last.rate, lastDate: last.effDateStr,
         netDiff: clamp2(last.rate-first.rate), netPct: clamp2(((last.rate-first.rate)/first.rate)*100),
@@ -2420,12 +2704,14 @@ function computeRateChanges(){
 function renderRateWall(){
   const view = $('#view-ratewall');
   const locs = Array.from(new Set(STATE.rateRows.map(r=>r.location))).sort();
+  const allPgs = Array.from(new Set(STATE.priceGroupMap.map(p=>p.pg))).sort();
   view.innerHTML = `
     <div class="view-head">
       <div><h2>Rate Wall</h2><p class="sub">Only products whose rate actually moved show up here — the full timeline of when and by how much, straight from your uploaded rate files.</p></div>
     </div>
     <div class="filterbar">
       <div class="field"><label>Location</label><select id="rwLoc"><option value="">All</option>${locs.map(l=>`<option ${RW_FILTERS.location===l?'selected':''}>${esc(l)}</option>`).join('')}</select></div>
+      <div class="field"><label>Price Group</label><select id="rwPg"><option value="">All</option>${allPgs.map(p=>`<option value="${esc(p)}" ${RW_FILTERS.pg===p?'selected':''}>${esc(p)}</option>`).join('')}</select></div>
       <div class="field" id="rwCatField"><label>Category</label><select id="rwCat"><option value="">All</option></select></div>
       <div class="field grow"><label>Search product / code</label><input type="text" id="rwSearch" placeholder="Type product name or code…" value="${esc(RW_FILTERS.q||'')}"></div>
       <button class="btn accent" id="rwExport" style="align-self:flex-end;">⬇ Export Excel (Pro format)</button>
@@ -2433,6 +2719,7 @@ function renderRateWall(){
     <div id="rwContent"></div>
   `;
   $('#rwLoc').addEventListener('change', e=>{ RW_FILTERS.location=e.target.value; renderRateWallContent(); });
+  $('#rwPg').addEventListener('change', e=>{ RW_FILTERS.pg=e.target.value; renderRateWallContent(); });
   $('#rwSearch').addEventListener('input', e=>{ RW_FILTERS.q=e.target.value; renderRateWallContent(); });
   $('#rwExport').addEventListener('click', exportRateWallExcel);
   renderRateWallContent();
@@ -2441,6 +2728,7 @@ function renderRateWallContent(){
   const content = $('#rwContent');
   let changed = computeRateChanges();
   if(RW_FILTERS.location) changed = changed.filter(c=>c.location===RW_FILTERS.location);
+  if(RW_FILTERS.pg) changed = changed.filter(c=> pgsForLocation_(c.location).includes(RW_FILTERS.pg));
   // Populate the Category dropdown from whatever's actually in the changed
   // set for this location (not the whole rate master) — no point offering
   // a category filter option with zero rate-changes in it.
@@ -2478,7 +2766,7 @@ function renderRateWallContent(){
           <div class="rw-product-row">
             <div class="rw-product-name">
               <b>${esc(p.productName)}</b>
-              <span class="small-muted" style="font-family:var(--font-mono);">${esc(p.productCode)} · ${esc(p.location)}</span>
+              <span class="small-muted" style="font-family:var(--font-mono);">${esc(p.productCode)} · ${esc(p.location)} · PG: ${esc(p.pg)}</span>
             </div>
             <div class="rw-timeline">
               <span class="rw-tl-rate">₹${fmtMoney(p.firstRate)}<br><span class="rw-tl-date">${esc(p.firstDate)}</span></span>
@@ -2508,7 +2796,7 @@ async function exportRateWallExcel(){
     const ws = wb.addWorksheet('Rate Change Timeline', {views:[{state:'frozen', ySplit:5}]});
     const cols = [
       {header:'Category', key:'category', width:20}, {header:'Product', key:'product', width:32}, {header:'Product Code', key:'code', width:14},
-      {header:'Location', key:'location', width:14}, {header:'Change Date', key:'date', width:14},
+      {header:'Location', key:'location', width:14}, {header:'Price Group', key:'pg', width:14}, {header:'Change Date', key:'date', width:14},
       {header:'Old Rate (₹/kg)', key:'from', width:15}, {header:'New Rate (₹/kg)', key:'to', width:15},
       {header:'Diff (₹/kg)', key:'diff', width:13}, {header:'Change %', key:'pct', width:11},
     ];
@@ -2535,7 +2823,7 @@ async function exportRateWallExcel(){
         const row = ws.getRow(r);
         const fill = ch.diff>0 ? DANGERSOFT : SUCCESSSOFT;
         const font = ch.diff>0 ? DANGER : SUCCESS;
-        const vals = { category:p.category, product:p.productName, code:p.productCode, location:p.location, date:ch.date, from:ch.from, to:ch.to, diff:ch.diff, pct:(ch.pct>0?'+':'')+ch.pct+'%' };
+        const vals = { category:p.category, product:p.productName, code:p.productCode, location:p.location, pg:p.pg, date:ch.date, from:ch.from, to:ch.to, diff:ch.diff, pct:(ch.pct>0?'+':'')+ch.pct+'%' };
         cols.forEach((c,i)=>{ row.getCell(i+1).value = vals[c.key]; row.getCell(i+1).fill={type:'pattern',pattern:'solid',fgColor:{argb:fill}}; });
         row.getCell(8).font = {bold:true,color:{argb:font}}; row.getCell(9).font = {bold:true,color:{argb:font}};
         ['from','to','diff'].forEach(k=>{ const ci=cols.findIndex(c=>c.key===k)+1; row.getCell(ci).numFmt='#,##0.00'; });
@@ -3411,6 +3699,11 @@ async function saveBill(){
   if(saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Save bill to report'; }
   if(f.collectedBy && f.collectedBy.trim()) lsAddToList('collectedByList', f.collectedBy.trim());
   if(f.verifiedBy && f.verifiedBy.trim()) lsAddToList('verifiedByList', f.verifiedBy.trim());
+  // Persist locally right away — this is what makes a refresh no longer
+  // lose the bills/photos just saved, and is what "export" reads from
+  // instead of holding everything only in memory.
+  idbPutAll('bills', newRecords);
+  if(STATE.billFiles[billUid]) idbPutAll('billFiles', [{ billUid, ...STATE.billFiles[billUid] }]);
 
   if(backendConfigured()){
     const session = getSession();
@@ -3447,17 +3740,19 @@ async function saveBill(){
   if(backendConfigured() && STATE.billFiles[billUid]){
     const bf = STATE.billFiles[billUid];
     const session1 = getSession();
+    const mimeType = bf.kind==='pdf' ? 'application/pdf' : 'image/jpeg';
+    const base64Data = bf.dataUrl.split(',')[1] || '';
     (async () => {
       try{
-        const mimeType = bf.kind==='pdf' ? 'application/pdf' : 'image/jpeg';
-        const base64Data = bf.dataUrl.split(',')[1] || '';
-        const upRes = await backendPost({ action:'uploadBillCopy', code:session1.code, pin:session1.pin, billUid, fileName: bf.savedName, mimeType, base64Data });
-        if(!upRes.ok){ toast(`Bill photo couldn't be uploaded (${upRes.error||'unknown error'}) — bill itself is saved fine`, 'err'); return; }
-        const atRes = await backendPost({ action:'attachBillCopyUrl', code:session1.code, pin:session1.pin, billUid, url:upRes.url, downloadUrl:upRes.downloadUrl });
-        if(atRes.ok) toast('Bill photo uploaded and linked', 'ok');
-        else toast(`Photo uploaded, but couldn't be linked to the bill (${atRes.error||'unknown error'})`, 'err');
+        const res = await uploadAndAttachOnePhoto_(session1, billUid, bf.savedName, mimeType, base64Data);
+        if(res.ok){ toast('Bill photo uploaded and linked', 'ok'); return; }
+        queuePendingPhoto(billUid, bf.savedName, mimeType, base64Data);
+        toast(`Bill photo couldn't be uploaded (${res.error}) — queued to retry automatically`, 'err');
+        renderSyncBanner();
       } catch(e){
-        toast("Bill photo couldn't be uploaded (connection issue) — bill itself is saved fine", 'err');
+        queuePendingPhoto(billUid, bf.savedName, mimeType, base64Data);
+        toast("Bill photo couldn't be uploaded (connection issue) — queued to retry automatically", 'err');
+        renderSyncBanner();
       }
     })();
   }
@@ -3481,6 +3776,7 @@ function renderReports(){
       <div><h2>Reports</h2><p class="sub">Every product line checked in Rate Check, ready to filter and export.</p></div>
       <button class="btn accent" id="repExport">⬇ Export Excel (Pro format)</button>
       <button class="btn secondary" id="repExportPhotos">📷 Download All Photos (ZIP)</button>
+      <button class="btn small" id="repClearLocal" style="margin-left:auto;color:var(--danger);border-color:var(--danger);" title="Clears the bills/photos saved on THIS device only — already-submitted rows stay safe in the Sheet.">Clear local data</button>
     </div>
     <div class="filterbar">
       <div class="field"><label>Location</label><select id="repLoc"><option value="">All</option>${locs.map(l=>`<option ${REP_FILTERS.location===l?'selected':''}>${esc(l)}</option>`).join('')}</select></div>
@@ -3501,6 +3797,16 @@ function renderReports(){
   `;
   $('#repExport').addEventListener('click', exportExcelPro);
   $('#repExportPhotos').addEventListener('click', exportAllPhotosZip);
+  $('#repClearLocal').addEventListener('click', async ()=>{
+    if(!confirm(`This clears ${STATE.bills.length} locally-saved bill line(s) from THIS device only. Rows already submitted to the Sheet are unaffected. Export first if you haven't already. Continue?`)) return;
+    STATE.bills = [];
+    STATE.billFiles = {};
+    BILL_SEQ = 1;
+    await idbClearStore('bills');
+    await idbClearStore('billFiles');
+    toast('Local bill data cleared from this device', 'ok');
+    renderReports(); renderStatusStrip();
+  });
   ['repLoc','repDb','repBillType','repStatus','repFrom','repTo','repQ'].forEach(id=>{
     $('#'+id).addEventListener(id==='repQ'?'input':'change', ()=>{
       REP_FILTERS = {
@@ -3889,7 +4195,7 @@ async function exportExcelPro(){
     Object.entries(byLoc).forEach(([loc,v])=>{ ws2.getCell(`A${sr}`).value=loc; ws2.getCell(`B${sr}`).value=v.over; ws2.getCell(`C${sr}`).value=v.under; sr++; });
 
     const buf = await wb.xlsx.writeBuffer();
-    const stamp = new Date().toISOString().slice(0,10);
+    const stamp = exportFileStamp(); // <date>_<time>_<verifier> — same stamp used whether this lands in the connected folder or a plain download
 
     if(pdfBillUids.length){
       // A PDF bill copy can't be embedded in the sheet, so it still needs the ZIP+hyperlink
@@ -3904,21 +4210,31 @@ async function exportExcelPro(){
         billsFolder.file(bf.savedName, b64, {base64:true});
       });
       const zipBlob = await zip.generateAsync({type:'blob'});
-      const url = URL.createObjectURL(zipBlob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `Overinvoicing_Report_${stamp}.zip`;
-      document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
+      const zipName = `Overinvoicing_Report_${stamp}.zip`;
+      const savedLocally = await writeExportToConnectedFolder(zipName, zipBlob);
+      if(!savedLocally){
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement('a');
+        a.href = url; a.download = zipName;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+      }
       const photoNote = embeddedPhotoCount>0 ? ` (${embeddedPhotoCount} photo${embeddedPhotoCount===1?'':'s'} embedded directly, no unzip needed for ${embeddedPhotoCount===1?'it':'them'})` : '';
-      toast(`Exported as ZIP — ${pdfBillUids.length} PDF bill${pdfBillUids.length===1?'':'s'} linked via the Bills folder${photoNote}. Right-click the ZIP → Properties → Unblock before extracting, so Windows doesn't flag the files.`, 'ok');
+      const whereNote = savedLocally ? ` Saved into "${REPORTS_SUBFOLDER}/${new Date().toISOString().slice(0,10)}/".` : ' Right-click the ZIP → Properties → Unblock before extracting, so Windows doesn\'t flag the files.';
+      toast(`Exported as ZIP — ${pdfBillUids.length} PDF bill${pdfBillUids.length===1?'':'s'} linked via the Bills folder${photoNote}.${whereNote}`, 'ok');
     } else {
       const blob = new Blob([buf], {type:'application/octet-stream'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `Overinvoicing_Report_${stamp}.xlsx`;
-      document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
-      toast(embeddedPhotoCount>0 ? `Report exported — ${embeddedPhotoCount} bill photo${embeddedPhotoCount===1?'':'s'} embedded directly in the Excel file` : 'Report exported', 'ok');
+      const fileName = `Overinvoicing_Report_${stamp}.xlsx`;
+      const savedLocally = await writeExportToConnectedFolder(fileName, blob);
+      if(!savedLocally){
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = fileName;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+      }
+      const whereNote = savedLocally ? ` Saved into "${REPORTS_SUBFOLDER}/${new Date().toISOString().slice(0,10)}/".` : '';
+      toast((embeddedPhotoCount>0 ? `Report exported — ${embeddedPhotoCount} bill photo${embeddedPhotoCount===1?'':'s'} embedded directly in the Excel file.` : 'Report exported.') + whereNote, 'ok');
     }
   }catch(err){
     console.error(err); toast('Export failed: '+err.message, 'err');
@@ -4066,13 +4382,17 @@ async function boot(){
     renderLoginGate();
     return;
   }
+  const restoredCount = await restoreLocalBillsFromIDB();
+  await tryRestoreLocalFolder();
   renderShell();
   switchTab('dashboard');
+  if(restoredCount) toast(`Restored ${restoredCount} bill line(s) saved locally before the last refresh`, 'ok');
   if(backendConfigured() && getSession()){
     backendGet({action:'verifiers'}).then(res=>{
       if(res.ok){ STATE.verifiersList = res.verifiers; if(STATE.billForm) renderRateCheck(); }
     }).catch(()=>{});
     retryPendingSubmissions(true);
+    retryPendingPhotos(true);
   }
 }
 
