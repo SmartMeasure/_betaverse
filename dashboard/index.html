@@ -49,7 +49,7 @@ h1,h2,h3{font-family:var(--font-display);font-weight:600;margin:0;color:var(--in
 .grid-3{grid-template-columns:repeat(3,1fr);}
 .grid-2{grid-template-columns:1fr 1fr;}
 @media (max-width:900px){.grid-4{grid-template-columns:repeat(2,1fr);}.grid-2{grid-template-columns:1fr;}}
-.stat-card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);padding:16px 18px;position:relative;overflow:hidden;transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;}
+.stat-card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);padding:16px 18px;position:relative;transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;}
 .stat-card.clickable{cursor:pointer;}
 .stat-card.clickable:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(16,17,20,.10);border-color:var(--ink-faint);}
 .stat-card.clickable:active{transform:translateY(-1px);}
@@ -59,6 +59,11 @@ h1,h2,h3{font-family:var(--font-display);font-weight:600;margin:0;color:var(--in
 .stat-card.clickable:hover .stat-card-hint{opacity:1;transform:translateX(0);}
 .stat-card-sub{font-size:11px;color:var(--ink-faint);margin-top:3px;}
 .stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);font-weight:600;}
+.info-dot{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:var(--panel-3, var(--edge));color:var(--ink-soft);font-size:9px;font-weight:700;font-style:italic;font-family:Georgia,serif;margin-left:5px;cursor:help;position:relative;vertical-align:middle;text-transform:none;letter-spacing:0;}
+.info-dot:hover{background:var(--ink);color:#fff;}
+.info-dot::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:8px 11px;border-radius:8px;font-size:11px;font-weight:500;line-height:1.4;width:220px;white-space:normal;text-align:left;opacity:0;pointer-events:none;transition:opacity .12s ease;z-index:20;box-shadow:0 8px 20px rgba(0,0,0,.2);}
+.info-dot::before{content:'';position:absolute;bottom:100%;left:50%;transform:translateX(-50%);border:5px solid transparent;border-top-color:var(--ink);margin-bottom:-2px;opacity:0;transition:opacity .12s ease;z-index:20;}
+.info-dot:hover::after, .info-dot:hover::before{opacity:1;}
 .stat-value{font-family:var(--font-mono);font-size:26px;font-weight:600;margin-top:6px;}
 .section-eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-faint);font-weight:700;margin:22px 0 10px;display:flex;align-items:center;gap:8px;}
 .section-eyebrow::after{content:'';flex:1;height:1px;background:var(--edge);}
@@ -72,6 +77,11 @@ h1,h2,h3{font-family:var(--font-display);font-weight:600;margin:0;color:var(--in
 .filter-chip{display:inline-flex;align-items:center;gap:6px;background:var(--ink);color:#fff;border-radius:100px;padding:5px 12px;font-size:12px;font-weight:600;margin:6px 6px 0 0;cursor:pointer;}
 .filter-chip b{font-weight:700;opacity:.7;}
 .filter-chip:hover b{opacity:1;}
+.mini-stat-strip{display:flex;gap:0;flex-wrap:wrap;background:var(--panel);border:1px solid var(--edge);border-radius:var(--radius);margin:10px 0;overflow:hidden;}
+.mini-stat{flex:1;min-width:110px;padding:10px 14px;border-right:1px solid var(--edge-soft);display:flex;flex-direction:column;gap:2px;}
+.mini-stat:last-child{border-right:none;}
+.mini-stat-val{font-family:var(--font-mono);font-size:17px;font-weight:700;}
+.mini-stat-label{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);font-weight:600;}
 .verifier-code-wrap{position:relative;}
 .verifier-code-wrap input{width:100%;padding-right:26px;}
 .eye-toggle{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:transparent;border:none;cursor:pointer;font-size:12px;padding:2px 4px;line-height:1;color:var(--ink-faint);}
@@ -140,7 +150,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v7';
+const APP_VERSION = 'v10';
 const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 const BACKEND_URL_KEY = 'rateLedger_backendUrl';
 // The Web App URL is now editable from the login screen's "Connection
@@ -270,6 +280,35 @@ function startUltimateLoader(id){
 function $(sel, root){ return (root||document).querySelector(sel); }
 function $all(sel, root){ return Array.from((root||document).querySelectorAll(sel)); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// Safety net for BillDate/SOSubmitDate/SubmissionDate specifically — Code.gs
+// normalizes these server-side now, but a not-yet-redeployed backend (or any
+// future slip) could still hand back a raw ISO datetime (Sheets auto-
+// converting a text cell to a real Date behind the scenes) instead of the
+// plain DD-MM-YYYY every report should show. This catches that here too, so
+// the display is never wrong regardless of what the backend currently sends.
+function normalizeDMYDisplay(val){
+  if(!val) return val;
+  const s = String(val);
+  const dmy = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
+  if(dmy) return `${dmy[1].padStart(2,'0')}-${dmy[2].padStart(2,'0')}-${dmy[3]}`; // already DD-MM-YYYY — just zero-pad for consistency
+  // A raw ISO datetime (e.g. 2026-10-07T18:30:00.000Z) is UTC — the ORIGINAL
+  // date was entered as a local-midnight value, so naively reading the UTC
+  // Y/M/D back out would land on the wrong calendar day for anyone east of
+  // UTC (e.g. 18:30 UTC = 00:00 IST the NEXT day — the correct date is the
+  // 8th, not the 7th). Parsing through `new Date(...)` and reading it back
+  // with the LOCAL getters (not the UTC ones) recovers the calendar date as
+  // it was actually intended, as long as the viewer is in the same timezone
+  // the data was entered in (India, for this app).
+  if(/^\d{4}-\d{1,2}-\d{1,2}T/.test(s)){
+    const d = new Date(s);
+    if(!isNaN(d.getTime())){
+      const pad = n => String(n).padStart(2,'0');
+      return `${pad(d.getDate())}-${pad(d.getMonth()+1)}-${d.getFullYear()}`;
+    }
+  }
+  return s;
+}
+const DATE_DISPLAY_FIELDS = ['BillDate','SOSubmitDate','SubmissionDate'];
 function fmtMoney(n){ return (n==null||isNaN(n)) ? '—' : Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtInt(n){ return (n==null||isNaN(n)) ? '—' : Number(n).toLocaleString('en-IN'); }
 function toast(msg, type){
@@ -476,15 +515,16 @@ function renderAnalyticsContent(rows){
   const uniqueBillsUnderIds = new Set(under.map(r=>r.BillUID));
   const uniqueBillsTotalIds = new Set(rows.map(r=>r.BillUID));
   const uniqueDBsOverIds = new Set(over.map(r=>r.DBName));
+  const uniqueDBsTotalIds = new Set(rows.map(r=>r.DBName));
   const uniqueBillsNegIds = new Set(neg.map(r=>r.BillUID));
   const rangeFilters = { fromDate: window.__anFrom||'', toDate: window.__anTo||'' };
 
-  const statCard = ({icon, iconBg, label, value, sub, filters})=>{
+  const statCard = ({icon, iconBg, label, value, sub, filters, info})=>{
     const clickAttr = filters ? `data-goto='${esc(JSON.stringify({...rangeFilters, ...filters}))}'` : '';
     return `<div class="stat-card ${filters?'clickable':''}" ${clickAttr}>
       <div class="stat-card-top">
         <div>
-          <div class="stat-label">${label}</div>
+          <div class="stat-label">${label}${info?`<span class="info-dot" data-tip="${esc(info)}">i</span>`:''}</div>
           <div class="stat-value">${value}</div>
           ${sub?`<div class="stat-card-sub">${sub}</div>`:''}
         </div>
@@ -497,21 +537,22 @@ function renderAnalyticsContent(rows){
   content.innerHTML = `
     <div class="section-eyebrow">Line-level</div>
     <div class="grid grid-4" style="margin-bottom:8px;">
-      ${statCard({icon:'📋', iconBg:'var(--panel-2)', label:'Lines Submitted', value:fmtInt(rows.length), filters:{}})}
-      ${statCard({icon:'⚠️', iconBg:'var(--danger-soft)', label:'Overcharge Lines', value:fmtInt(over.length), sub:`₹${fmtMoney(overAmt)} total`, filters:{status:'over'}})}
-      ${statCard({icon:'↩️', iconBg:'var(--warn-soft)', label:'Undercharge Lines', value:fmtInt(under.length), sub:`₹${fmtMoney(underAmt)} total`, filters:{status:'under'}})}
-      ${statCard({icon:'≈', iconBg:'var(--negligible-soft)', label:'Negligible', value:fmtInt(neg.length), filters:{status:'negligible'}})}
+      ${statCard({icon:'📋', iconBg:'var(--panel-2)', label:'Lines Submitted', value:fmtInt(rows.length), filters:{}, info:'Every product line across every bill in this date range — one 5-product bill counts as 5 lines here.'})}
+      ${statCard({icon:'⚠️', iconBg:'var(--danger-soft)', label:'Overcharge Lines', value:fmtInt(over.length), sub:`₹${fmtMoney(overAmt)} total`, filters:{status:'over'}, info:'Lines where Invoice Rate > Company Rate by 1% or more. ₹ total = sum of (Invoice Rate − Company Rate) × Qty(kg) for each line.'})}
+      ${statCard({icon:'↩️', iconBg:'var(--warn-soft)', label:'Undercharge Lines', value:fmtInt(under.length), sub:`₹${fmtMoney(underAmt)} total`, filters:{status:'under'}, info:'Lines where Invoice Rate is below Company Rate — no negligible band on this side, any amount counts.'})}
+      ${statCard({icon:'≈', iconBg:'var(--negligible-soft)', label:'Negligible', value:fmtInt(neg.length), filters:{status:'negligible'}, info:'Lines where Invoice Rate > Company Rate, but by under 1% — technically an overcharge, but too small to flag.'})}
     </div>
     <div class="section-eyebrow">Unique bills — how many actual audits, not lines</div>
-    <div class="grid grid-3" style="margin-bottom:8px;">
-      ${statCard({icon:'🧾', iconBg:'var(--panel-2)', label:'Total Unique Bills', value:fmtInt(uniqueBillsTotalIds.size), filters:{uniqueBillsOnly:true}})}
-      ${statCard({icon:'🔴', iconBg:'var(--danger-soft)', label:'Bills w/ Overcharge', value:fmtInt(uniqueBillsOverIds.size), sub:`${rows.length?Math.round(uniqueBillsOverIds.size/uniqueBillsTotalIds.size*100):0}% of all bills`, filters:{status:'over', uniqueBillsOnly:true}})}
-      ${statCard({icon:'🟡', iconBg:'var(--warn-soft)', label:'Bills w/ Undercharge', value:fmtInt(uniqueBillsUnderIds.size), sub:`${rows.length?Math.round(uniqueBillsUnderIds.size/uniqueBillsTotalIds.size*100):0}% of all bills`, filters:{status:'under', uniqueBillsOnly:true}})}
+    <div class="grid grid-4" style="margin-bottom:8px;">
+      ${statCard({icon:'🧾', iconBg:'var(--panel-2)', label:'Total Unique Bills', value:fmtInt(uniqueBillsTotalIds.size), filters:{uniqueBillsOnly:true}, info:'Distinct Bill UIDs in this range — a bill with 5 product lines still counts once here, however many lines it has.'})}
+      ${statCard({icon:'🏬', iconBg:'var(--panel-2)', label:'Total Unique Distributors', value:fmtInt(uniqueDBsTotalIds.size), filters:{uniqueBillsOnly:true}, info:'Distinct DB Names that appear anywhere in this range — regardless of whether any of their bills had an overcharge.'})}
+      ${statCard({icon:'🔴', iconBg:'var(--danger-soft)', label:'Bills w/ Overcharge', value:fmtInt(uniqueBillsOverIds.size), sub:`${rows.length?Math.round(uniqueBillsOverIds.size/uniqueBillsTotalIds.size*100):0}% of all bills`, filters:{status:'over', uniqueBillsOnly:true}, info:'Unique bills that have AT LEAST ONE overcharge line — a bill with 2 overcharge lines still only counts once.'})}
+      ${statCard({icon:'🟡', iconBg:'var(--warn-soft)', label:'Bills w/ Undercharge', value:fmtInt(uniqueBillsUnderIds.size), sub:`${rows.length?Math.round(uniqueBillsUnderIds.size/uniqueBillsTotalIds.size*100):0}% of all bills`, filters:{status:'under', uniqueBillsOnly:true}, info:'Unique bills that have at least one undercharge line.'})}
     </div>
     <div class="grid grid-3" style="margin-bottom:18px;">
-      ${statCard({icon:'🔵', iconBg:'var(--negligible-soft)', label:'Bills w/ Negligible Overcharge', value:fmtInt(uniqueBillsNegIds.size), sub:`${rows.length?Math.round(uniqueBillsNegIds.size/uniqueBillsTotalIds.size*100):0}% of all bills — under 1%, not flagged`, filters:{status:'negligible', uniqueBillsOnly:true}})}
-      ${statCard({icon:'🏢', iconBg:'var(--danger-soft)', label:'Distributors w/ Overcharge', value:fmtInt(uniqueDBsOverIds.size), sub:'unique DBs, at least 1 overcharge line', filters:{status:'over', uniqueBillsOnly:true}})}
-      ${statCard({icon:'🟢', iconBg:'var(--success-soft)', label:'Clean Bills', value:fmtInt(uniqueBillsTotalIds.size-new Set([...uniqueBillsOverIds,...uniqueBillsUnderIds,...uniqueBillsNegIds]).size), sub:'no over/undercharge/negligible line at all'})}
+      ${statCard({icon:'🔵', iconBg:'var(--negligible-soft)', label:'Bills w/ Negligible Overcharge', value:fmtInt(uniqueBillsNegIds.size), sub:`${rows.length?Math.round(uniqueBillsNegIds.size/uniqueBillsTotalIds.size*100):0}% of all bills — under 1%, not flagged`, filters:{status:'negligible', uniqueBillsOnly:true}, info:'Unique bills whose only issue (if any) is a negligible (<1%) overcharge line.'})}
+      ${statCard({icon:'🏢', iconBg:'var(--danger-soft)', label:'Distributors w/ Overcharge', value:fmtInt(uniqueDBsOverIds.size), sub:'unique DBs, at least 1 overcharge line', filters:{status:'over', uniqueBillsOnly:true}, info:'Distinct DB Names with at least one overcharge line anywhere in their bills, out of the Total Unique Distributors above.'})}
+      ${statCard({icon:'🟢', iconBg:'var(--success-soft)', label:'Clean Bills', value:fmtInt(uniqueBillsTotalIds.size-new Set([...uniqueBillsOverIds,...uniqueBillsUnderIds,...uniqueBillsNegIds]).size), sub:'no over/undercharge/negligible line at all', info:'Total Unique Bills minus any bill that has even one over/under/negligible line — every line on these bills was an exact Match.'})}
     </div>
     <div class="grid grid-2" style="margin-bottom:18px;">
       <div class="chart-card"><h3>🥧 Status Breakdown <span class="click-hint">click a segment</span></h3><div id="chStatusWrap"><canvas id="chStatus" height="220"></canvas></div></div>
@@ -542,7 +583,15 @@ function renderAnalyticsContent(rows){
   }
   const byDay = {};
   rows.forEach(r=>{ if(r.Status==='over'){ const d=(r.BillDate||'').slice(0,10)||'?'; byDay[d]=(byDay[d]||0)+(Number(r.OverchargeAmt)||0); } });
-  const days = Object.keys(byDay).sort();
+  // BillDate is DD-MM-YYYY, so a plain string sort puts "05-12-2026" before
+  // "20-01-2027" — chronologically backwards. Parse each into a real Date
+  // for ordering, keep the original DD-MM-YYYY string as the display label.
+  const parseDMYClientA = (s)=>{ const m=String(s).match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/); return m? new Date(Number(m[3]),Number(m[2])-1,Number(m[1])) : null; };
+  const days = Object.keys(byDay).sort((a,b)=>{
+    const da=parseDMYClientA(a), db=parseDMYClientA(b);
+    if(da && db) return da-db;
+    return a.localeCompare(b); // fallback for any stray unparseable label (e.g. "?")
+  });
   const topAud = topN('AuditorName', 8);
   const topDB = topN('DBName', 8);
   const topCat = topN('Category', 10);
@@ -808,6 +857,7 @@ async function renderSubmissions(){
       <button class="btn secondary" id="subExportPhotos" disabled>📷 Download All Photos (ZIP)</button>
     </div>
     <div id="subActiveFilters" style="margin-top:2px;"></div>
+    <div id="subAnalyticsStrip"></div>
     <div id="subContent">${ultimateLoaderHtml('subLoader')}</div>
   `;
   wireDateRangeBar('sub', ()=>{
@@ -888,6 +938,11 @@ function applySubmissionFilters(){
   if(window.__subStatus) rows = rows.filter(r=>r.Status===window.__subStatus);
   if(window.__subCategory) rows = rows.filter(r=>r.Category===window.__subCategory);
   if(window.__subDBName) rows = rows.filter(r=>r.DBName===window.__subDBName);
+  // Analytics strip above the table reflects every filter EXCEPT the
+  // unique-bills-only display toggle — so "unique bills" there always means
+  // the real count for whatever's filtered, whether or not the table itself
+  // is currently deduped down to one row per bill.
+  renderFilteredAnalyticsStrip(rows);
   if(window.__subUniqueBillsOnly){
     const seen = new Set();
     rows = rows.filter(r=>{ if(seen.has(r.BillUID)) return false; seen.add(r.BillUID); return true; });
@@ -903,6 +958,28 @@ function applySubmissionFilters(){
   window.__subFilteredRows = rows;
   renderSubmissionsTable(rows);
   renderActiveFilterChips();
+}
+function renderFilteredAnalyticsStrip(rows){
+  const el = $('#subAnalyticsStrip');
+  if(!el) return;
+  const over = rows.filter(r=>r.Status==='over');
+  const under = rows.filter(r=>r.Status==='under');
+  const neg = rows.filter(r=>r.Status==='negligible');
+  const overAmt = over.reduce((s,r)=>s+(Number(r.OverchargeAmt)||0),0);
+  const underAmt = under.reduce((s,r)=>s+(Number(r.UnderchargeAmt)||0),0);
+  const uniqueBills = new Set(rows.map(r=>r.BillUID)).size;
+  const uniqueBillsOver = new Set(over.map(r=>r.BillUID)).size;
+  const uniqueBillsUnder = new Set(under.map(r=>r.BillUID)).size;
+  const pill = (label,val,color)=>`<div class="mini-stat"><span class="mini-stat-val" style="${color?`color:${color};`:''}">${val}</span><span class="mini-stat-label">${label}</span></div>`;
+  el.innerHTML = `<div class="mini-stat-strip">
+    ${pill('lines', fmtInt(rows.length))}
+    ${pill('unique bills', fmtInt(uniqueBills))}
+    ${pill('overcharge bills', fmtInt(uniqueBillsOver), 'var(--danger)')}
+    ${pill('₹ overcharge', '₹'+fmtMoney(overAmt), 'var(--danger)')}
+    ${pill('undercharge bills', fmtInt(uniqueBillsUnder), 'var(--warn)')}
+    ${pill('₹ undercharge', '₹'+fmtMoney(underAmt), 'var(--warn)')}
+    ${pill('negligible lines', fmtInt(neg.length), 'var(--negligible)')}
+  </div>`;
 }
 // Every stat card / chart segment in Analytics routes here — same
 // destination, same report format, whatever was clicked — just with
@@ -950,7 +1027,7 @@ function billCopyLinkCell(r){
 function renderSubmissionsTable(rows){
   const content = $('#subInner');
   if(!rows.length){ content.innerHTML = '<div class="empty-state">No submissions match these filters.</div>'; return; }
-  const cols = ['Timestamp','AuditorCode','AuditorName','VerifiedBy','DBCode','DBName','Location','Retailer','BillDate','SOSubmitDate','ProductName','ProductCode','CompanyRate','InvoiceRate','VariancePct','Status','OverchargeAmt','UnderchargeAmt','BillCopy'];
+  const cols = ['Timestamp','BillUID','AuditorCode','AuditorName','VerifiedBy','DBCode','DBName','Location','Retailer','BillDate','SOSubmitDate','ProductName','ProductCode','CompanyRate','InvoiceRate','VariancePct','Status','OverchargeAmt','UnderchargeAmt','BillCopy'];
   let lastAuditor = null;
   content.innerHTML = `<div class="table-wrap"><table>
     <thead><tr>${cols.map(c=>`<th>${c==='BillCopy'?'Bill Copy':c}</th>`).join('')}</tr></thead>
@@ -963,6 +1040,7 @@ function renderSubmissionsTable(rows){
       if(['CompanyRate','InvoiceRate','OverchargeAmt','UnderchargeAmt'].includes(c)) return `<td class="num">${fmtMoney(r[c])}</td>`;
       if(c==='VariancePct') return `<td class="num">${r[c]!=null && r[c]!==''?r[c]+'%':'—'}</td>`;
       if(c==='Timestamp') return `<td>${esc(String(r[c]).slice(0,19).replace('T',' '))}</td>`;
+      if(DATE_DISPLAY_FIELDS.includes(c)) return `<td>${esc(normalizeDMYDisplay(r[c]))}</td>`;
       return `<td>${esc(r[c])}</td>`;
     }).join('')}</tr>`; }).join('')}</tbody>
   </table></div>`;
@@ -991,7 +1069,7 @@ async function exportProExcel(rows, filenamePrefix, viewLabel){
   wb.creator = 'Rate Ledger'; wb.created = new Date();
   const ws = wb.addWorksheet('Overinvoicing Report', {views:[{state:'frozen', ySplit:5}]});
   const cols = [
-    {header:'SL', key:'sl', width:6}, {header:'DB Code', key:'DBCode', width:11}, {header:'DB Name', key:'DBName', width:26},
+    {header:'SL', key:'sl', width:6}, {header:'Bill UID', key:'BillUID', width:16}, {header:'DB Code', key:'DBCode', width:11}, {header:'DB Name', key:'DBName', width:26},
     {header:'Location', key:'Location', width:14}, {header:'Beat Code', key:'BeatCode', width:12}, {header:'Beat Name', key:'BeatName', width:22},
     {header:'SO Name', key:'SOName', width:16}, {header:'ASM Name', key:'ASMName', width:16}, {header:'RSM Name', key:'RSMName', width:16},
     {header:'DB Status', key:'DBStatus', width:11}, {header:'Retailer / Outlet', key:'Retailer', width:24}, {header:'Bill Type', key:'BillType', width:12},
@@ -1048,7 +1126,7 @@ async function exportProExcel(rows, filenamePrefix, viewLabel){
     const excelRow = ws.getRow(r);
     cols.forEach((c,i)=>{
       let v = rowData[c.key];
-      if(c.key==='SubmissionDate' && v) v = String(v).slice(0,19).replace('T',' ');
+      if(DATE_DISPLAY_FIELDS.includes(c.key) && v) v = normalizeDMYDisplay(v);
       if(c.key==='BillCopyURL' && v){
         excelRow.getCell(i+1).value = { text:'View photo', hyperlink: v };
         excelRow.getCell(i+1).font = { color:{argb:'FF2A5FD9'}, underline:true };
@@ -1324,7 +1402,7 @@ function renderMyVerifiedTable(rows){
   wrap.innerHTML = `<div class="table-wrap"><table>
       <thead><tr><th>Bill Date</th><th>Retailer</th><th>Product</th><th>Collected By</th><th class="num">Company Rate</th><th class="num">Invoice Rate</th><th>Status</th><th>Bill Copy</th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
-        <td>${esc(r.BillDate)}</td><td>${esc(r.Retailer)}</td><td>${esc(r.ProductName)}</td><td>${esc(r.CollectedBy)}</td>
+        <td>${esc(normalizeDMYDisplay(r.BillDate))}</td><td>${esc(r.Retailer)}</td><td>${esc(r.ProductName)}</td><td>${esc(r.CollectedBy)}</td>
         <td class="num">${fmtMoney(r.CompanyRate)}</td><td class="num">${fmtMoney(r.InvoiceRate)}</td>
         <td>${statusBadge(r.Status)}</td><td>${billCopyLinkCell(r)}</td>
       </tr>`).join('')}</tbody>
@@ -1421,7 +1499,7 @@ function renderMyDataTable(rows){
   wrap.innerHTML = `<div class="table-wrap"><table>
       <thead><tr><th>Bill Date</th><th>Retailer</th><th>Product</th><th class="num">Company Rate</th><th class="num">Invoice Rate</th><th>Status</th><th>Verified By</th><th>Bill Copy</th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
-        <td>${esc(r.BillDate)}</td><td>${esc(r.Retailer)}</td><td>${esc(r.ProductName)}</td>
+        <td>${esc(normalizeDMYDisplay(r.BillDate))}</td><td>${esc(r.Retailer)}</td><td>${esc(r.ProductName)}</td>
         <td class="num">${fmtMoney(r.CompanyRate)}</td><td class="num">${fmtMoney(r.InvoiceRate)}</td>
         <td>${statusBadge(r.Status)}</td><td>${esc(r.VerifiedBy)}</td><td>${billCopyLinkCell(r)}</td>
       </tr>`).join('')}</tbody>
