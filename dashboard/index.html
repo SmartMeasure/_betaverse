@@ -150,7 +150,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v10';
+const APP_VERSION = 'v11';
 const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 const BACKEND_URL_KEY = 'rateLedger_backendUrl';
 // The Web App URL is now editable from the login screen's "Connection
@@ -457,12 +457,16 @@ function renderShell(){
    Used by Analytics, All Submissions, My Data and Bills I Verified alike —
    filters by the BILL's own date (not when it was submitted), inclusive
    on both ends. Leaving both blank means "all time". */
-function dateRangeBarHtml(idPrefix, fromVal, toVal){
+function dateRangeBarHtml(idPrefix, fromVal, toVal, dateBasisVal){
   return `
     <div class="filterbar">
       <div class="field"><label>From</label><input type="date" id="${idPrefix}From" value="${fromVal||''}"></div>
       <div class="field"><label>To</label><input type="date" id="${idPrefix}To" value="${toVal||''}"></div>
       <button class="btn" id="${idPrefix}Clear">Clear (All Time)</button>
+      <div class="field"><label>Filter dates by</label><select id="${idPrefix}DateBasis">
+        <option value="bill" ${dateBasisVal!=='submission'?'selected':''}>Bill Date</option>
+        <option value="submission" ${dateBasisVal==='submission'?'selected':''}>Submission Date (when it was actually entered)</option>
+      </select></div>
     </div>
   `;
 }
@@ -473,6 +477,8 @@ function wireDateRangeBar(idPrefix, onChange){
     $(`#${idPrefix}From`).value=''; $(`#${idPrefix}To`).value='';
     onChange();
   });
+  const basisEl = $(`#${idPrefix}DateBasis`);
+  if(basisEl) basisEl.addEventListener('change', onChange);
 }
 
 /* ==================== ANALYTICS (Admin) ==================== */
@@ -679,9 +685,14 @@ function simpleBarListHtml(items, isCurrency, rangeFilters){
    familiar All Submissions table when clicked. */
 async function renderPerformance(){
   const body = $('#tabBody');
+  // Tracking "who submitted how much, by day" makes most sense against the
+  // date it was actually entered — default this tab's toggle to Submission
+  // Date (All Submissions still defaults to Bill Date, for its audit-trail
+  // purpose) — either can still be switched from the dropdown.
+  if(window.__pfDateBasis===undefined) window.__pfDateBasis = 'submission';
   body.innerHTML = `
     <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
-      ${dateRangeBarHtml('pf', window.__pfFrom, window.__pfTo)}
+      ${dateRangeBarHtml('pf', window.__pfFrom, window.__pfTo, window.__pfDateBasis)}
       ${quickRangeHtml('pf')}
       <button class="btn accent" id="pfExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
     </div>
@@ -689,6 +700,7 @@ async function renderPerformance(){
   `;
   wireDateRangeBar('pf', ()=>{
     window.__pfFrom = $('#pfFrom').value; window.__pfTo = $('#pfTo').value;
+    window.__pfDateBasis = $('#pfDateBasis').value;
     renderPerformance();
   });
   wireQuickRange('pf', (from,to)=>{
@@ -696,7 +708,7 @@ async function renderPerformance(){
     renderPerformance();
   });
   const s = getSession();
-  const params = { action:'alldata', code:s.code, pin:s.pin, fromDate: window.__pfFrom||'', toDate: window.__pfTo||'' };
+  const params = { action:'alldata', code:s.code, pin:s.pin, fromDate: window.__pfFrom||'', toDate: window.__pfTo||'', dateBasis: window.__pfDateBasis||'' };
   const stop = startUltimateLoader('pfLoader');
   let painted = false;
   await cachedBackendGet(params,
@@ -818,12 +830,13 @@ function parseDMYClient(s){
   if(!m) return null;
   return new Date(Number(m[3]), Number(m[2])-1, Number(m[1]));
 }
-function filterRowsByDateClient(rows, fromStr, toStr){
+function filterRowsByDateClient(rows, fromStr, toStr, dateBasis){
   if(!fromStr && !toStr) return rows;
   const from = fromStr ? new Date(fromStr+'T00:00:00') : null;
   const to = toStr ? new Date(toStr+'T00:00:00') : null;
+  const field = dateBasis==='submission' ? 'SubmissionDate' : 'BillDate';
   return rows.filter(r=>{
-    const bd = parseDMYClient(r.BillDate);
+    const bd = parseDMYClient(normalizeDMYDisplay(r[field]));
     if(!bd) return true; // keep rows with an unparseable date rather than silently dropping them
     if(from && bd < from) return false;
     if(to && bd > to) return false;
@@ -842,7 +855,7 @@ async function renderSubmissions(){
   }
   body.innerHTML = `
     <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
-      ${dateRangeBarHtml('sub', window.__subFrom, window.__subTo)}
+      ${dateRangeBarHtml('sub', window.__subFrom, window.__subTo, window.__subDateBasis)}
       ${quickRangeHtml('sub')}
       <div class="field"><label>Auditor</label><select id="subAuditorFilter"><option value="">All</option></select></div>
       <div class="field"><label>Verifier</label><select id="subVerifierFilter"><option value="">All</option></select></div>
@@ -862,6 +875,7 @@ async function renderSubmissions(){
   `;
   wireDateRangeBar('sub', ()=>{
     window.__subFrom = $('#subFrom').value; window.__subTo = $('#subTo').value;
+    window.__subDateBasis = $('#subDateBasis').value;
     applyRangeToSubmissions();
   });
   wireQuickRange('sub', (from,to)=>{
@@ -876,13 +890,13 @@ async function renderSubmissions(){
 async function applyRangeToSubmissions(isInitialLoad){
   const s = getSession();
   if(window.__subFullDataset){
-    const filtered = filterRowsByDateClient(window.__subFullDataset, window.__subFrom||'', window.__subTo||'');
+    const filtered = filterRowsByDateClient(window.__subFullDataset, window.__subFrom||'', window.__subTo||'', window.__subDateBasis);
     $('#subContent').innerHTML = `<div id="subInner"></div>`;
     paintSubmissions(filtered, false);
     if(isInitialLoad) prefetchAllSubmissionsInBackground(s);
     return;
   }
-  const params = { action:'alldata', code:s.code, pin:s.pin, fromDate: window.__subFrom||'', toDate: window.__subTo||'' };
+  const params = { action:'alldata', code:s.code, pin:s.pin, fromDate: window.__subFrom||'', toDate: window.__subTo||'', dateBasis: window.__subDateBasis||'' };
   const stop = startUltimateLoader('subLoader');
   $('#subContent').innerHTML = ultimateLoaderHtml('subLoader');
   let painted = false;
@@ -1021,8 +1035,12 @@ function renderActiveFilterChips(){
 function statusLabelFor(s){ return s==='over'?'Overcharge':(s==='under'?'Undercharge':(s==='negligible'?'Overcharge – Negligible':'Match')); }
 function billCopyLinkCell(r){
   if(!r.BillCopyURL) return '<span class="small-muted">—</span>';
-  const dl = r.BillCopyDownloadURL || r.BillCopyURL;
-  return `<a href="${esc(r.BillCopyURL)}" target="_blank" rel="noopener" class="bill-copy-link">📷 View</a> · <a href="${esc(dl)}" class="bill-copy-link" download>⬇</a>`;
+  // The viewer page (opened in a new tab) has its own visible download link
+  // for the actual file — a plain <a download> here would just save the
+  // HTML wrapper page itself, since Apps Script can only ever hand back
+  // HTML/text from a Web App, never a raw file, so there's only one link
+  // now rather than a separate (and broken) direct-download one.
+  return `<a href="${esc(r.BillCopyURL)}" target="_blank" rel="noopener" class="bill-copy-link">📷 View</a>`;
 }
 function renderSubmissionsTable(rows){
   const content = $('#subInner');
