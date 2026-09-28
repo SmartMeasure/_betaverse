@@ -538,7 +538,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v65';
+const APP_VERSION = 'v68';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -815,7 +815,7 @@ async function writeExportToConnectedFolder(fileName, blob){
   if(!root) return false;
   try{
     const reportsDir = await root.getDirectoryHandle(REPORTS_SUBFOLDER, {create:true});
-    const dateFolder = new Date().toISOString().slice(0,10); // one folder per calendar date; every export that day lands in the same one
+    const dateFolder = istDateISO(); // one folder per calendar date; every export that day lands in the same one
     const dayDir = await reportsDir.getDirectoryHandle(dateFolder, {create:true});
     const fileHandle = await dayDir.getFileHandle(fileName, {create:true});
     const writable = await fileHandle.createWritable();
@@ -832,8 +832,8 @@ async function writeExportToConnectedFolder(fileName, blob){
 // opening to know who exported what and when.
 function exportFileStamp(){
   const now = new Date();
-  const date = now.toISOString().slice(0,10);
-  const time = now.toTimeString().slice(0,8).replace(/:/g,'-');
+  const date = istDateISO(now);
+  const time = istTime12(now).replace(/:/g,'-').replace(' ',''); // 02-21-05PM — IST, 12-hour
   const session = getSession();
   const who = session ? session.name : (STATE.billForm && STATE.billForm.verifiedBy) || 'Unknown';
   return `${date}_${time}_${sanitizeFileName(who)}`;
@@ -1010,7 +1010,40 @@ function fmtDMY(dt){
   const y = dt.getFullYear();
   return `${d}-${m}-${y}`;
 }
-function todayISO(){ const d=new Date(); return d.toISOString().slice(0,10); }
+
+/* ---- IST (Asia/Kolkata) — every date/time this app stamps or shows ----
+   Reading dates through the browser's own timezone, or through toISOString()
+   (which is always UTC), is what put dates a day off and times 5h30m behind:
+   between 12:00am–5:30am IST toISOString() still says "yesterday", and
+   local-midnight dates shifted back a day when converted to UTC. Everything
+   here goes through an explicit Asia/Kolkata formatter instead, so the
+   result is identical no matter what timezone the device is set to. */
+const IST_TZ = 'Asia/Kolkata';
+function istParts(d, hour12){
+  const p = {};
+  new Intl.DateTimeFormat('en-US',{timeZone:IST_TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:!!hour12})
+    .formatToParts(d||new Date()).forEach(x=>{ p[x.type]=x.value; });
+  if(p.hour==='24') p.hour='00';
+  return p;
+}
+function istDateISO(d){ const p=istParts(d); return `${p.year}-${p.month}-${p.day}`; }            // 2026-09-26
+function istDateDMY(d){ const p=istParts(d); return `${p.day}-${p.month}-${p.year}`; }            // 26-09-2026
+function istTime12(d){ const p=istParts(d,true); return `${p.hour}:${p.minute}:${p.second} ${p.dayPeriod}`; } // 02:21:05 PM
+function formatISTDateTime(val){                                                                    // 26-09-2026 02:21:05 PM
+  if(!val) return '';
+  const d = new Date(val);
+  if(isNaN(d.getTime())) return String(val);
+  return `${istDateDMY(d)} ${istTime12(d)}`;
+}
+function istWeekStartISO(){ // Monday of the current IST week
+  const [y,m,d] = istDateISO().split('-').map(Number);
+  const dt = new Date(Date.UTC(y,m-1,d)); const day = dt.getUTCDay()||7;
+  dt.setUTCDate(dt.getUTCDate()-day+1);
+  return dt.toISOString().slice(0,10);
+}
+function istMonthStartISO(){ return istDateISO().slice(0,8)+'01'; }
+
+function todayISO(){ return istDateISO(); } // IST — never UTC (UTC says 'yesterday' from 12:00am to 5:30am IST)
 /* ---- Remembered identity fields (Collected By / Designation / Verified By) ----
    These survive a page refresh via localStorage, so a field officer doesn't have
    to retype their name on every visit — only clearing the browser's site data
@@ -2834,7 +2867,7 @@ async function exportRateWallExcel(){
     const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `Rate_Change_Timeline_${new Date().toISOString().slice(0,10)}.xlsx`;
+    a.href = url; a.download = `Rate_Change_Timeline_${istDateISO()}.xlsx`;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   } catch(e){
@@ -3111,19 +3144,36 @@ function renderRateCheck(){
     if(file.size > 8*1024*1024){ toast('Bill copy is larger than 8MB — please attach a smaller file', 'err'); return; }
     const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
     const isImage = /^image\//.test(file.type) || ['jpg','jpeg','png','webp','gif'].includes(ext);
+    // Compressing a photo takes a moment — if "Save bill" got clicked before
+    // it finished, f.billCopy was still null at that exact instant, so the
+    // photo silently never made it into the saved bill at all (no error,
+    // nothing — it just wasn't there yet to attach). STATE.billCopyPending
+    // is a promise saveBill() now awaits first, so a fast click can no
+    // longer race ahead of the photo actually being ready.
+    const btnEl = $('#rcSaveBill');
+    if(btnEl){ btnEl.disabled = true; btnEl.dataset.origLabel = btnEl.dataset.origLabel || btnEl.textContent; btnEl.textContent = 'Processing photo…'; }
     if(isImage){
-      downscaleImage(file, 1100, 0.78).then(dataUrl=>{
+      STATE.billCopyPending = downscaleImage(file, 1100, 0.78).then(dataUrl=>{
         f.billCopy = { fileName: file.name, ext:'jpg', dataUrl, kind:'image' };
         renderRateCheck();
-      }).catch(()=> toast('Could not read that image', 'err'));
+      }).catch(()=> toast('Could not read that image', 'err')).finally(()=>{
+        STATE.billCopyPending = null;
+        const b = $('#rcSaveBill'); if(b){ b.disabled = false; b.textContent = b.dataset.origLabel || 'Save bill to report'; }
+      });
       return;
     }
     const reader = new FileReader();
-    reader.onload = ev=>{
-      f.billCopy = { fileName: file.name, ext, dataUrl: ev.target.result, kind:'pdf' };
-      renderRateCheck();
-    };
-    reader.onerror = ()=> toast('Could not read that file', 'err');
+    STATE.billCopyPending = new Promise((resolve)=>{
+      reader.onload = ev=>{
+        f.billCopy = { fileName: file.name, ext, dataUrl: ev.target.result, kind:'pdf' };
+        renderRateCheck();
+        resolve();
+      };
+      reader.onerror = ()=>{ toast('Could not read that file', 'err'); resolve(); };
+    }).finally(()=>{
+      STATE.billCopyPending = null;
+      const b = $('#rcSaveBill'); if(b){ b.disabled = false; b.textContent = b.dataset.origLabel || 'Save bill to report'; }
+    });
     reader.readAsDataURL(file);
   });
   const bcClear = $('#rcBillCopyClear');
@@ -3638,11 +3688,24 @@ async function saveBill(){
   const f = STATE.billForm;
   const errEl = $('#rcSaveErr');
   errEl.textContent = '';
+  // The Save button is already disabled/relabelled while a photo is mid-
+  // compression (see the attach handler), but await the same promise here
+  // too as a second safety net — belt-and-braces against any path that
+  // could still reach saveBill() while it's in flight.
+  if(STATE.billCopyPending){ await STATE.billCopyPending; }
   if(!f.dbCode){ errEl.textContent = 'Pick a DB code first.'; return; }
   if(!f.location){ errEl.textContent = "This DB's location could not be resolved — fix the Price Group Mapping."; return; }
   if(!f.retailer.trim()){ errEl.textContent = 'Retailer / outlet name is required.'; return; }
   if(!f.billDateISO){ errEl.textContent = 'Bill date is required.'; return; }
   if(!f.soSubmissionISO){ errEl.textContent = "'SO Submitted On' date is required."; return; }
+  // A bill records something that already happened, so its own date and the
+  // date the SO handed it over can never be later than today — a future
+  // date here is always a data-entry slip (wrong month/year picked), never
+  // a legitimate value. Catching it here, before it ever reaches the Sheet,
+  // is what stops a bill silently showing up looking "ahead of time".
+  const todayStr = todayISO();
+  if(f.billDateISO > todayStr){ errEl.textContent = `Bill Date (${fmtDMY(isoToDMYDate(f.billDateISO))}) is in the future — check the date you picked.`; return; }
+  if(f.soSubmissionISO > todayStr){ errEl.textContent = `'SO Submitted On' (${fmtDMY(isoToDMYDate(f.soSubmissionISO))}) is in the future — check the date you picked.`; return; }
   if(backendConfigured() && !f.verifiedBy){ errEl.textContent = f.verifierCode ? 'Verifier code not recognized — check the code and try again.' : 'Verified By (verifier code) is required.'; return; }
   const validLines = f.lineItems.filter(li=> li.productCode && !aggregateLineItem(li).error);
   const incompleteLines = f.lineItems.filter(li=> li.productCode && aggregateLineItem(li).error && aggregateLineItem(li).error!=='empty');
@@ -3876,7 +3939,7 @@ async function exportAllPhotosZip(){
     const blob = await zip.generateAsync({type:'blob'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `Bill_Photos_${new Date().toISOString().slice(0,10)}.zip`;
+    a.href = url; a.download = `Bill_Photos_${istDateISO()}.zip`;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
     toast(`Downloaded ${uniqueBills.length} bill cop${uniqueBills.length===1?'y':'ies'}, organised by DB. Right-click the ZIP → Properties → Unblock before extracting.`, 'ok');
@@ -4230,7 +4293,7 @@ async function exportExcelPro(){
         URL.revokeObjectURL(url);
       }
       const photoNote = embeddedPhotoCount>0 ? ` (${embeddedPhotoCount} photo${embeddedPhotoCount===1?'':'s'} embedded directly, no unzip needed for ${embeddedPhotoCount===1?'it':'them'})` : '';
-      const whereNote = savedLocally ? ` Saved into "${REPORTS_SUBFOLDER}/${new Date().toISOString().slice(0,10)}/".` : ' Right-click the ZIP → Properties → Unblock before extracting, so Windows doesn\'t flag the files.';
+      const whereNote = savedLocally ? ` Saved into "${REPORTS_SUBFOLDER}/${istDateISO()}/".` : ' Right-click the ZIP → Properties → Unblock before extracting, so Windows doesn\'t flag the files.';
       toast(`Exported as ZIP — ${pdfBillUids.length} PDF bill${pdfBillUids.length===1?'':'s'} linked via the Bills folder${photoNote}.${whereNote}`, 'ok');
     } else {
       const blob = new Blob([buf], {type:'application/octet-stream'});
@@ -4243,7 +4306,7 @@ async function exportExcelPro(){
         document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(url);
       }
-      const whereNote = savedLocally ? ` Saved into "${REPORTS_SUBFOLDER}/${new Date().toISOString().slice(0,10)}/".` : '';
+      const whereNote = savedLocally ? ` Saved into "${REPORTS_SUBFOLDER}/${istDateISO()}/".` : '';
       toast((embeddedPhotoCount>0 ? `Report exported — ${embeddedPhotoCount} bill photo${embeddedPhotoCount===1?'':'s'} embedded directly in the Excel file.` : 'Report exported.') + whereNote, 'ok');
     }
   }catch(err){
