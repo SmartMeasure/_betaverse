@@ -150,7 +150,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v11';
+const APP_VERSION = 'v12';
 const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 const BACKEND_URL_KEY = 'rateLedger_backendUrl';
 // The Web App URL is now editable from the login screen's "Connection
@@ -301,14 +301,44 @@ function normalizeDMYDisplay(val){
   // the data was entered in (India, for this app).
   if(/^\d{4}-\d{1,2}-\d{1,2}T/.test(s)){
     const d = new Date(s);
-    if(!isNaN(d.getTime())){
-      const pad = n => String(n).padStart(2,'0');
-      return `${pad(d.getDate())}-${pad(d.getMonth()+1)}-${d.getFullYear()}`;
-    }
+    if(!isNaN(d.getTime())) return istDateDMY(d); // always the IST calendar date, whatever timezone this device is in
   }
   return s;
 }
 const DATE_DISPLAY_FIELDS = ['BillDate','SOSubmitDate','SubmissionDate'];
+
+/* ---- IST (Asia/Kolkata) — every date/time this app stamps or shows ----
+   Reading dates through the browser's own timezone, or through toISOString()
+   (which is always UTC), is what put dates a day off and times 5h30m behind:
+   between 12:00am–5:30am IST toISOString() still says "yesterday", and
+   local-midnight dates shifted back a day when converted to UTC. Everything
+   here goes through an explicit Asia/Kolkata formatter instead, so the
+   result is identical no matter what timezone the device is set to. */
+const IST_TZ = 'Asia/Kolkata';
+function istParts(d, hour12){
+  const p = {};
+  new Intl.DateTimeFormat('en-US',{timeZone:IST_TZ,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:!!hour12})
+    .formatToParts(d||new Date()).forEach(x=>{ p[x.type]=x.value; });
+  if(p.hour==='24') p.hour='00';
+  return p;
+}
+function istDateISO(d){ const p=istParts(d); return `${p.year}-${p.month}-${p.day}`; }            // 2026-09-26
+function istDateDMY(d){ const p=istParts(d); return `${p.day}-${p.month}-${p.year}`; }            // 26-09-2026
+function istTime12(d){ const p=istParts(d,true); return `${p.hour}:${p.minute}:${p.second} ${p.dayPeriod}`; } // 02:21:05 PM
+function formatISTDateTime(val){                                                                    // 26-09-2026 02:21:05 PM
+  if(!val) return '';
+  const d = new Date(val);
+  if(isNaN(d.getTime())) return String(val);
+  return `${istDateDMY(d)} ${istTime12(d)}`;
+}
+function istWeekStartISO(){ // Monday of the current IST week
+  const [y,m,d] = istDateISO().split('-').map(Number);
+  const dt = new Date(Date.UTC(y,m-1,d)); const day = dt.getUTCDay()||7;
+  dt.setUTCDate(dt.getUTCDate()-day+1);
+  return dt.toISOString().slice(0,10);
+}
+function istMonthStartISO(){ return istDateISO().slice(0,8)+'01'; }
+
 function fmtMoney(n){ return (n==null||isNaN(n)) ? '—' : Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtInt(n){ return (n==null||isNaN(n)) ? '—' : Number(n).toLocaleString('en-IN'); }
 function toast(msg, type){
@@ -745,19 +775,32 @@ function paintPerformance(rows){
   $('#pfExport').onclick = ()=>{
     const auditorRows = computePerformanceRows(rows, 'AuditorName').map(p=>({...p, role:'Auditor'}));
     const verifierRows = computePerformanceRows(rows, 'VerifiedBy').map(p=>({...p, role:'Verifier'}));
-    exportPerformanceExcel([...auditorRows, ...verifierRows]);
+    // Identical tables (same people did both jobs) export as one set of
+    // rows labelled for both roles instead of every row twice.
+    exportPerformanceExcel(window.__pfIdentical ? auditorRows.map(p=>({...p, role:'Auditor & Verifier'})) : [...auditorRows, ...verifierRows]);
   };
   if(!rows.length){ $('#pfContent').innerHTML = '<div class="empty-state">No submissions in this period yet.</div>'; return; }
 
   const auditorPerf = computePerformanceRows(rows, 'AuditorName');
   const verifierPerf = computePerformanceRows(rows, 'VerifiedBy');
-  const rangeFilters = { fromDate: window.__pfFrom||'', toDate: window.__pfTo||'' };
+  const rangeFilters = { fromDate: window.__pfFrom||'', toDate: window.__pfTo||'', dateBasis: window.__pfDateBasis||'' };
 
-  const perfTable = (list, roleLabel, filterKey)=>`
+  // When the same people did both jobs on the same bills (an Auditor who also
+  // verifies their own submissions), the two tables come out number-for-number
+  // identical — showing both just repeats every row. Detect that and show
+  // ONE table instead; otherwise show both, flagging anyone who appears in
+  // both so it's clear it's the same person wearing two hats.
+  const perfKey = p => [p.name,p.uniqueBills,p.lines,p.overBills,p.underBills,p.overAmt.toFixed(2),p.underAmt.toFixed(2)].join('|');
+  const audKeys = auditorPerf.map(perfKey).sort(), verKeys = verifierPerf.map(perfKey).sort();
+  const identical = audKeys.length>0 && audKeys.length===verKeys.length && audKeys.every((k,i)=>k===verKeys[i]);
+  window.__pfIdentical = identical;
+  const audNames = new Set(auditorPerf.map(p=>p.name)), verNames = new Set(verifierPerf.map(p=>p.name));
+
+  const perfTable = (list, roleLabel, filterKey, otherNames, otherLabel)=>`
     <div class="table-wrap"><table>
       <thead><tr><th>${roleLabel}</th><th class="num">Unique Bills</th><th class="num">Lines</th><th class="num">Overcharge Bills</th><th class="num">₹ Overcharge</th><th class="num">Undercharge Bills</th><th class="num">₹ Undercharge</th></tr></thead>
       <tbody>${list.map(p=>`<tr class="perf-row" data-goto='${esc(JSON.stringify({...rangeFilters, [filterKey]:p.name}))}'>
-        <td><b>${esc(p.name)}</b></td>
+        <td><b>${esc(p.name)}</b>${otherNames&&otherNames.has(p.name)?` <span class="small-muted" style="font-size:10.5px;">· also ${otherLabel}</span>`:''}</td>
         <td class="num">${fmtInt(p.uniqueBills)}</td>
         <td class="num small-muted">${fmtInt(p.lines)}</td>
         <td class="num" style="color:${p.overBills?'var(--danger)':'inherit'};font-weight:${p.overBills?700:400};">${fmtInt(p.overBills)}</td>
@@ -767,12 +810,19 @@ function paintPerformance(rows){
       </tr>`).join('')}</tbody>
     </table></div>`;
 
-  $('#pfContent').innerHTML = `
-    <div class="section-eyebrow">👤 Auditor performance <span class="click-hint" style="margin-left:8px;">click a row to view their bills</span></div>
-    ${auditorPerf.length ? perfTable(auditorPerf, 'Auditor', 'auditorName') : '<div class="empty-state">No auditor data.</div>'}
-    <div class="section-eyebrow">✅ Verifier performance <span class="click-hint" style="margin-left:8px;">click a row to view their bills</span></div>
-    ${verifierPerf.length ? perfTable(verifierPerf, 'Verifier', 'verifiedByName') : '<div class="empty-state">No verifier data.</div>'}
-  `;
+  if(identical){
+    $('#pfContent').innerHTML = `
+      <div class="section-eyebrow">👥 Auditor &amp; Verifier performance <span class="click-hint" style="margin-left:8px;">same people, same bills — click a row to view their bills</span></div>
+      ${perfTable(auditorPerf, 'Auditor / Verifier', 'auditorName')}
+    `;
+  } else {
+    $('#pfContent').innerHTML = `
+      <div class="section-eyebrow">👤 Auditor performance <span class="click-hint" style="margin-left:8px;">click a row to view their bills</span></div>
+      ${auditorPerf.length ? perfTable(auditorPerf, 'Auditor', 'auditorName', verNames, 'Verifier') : '<div class="empty-state">No auditor data.</div>'}
+      <div class="section-eyebrow">✅ Verifier performance <span class="click-hint" style="margin-left:8px;">click a row to view their bills</span></div>
+      ${verifierPerf.length ? perfTable(verifierPerf, 'Verifier', 'verifiedByName', audNames, 'Auditor') : '<div class="empty-state">No verifier data.</div>'}
+    `;
+  }
   $all('.perf-row', $('#pfContent')).forEach(row=>{
     row.addEventListener('click', ()=> goToFilteredSubmissions(JSON.parse(row.getAttribute('data-goto'))));
   });
@@ -814,7 +864,7 @@ async function exportPerformanceExcel(perfRows){
   const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `Verifier_Auditor_Performance_${new Date().toISOString().slice(0,10)}.xlsx`;
+  a.href = url; a.download = `Verifier_Auditor_Performance_${istDateISO()}.xlsx`;
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
@@ -850,8 +900,7 @@ async function renderSubmissions(){
   // Month/All Time later is instant (filtered client-side) instead of
   // waiting on the server again for every range change.
   if(window.__subFrom===undefined && window.__subTo===undefined){
-    const now = new Date(); const day = now.getDay()||7; const mon = new Date(now); mon.setDate(now.getDate()-day+1);
-    window.__subFrom = mon.toISOString().slice(0,10); window.__subTo = now.toISOString().slice(0,10);
+    window.__subFrom = istWeekStartISO(); window.__subTo = istDateISO();
   }
   body.innerHTML = `
     <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
@@ -880,6 +929,10 @@ async function renderSubmissions(){
   });
   wireQuickRange('sub', (from,to)=>{
     window.__subFrom = from; window.__subTo = to;
+    // Reflect the picked range in the From/To boxes too — without this the
+    // boxes kept showing the previous dates while the table had already
+    // switched, so what was on screen and what was filtered didn't match.
+    $('#subFrom').value = from; $('#subTo').value = to;
     applyRangeToSubmissions();
   });
   await applyRangeToSubmissions(true);
@@ -1057,7 +1110,7 @@ function renderSubmissionsTable(rows){
       if(c==='Status') return `<td>${statusBadge(r[c])}</td>`;
       if(['CompanyRate','InvoiceRate','OverchargeAmt','UnderchargeAmt'].includes(c)) return `<td class="num">${fmtMoney(r[c])}</td>`;
       if(c==='VariancePct') return `<td class="num">${r[c]!=null && r[c]!==''?r[c]+'%':'—'}</td>`;
-      if(c==='Timestamp') return `<td>${esc(String(r[c]).slice(0,19).replace('T',' '))}</td>`;
+      if(c==='Timestamp') return `<td>${esc(formatISTDateTime(r[c]))}</td>`;
       if(DATE_DISPLAY_FIELDS.includes(c)) return `<td>${esc(normalizeDMYDisplay(r[c]))}</td>`;
       return `<td>${esc(r[c])}</td>`;
     }).join('')}</tr>`; }).join('')}</tbody>
@@ -1068,7 +1121,7 @@ function exportRowsToExcel(rows, filenamePrefix){
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Data');
-  XLSX.writeFile(wb, `${filenamePrefix}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  XLSX.writeFile(wb, `${filenamePrefix}_${istDateISO()}.xlsx`);
 }
 
 /* Same colored "Pro" look AND the SAME full column set as Rate Ledger's own
@@ -1102,7 +1155,7 @@ async function exportProExcel(rows, filenamePrefix, viewLabel){
     {header:'Over/Undercharge (₹)', key:'DiffAmountLabel', width:16}, {header:'Overcharge Amt', key:'OverchargeAmt', width:15},
     {header:'Undercharge Amt', key:'UnderchargeAmt', width:16}, {header:'Wrong GST Charged (₹)', key:'GSTMismatchLabel', width:18},
     {header:'Collected By', key:'CollectedBy', width:20}, {header:'Designation', key:'Designation', width:16},
-    {header:'Verified By', key:'VerifiedBy', width:20}, {header:'Submission Date', key:'SubmissionDate', width:15}, {header:'Bill Copy', key:'BillCopyURL', width:16},
+    {header:'Verified By', key:'VerifiedBy', width:20}, {header:'Submission Date', key:'SubmissionDate', width:15}, {header:'Entered At (IST)', key:'Timestamp', width:22}, {header:'Bill Copy', key:'BillCopyURL', width:16},
   ];
   ws.columns = cols.map(c=>({key:c.key, width:c.width}));
   ws.mergeCells(1,1,1,cols.length);
@@ -1145,6 +1198,7 @@ async function exportProExcel(rows, filenamePrefix, viewLabel){
     cols.forEach((c,i)=>{
       let v = rowData[c.key];
       if(DATE_DISPLAY_FIELDS.includes(c.key) && v) v = normalizeDMYDisplay(v);
+      if(c.key==='Timestamp' && v) v = formatISTDateTime(v);
       if(c.key==='BillCopyURL' && v){
         excelRow.getCell(i+1).value = { text:'View photo', hyperlink: v };
         excelRow.getCell(i+1).font = { color:{argb:'FF2A5FD9'}, underline:true };
@@ -1201,7 +1255,7 @@ async function exportProExcel(rows, filenamePrefix, viewLabel){
   const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `${filenamePrefix}_${new Date().toISOString().slice(0,10)}.xlsx`;
+  a.href = url; a.download = `${filenamePrefix}_${istDateISO()}.xlsx`;
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
@@ -1226,7 +1280,7 @@ async function exportBillPhotosZip(rows, btn){
     const blob = new Blob([bytes], {type:'application/zip'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = res.fileName || `Bill_Photos_${new Date().toISOString().slice(0,10)}.zip`;
+    a.href = url; a.download = res.fileName || `Bill_Photos_${istDateISO()}.zip`;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
     toast(`Downloaded ${res.count} bill photo${res.count===1?'':'s'}, organised by DB`, 'ok');
@@ -1251,12 +1305,10 @@ function wireQuickRange(prefix, onPick){
   const wrap = $(`#${prefix}QuickRange`);
   if(!wrap) return;
   wrap.querySelectorAll('button').forEach(btn=>btn.addEventListener('click', ()=>{
-    const now = new Date();
     let from='', to='';
-    const iso = d => d.toISOString().slice(0,10);
-    if(btn.dataset.q==='today'){ from = to = iso(now); }
-    else if(btn.dataset.q==='week'){ const day=now.getDay()||7; const mon=new Date(now); mon.setDate(now.getDate()-day+1); from=iso(mon); to=iso(now); }
-    else if(btn.dataset.q==='month'){ from = iso(new Date(now.getFullYear(), now.getMonth(), 1)); to = iso(now); }
+    if(btn.dataset.q==='today'){ from = to = istDateISO(); }
+    else if(btn.dataset.q==='week'){ from = istWeekStartISO(); to = istDateISO(); }
+    else if(btn.dataset.q==='month'){ from = istMonthStartISO(); to = istDateISO(); }
     else { from=''; to=''; }
     onPick(from, to);
   }));
