@@ -538,7 +538,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v68';
+const APP_VERSION = 'v70';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -832,7 +832,7 @@ async function writeExportToConnectedFolder(fileName, blob){
 // opening to know who exported what and when.
 function exportFileStamp(){
   const now = new Date();
-  const date = istDateISO(now);
+  const date = istDateDMY(now);
   const time = istTime12(now).replace(/:/g,'-').replace(' ',''); // 02-21-05PM — IST, 12-hour
   const session = getSession();
   const who = session ? session.name : (STATE.billForm && STATE.billForm.verifiedBy) || 'Unknown';
@@ -1114,6 +1114,10 @@ const TABS = [
   {id:'ratewall', label:'Rate Wall', num:'03'},
   {id:'ratecheck', label:'Rate Check', num:'04'},
   {id:'reports', label:'Reports', num:'05'},
+  // INTELX is a fully separate checker (own uploads, own logic, own local-only
+  // export) — intentionally NOT part of the Data-Setup-gated flow above, so it
+  // never needs (and never touches) DB Master / Price Group / Rate Master data.
+  {id:'intelx', label:'INTELX', num:'06'},
 ];
 
 function setupComplete(){ return STATE.dbMaster.length>0 && STATE.priceGroupMap.length>0 && STATE.rateRows.length>0; }
@@ -1144,6 +1148,7 @@ function renderShell(){
       <section class="view" id="view-ratewall"></section>
       <section class="view" id="view-ratecheck"></section>
       <section class="view" id="view-reports"></section>
+      <section class="view" id="view-intelx"></section>
     </main>
     <footer class="appfoot">${backendConfigured() ? 'Bills you save are submitted to your organisation\'s Google Sheet, in addition to this local report.' : 'All data stays in this browser — nothing is uploaded to a server.'} Saved bills and their photos now survive a refresh (stored locally on this device) — only your Rate Master / DB Master uploads clear on refresh, so re-upload those after reopening. Your Collected By / Designation / Verified By stay remembered too, until you clear browser data.</footer>
   `;
@@ -1270,6 +1275,7 @@ function switchTab(id){
   if(id==='ratewall') renderRateWall();
   if(id==='ratecheck') renderRateCheck();
   if(id==='reports') renderReports();
+  if(id==='intelx') renderIntelX();
   renderTabs();
 }
 
@@ -2841,7 +2847,7 @@ async function exportRateWallExcel(){
     ws.getRow(1).height = 24;
     const totalEvents = changed.reduce((s,c)=>s+c.changes.length,0);
     ws.mergeCells(2,1,2,cols.length);
-    ws.getCell(2,1).value = `Generated ${new Date().toLocaleDateString('en-IN')}  ·  ${changed.length} products changed  ·  ${totalEvents} rate-change events`;
+    ws.getCell(2,1).value = `Generated ${formatISTDateTime(new Date())} IST  ·  ${changed.length} products changed  ·  ${totalEvents} rate-change events`;
     ws.getCell(2,1).font = {size:10, italic:true, color:{argb:'FF6B6E76'}};
     const headerRow = ws.getRow(4);
     cols.forEach((c,i)=>{ headerRow.getCell(i+1).value = c.header; });
@@ -2867,7 +2873,7 @@ async function exportRateWallExcel(){
     const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `Rate_Change_Timeline_${istDateISO()}.xlsx`;
+    a.href = url; a.download = `Rate_Change_Timeline_${istDateDMY()}.xlsx`;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   } catch(e){
@@ -3939,7 +3945,7 @@ async function exportAllPhotosZip(){
     const blob = await zip.generateAsync({type:'blob'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `Bill_Photos_${istDateISO()}.zip`;
+    a.href = url; a.download = `Bill_Photos_${istDateDMY()}.zip`;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
     toast(`Downloaded ${uniqueBills.length} bill cop${uniqueBills.length===1?'y':'ies'}, organised by DB. Right-click the ZIP → Properties → Unblock before extracting.`, 'ok');
@@ -4480,6 +4486,824 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
   });
 });
+
+</script>
+
+<!-- =================================================================
+     INTELX — fully separate module, own <script> tag on purpose.
+     Shares only: the page's already-loaded libraries (XLSX, JSZip, pdfjsLib,
+     ExcelJS), the global $ / toast() / loadingCardHtml() helpers for its UI.
+     It reads/writes NOTHING under STATE.*, calls none of Rate Master/Rate
+     Check/Reports' functions, and nothing outside this block calls into it
+     except the 3 lines of tab wiring in the shared shell (the TABS entry,
+     its own <section>, and the switchTab dispatch line) — see the comments
+     there. Safe to delete this entire block (and those 3 lines) without
+     touching anything else in the app. -->
+<script id="intelx-script">
+/* ==================== INTELX — standalone checker (fully isolated) ====================
+   Nothing in this block reads or writes any STATE.* used by the rest of Rate Ledger,
+   calls any of its functions, or shares any DOM id/class with it. It has its own tab,
+   its own local-only storage, its own file parsers (independent copies — not shared
+   functions — so a future change to the main Rate Master parser can never affect this,
+   and vice versa), and its own export. Every top-level name is prefixed IX_ or intelx
+   to keep that boundary obvious at a glance. */
+
+const IX_STATE = {
+  rateRows: [],     // {location, category, productName, sku, productCode, distRate, retailRate, effDate(Date), effDateStr, sourceFile}
+  rateFiles: [],    // {fileName, matchedLocation, effDateStr, rowCount}
+  pgMap: [],        // {dbCode, dbName, pg, location}
+  salesRows: [],    // {invoiceNo, invoiceDate(Date), invoiceDateStr, dbCode, dbName, itemCode, itemDesc, qtyKg, basePrice, taxableAmt, totalAmt}
+  salesFileInfo: null, // {fileName, rowCount}
+  results: [],      // computed by ixRunCheck()
+};
+
+/* ---------------- Local persistence (IndexedDB, fully separate DB) ---------------- */
+const IX_DB_NAME = 'IntelXLocalDB';
+const IX_DB_VERSION = 1;
+let __ixIdbPromise = null;
+function ixOpenIDB(){
+  if(__ixIdbPromise) return __ixIdbPromise;
+  __ixIdbPromise = new Promise((resolve, reject)=>{
+    if(!window.indexedDB){ reject(new Error('IndexedDB not supported')); return; }
+    const req = indexedDB.open(IX_DB_NAME, IX_DB_VERSION);
+    req.onupgradeneeded = (e)=>{
+      const db = e.target.result;
+      if(!db.objectStoreNames.contains('blobs')) db.createObjectStore('blobs', {keyPath:'key'});
+    };
+    req.onsuccess = (e)=> resolve(e.target.result);
+    req.onerror = ()=> reject(req.error);
+  });
+  return __ixIdbPromise;
+}
+// Each of rateRows/pgMap/salesRows/rateFiles/salesFileInfo is stored whole, under
+// its own key, as one record — simpler than a row-per-record store, and fine at
+// this data size (tens of thousands of sales rows is still a few MB of JSON).
+async function ixSaveAll(){
+  try{
+    const db = await ixOpenIDB();
+    const tx = db.transaction('blobs','readwrite');
+    const store = tx.objectStore('blobs');
+    ['rateRows','rateFiles','pgMap','salesRows','salesFileInfo'].forEach(k=>{
+      store.put({key:k, value: IX_STATE[k]});
+    });
+    await new Promise((res,rej)=>{ tx.oncomplete=res; tx.onerror=()=>rej(tx.error); });
+  } catch(e){ /* best-effort — INTELX still works for this session even if IndexedDB is unavailable */ }
+}
+async function ixLoadAll(){
+  try{
+    const db = await ixOpenIDB();
+    const tx = db.transaction('blobs','readonly');
+    const store = tx.objectStore('blobs');
+    const keys = ['rateRows','rateFiles','pgMap','salesRows','salesFileInfo'];
+    const vals = await Promise.all(keys.map(k=>new Promise((res,rej)=>{
+      const r = store.get(k); r.onsuccess=()=>res(r.result?r.result.value:null); r.onerror=()=>rej(r.error);
+    })));
+    keys.forEach((k,i)=>{
+      if(vals[i]!=null){
+        if(k==='rateRows') IX_STATE.rateRows = vals[i].map(r=>({...r, effDate: r.effDate?new Date(r.effDate):null}));
+        else if(k==='salesRows') IX_STATE.salesRows = vals[i].map(r=>({...r, invoiceDate: r.invoiceDate?new Date(r.invoiceDate):null}));
+        else IX_STATE[k] = vals[i];
+      }
+    });
+    return IX_STATE.rateRows.length + IX_STATE.salesRows.length;
+  } catch(e){ return 0; }
+}
+async function ixClearAll(){
+  IX_STATE.rateRows=[]; IX_STATE.rateFiles=[]; IX_STATE.pgMap=[]; IX_STATE.salesRows=[]; IX_STATE.salesFileInfo=null; IX_STATE.results=[];
+  try{
+    const db = await ixOpenIDB();
+    const tx = db.transaction('blobs','readwrite');
+    tx.objectStore('blobs').clear();
+    await new Promise((res,rej)=>{ tx.oncomplete=res; tx.onerror=()=>rej(tx.error); });
+  } catch(e){}
+}
+
+/* ---------------- Small independent helpers (own copies, not shared) ---------------- */
+function ixPad2(n){ return String(n).padStart(2,'0'); }
+function ixFmtDMY(d){ return d ? `${ixPad2(d.getDate())}-${ixPad2(d.getMonth()+1)}-${d.getFullYear()}` : ''; }
+function ixParseDMY(s){
+  if(!s) return null;
+  const m = String(s).trim().match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
+  if(!m) return null;
+  const yr = m[3].length===2 ? '20'+m[3] : m[3];
+  return new Date(Number(yr), Number(m[2])-1, Number(m[1]));
+}
+function ixNormLoc(s){
+  if(!s) return '';
+  return String(s).toLowerCase().trim().replace(/[._]/g,' ').replace(/\s+/g,' ').replace(/^location\s*-?\s*/,'').trim();
+}
+function ixLocEq(a,b){
+  const na=ixNormLoc(a), nb=ixNormLoc(b);
+  if(!na || !nb) return false;
+  if(na===nb) return true;
+  return na.includes(nb) || nb.includes(na);
+}
+function ixEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function ixFmtMoney(n){ return (Math.round((Number(n)||0)*100)/100).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function ixFmtInt(n){ return Math.round(Number(n)||0).toLocaleString('en-IN'); }
+
+/* ---------------- Rate ZIP parsing (independent copy) ----------------
+   Same visual-template state machine as the one already proven for Rate
+   Master, copied here on purpose rather than shared, so INTELX can never be
+   broken by a future change there (or vice versa). One real fix applied
+   ONLY in this copy: the Distributor Rate (Exc-GST) and Retail Rate
+   (Incl-GST) columns sit close together on this template (x≈334 and x≈382)
+   and, if simply concatenated, silently glue into one wrong number like
+   "42.5046.86" — this keeps them as two separate columns from the start. */
+const IX_KNOWN_CATEGORIES = [
+  'ATTA','MAIDA','SOOJI','DALIA','SATTU','CHANA BESAN','MATAR BESAN','BESAN','INSTANT MIX',
+  'PAPAD','RICE & SUGAR','RICE','SUGAR','MILLET FLOUR','ETHNIC FLOUR','PULSES','SPICES',
+  'OTHERS','SNACKS','MUMMYS OWN', "MUMMY'S OWN",
+];
+function ixIsKnownCategory(text){
+  const original = text.trim();
+  const t = original.toUpperCase().replace(/[().]/g,'').trim();
+  return IX_KNOWN_CATEGORIES.some(k=>{
+    if(t===k) return true;
+    const re = new RegExp('^'+k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\s*\\(', 'i');
+    return re.test(original);
+  });
+}
+function ixParseRateFilename(name){
+  const base = name.replace(/\.pdf$/i,'');
+  const dm = base.match(/(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})/);
+  let dateStr = null, locPart = base;
+  if(dm){
+    dateStr = `${dm[1].padStart(2,'0')}-${dm[2].padStart(2,'0')}-${dm[3].length===2?'20'+dm[3]:dm[3]}`;
+    locPart = base.slice(0, dm.index);
+  }
+  locPart = locPart.replace(/current\s*rate/i,'').replace(/[-_]/g,' ').trim();
+  return { location: locPart, dateStr };
+}
+async function ixParseRatePdf(arrayBuffer){
+  const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+  function looksLikeBareSkuToken(text){ return /^\(?\d+(\.\d+)?\s*(KG|GM|G|PC|BAG|ML|L)\)?$/i.test(text.trim()); }
+  const resolvedLines = [];
+  for(let pageNum=1; pageNum<=pdf.numPages; pageNum++){
+    const page = await pdf.getPage(pageNum);
+    const content = await page.getTextContent();
+    const items = content.items.map(it=>({ text: it.str, x: it.transform[4], y: Math.round(it.transform[5]*10)/10 }))
+      .filter(it=>it.text.trim()!=='');
+    const lines = [];
+    items.forEach(it=>{
+      let line = lines.find(l=>Math.abs(l.y-it.y)<1.1);
+      if(!line){ line = {y: it.y, items:[]}; lines.push(line); }
+      line.items.push(it);
+    });
+    lines.sort((a,b)=> b.y - a.y);
+    for(const line of lines){
+      line.items.sort((a,b)=>a.x-b.x);
+      const nameWords=[], skuWords=[], codeWords=[], rateItems=[];
+      line.items.forEach(it=>{
+        if(it.x < 242) nameWords.push(it.text);
+        else if(it.x < 268) skuWords.push(it.text);
+        else if(it.x < 306) codeWords.push(it.text);
+        else rateItems.push(it);   // both rate columns land here — see below
+      });
+      const nameText = nameWords.join(' ').replace(/\s+/g,' ').trim();
+      let skuText = skuWords.join(' ').replace(/\s+/g,' ').trim();
+      let finalNameText = nameText;
+      if(!skuText){
+        const skuSuffixRe = /(\(?\d+(\.\d+)?\s*(KG|GM|G|PC|BAG|ML|L)\)?(\s*\(\s*\d+(\.\d+)?\s*(KG|GM|G|PC|BAG|ML|L)\s*\))?)\s*$/i;
+        const m = finalNameText.match(skuSuffixRe);
+        if(m && m.index>0){ skuText = m[0].trim(); finalNameText = finalNameText.slice(0, m.index).trim(); }
+      }
+      if(finalNameText && looksLikeBareSkuToken(finalNameText)){ skuText = (finalNameText + ' ' + skuText).trim(); finalNameText = ''; }
+      const codeText = codeWords.join('').trim();
+      // The Distributor Rate (Exc-GST) and Retail Rate (Incl-GST) columns sit at
+      // DIFFERENT x-positions on different location templates (confirmed: ABP ≈
+      // 320/348, Kolkata/WB/North Bengal ≈ 334/382) — a fixed x-threshold between
+      // them works for some templates and merges both numbers into one garbled
+      // value (e.g. "42.5046.86") on others. Keeping every x≥306 item as its own
+      // array entry and reading the FIRST as distributor / SECOND as retail
+      // (sorted left-to-right, which this template always renders them in)
+      // adapts automatically to any of these layouts without guessing a cutoff.
+      rateItems.sort((a,b)=>a.x-b.x);
+      const distText = (rateItems[0] && rateItems[0].text || '').trim();
+      const retailText = (rateItems[1] && rateItems[1].text || '').trim();
+      if(finalNameText==='Product' && skuText==='SKU') continue;
+      const distNum = parseFloat(distText.replace(/[^0-9.]/g,''));
+      const retailNum = retailText ? parseFloat(retailText.replace(/[^0-9.]/g,'')) : null;
+      const isDataRow = /^\d{3,}$/.test(codeText) && !isNaN(distNum) && distNum>0;
+      const combined = [finalNameText,skuText,codeText,distText,retailText].join(' ').trim();
+      if(!combined) continue;
+      if(/^location\b/i.test(combined)) continue;
+      const noDigits = !/\d/.test(combined.replace(/[().&,]/g,''));
+      const isBareLine = !isDataRow && noDigits && combined.length < 60 && combined === combined.toUpperCase();
+      resolvedLines.push({
+        finalNameText, skuText, codeText, distNum, retailNum,
+        isDataRow, codeNum: isDataRow ? parseInt(codeText,10) : null,
+        combined, isBareLine, isCategory: isBareLine && ixIsKnownCategory(combined),
+      });
+    }
+  }
+  const rows = [];
+  let currentCategory = '';
+  let lastProductName = '';
+  let lastCode = null;
+  let freshName = false;
+  let pending = [];
+  function flushPending(nameForThem){
+    if(pending.length){
+      const nm = nameForThem || lastProductName || '';
+      pending.forEach(pr=>{ pr.productName = nm; rows.push(pr); });
+      const lastPending = pending[pending.length-1];
+      const code = parseInt(lastPending.productCode, 10);
+      if(!isNaN(code)) lastCode = code;
+      if(nameForThem) lastProductName = nameForThem;
+    } else if(nameForThem){
+      lastProductName = nameForThem;
+    }
+    pending = [];
+  }
+  function findNextNameCode(startIdx){
+    for(let j=startIdx; j<resolvedLines.length; j++){
+      const L = resolvedLines[j];
+      if(L.isCategory) return null;
+      if(L.isDataRow && L.finalNameText) return L.codeNum;
+      if(!L.isDataRow && L.isBareLine){
+        for(let k=j+1; k<resolvedLines.length; k++){
+          const L2 = resolvedLines[k];
+          if(L2.isCategory) return null;
+          if(L2.isDataRow) return L2.codeNum;
+        }
+        return null;
+      }
+    }
+    return null;
+  }
+  for(let i=0;i<resolvedLines.length;i++){
+    const L = resolvedLines[i];
+    if(L.isDataRow){
+      const codeNum = L.codeNum;
+      if(L.finalNameText){
+        const hadPending = pending.length>0;
+        flushPending(L.finalNameText);
+        lastProductName = L.finalNameText; lastCode = codeNum;
+        freshName = hadPending;
+        rows.push({ category: currentCategory, productName: L.finalNameText, sku: L.skuText, productCode: L.codeText, distRate: L.distNum, retailRate: L.retailNum });
+      } else if(pending.length===0 && lastProductName && (freshName || lastCode!=null)){
+        const gapPrev = freshName ? -1 : Math.abs(codeNum-lastCode);
+        const nextCode = freshName ? null : findNextNameCode(i+1);
+        const gapNext = nextCode==null ? Infinity : Math.abs(codeNum-nextCode);
+        if(freshName || gapPrev < gapNext){
+          lastCode = codeNum; freshName = false;
+          rows.push({ category: currentCategory, productName: lastProductName, sku: L.skuText, productCode: L.codeText, distRate: L.distNum, retailRate: L.retailNum });
+        } else {
+          freshName = false;
+          pending.push({ category: currentCategory, productName: null, sku: L.skuText, productCode: L.codeText, distRate: L.distNum, retailRate: L.retailNum });
+        }
+      } else {
+        freshName = false;
+        pending.push({ category: currentCategory, productName: null, sku: L.skuText, productCode: L.codeText, distRate: L.distNum, retailRate: L.retailNum });
+      }
+      continue;
+    }
+    if(L.isCategory){
+      flushPending(); currentCategory = L.combined.trim(); lastProductName=''; lastCode=null; freshName=false;
+    } else if(L.isBareLine){
+      flushPending(L.combined); lastProductName = L.combined; freshName = true;
+    }
+  }
+  flushPending();
+  return rows;
+}
+
+/* ---------------- Price Group / Distributor → Location mapping ----------------
+   Flexible header matching (own copy, own column names) — expects a sheet with
+   a distributor code column, a Location column (direct), and optionally a
+   Price Group column (kept only for display, not required for matching). */
+function ixHeaderIndex(headerRow, candidates){
+  const norm = s => String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const normHeaders = headerRow.map(norm);
+  for(const cand of candidates){
+    const nc = norm(cand);
+    const idx = normHeaders.findIndex(h=>h===nc);
+    if(idx!==-1) return idx;
+  }
+  for(const cand of candidates){
+    const nc = norm(cand);
+    const idx = normHeaders.findIndex(h=>h.includes(nc));
+    if(idx!==-1) return idx;
+  }
+  return -1;
+}
+async function ixParsePGMappingFile(file){
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, {type:'array', cellDates:false});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+  if(!rows.length) return [];
+  const header = rows[0];
+  const iCode = ixHeaderIndex(header, ['Distributor Code','DB Code','Party Code','Bill to Party','Customer Code','Code']);
+  const iName = ixHeaderIndex(header, ['Distributor Name','DB Name','Party Name','Bill to Party Name','Customer Name','Name']);
+  const iLoc = ixHeaderIndex(header, ['Location']);
+  const iPg = ixHeaderIndex(header, ['Price Group','PG']);
+  if(iCode===-1 || iLoc===-1) throw new Error('Could not find a distributor-code column and a Location column in this file — it needs at least those two.');
+  const out = [];
+  for(let r=1;r<rows.length;r++){
+    const row = rows[r];
+    if(row==null) continue;
+    const code = String(row[iCode]||'').trim();
+    const loc = String(row[iLoc]||'').trim();
+    if(!code || !loc) continue;
+    out.push({ dbCode: code, dbName: iName!==-1 ? String(row[iName]||'').trim() : '', location: loc, pg: iPg!==-1 ? String(row[iPg]||'').trim() : '' });
+  }
+  return out;
+}
+
+/* ---------------- SAP Sales Register parsing ----------------
+   Reads only the columns INTELX actually needs, by header NAME (not cell
+   fill-colour — matching on the yellow highlight would be fragile and far
+   slower across tens of thousands of rows; the header text is a stable
+   enough anchor). Handles the sheet's own double-space "Total  Amount". */
+const IX_SALES_COLS = {
+  invoiceNo:  ['Internal Invoice No.','Invoice No'],
+  invoiceDate:['Invoice Date'],
+  dbCode:     ['Bill to Party'],
+  dbName:     ['Bill to Party Name'],
+  itemCode:   ['Item Code'],
+  itemDesc:   ['Item Description'],
+  qtyKg:      ['Qty in KGs'],
+  basePrice:  ['Base Price'],
+  taxableAmt: ['Taxable Amount'],
+  totalAmt:   ['Total Amount','Total  Amount'],
+};
+function ixExcelSerialToDate(v){
+  if(v instanceof Date) return v;
+  if(typeof v === 'number'){
+    // Excel's day-0 is 1899-12-30 in the standard (non-Mac) epoch.
+    return new Date(Math.round((v - 25569) * 86400 * 1000));
+  }
+  return ixParseDMY(v) || (v ? new Date(v) : null);
+}
+async function ixParseSalesRegisterFile(file, onProgress){
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, {type:'array', cellDates:true});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+  if(!rows.length) return [];
+  const header = rows[0];
+  const idx = {};
+  for(const key in IX_SALES_COLS){
+    idx[key] = ixHeaderIndex(header, IX_SALES_COLS[key]);
+  }
+  const missing = Object.keys(idx).filter(k=>idx[k]===-1 && k!=='totalAmt');
+  if(missing.length) throw new Error('Could not find these expected columns in the Sales Register: ' + missing.join(', '));
+  const out = [];
+  const total = rows.length;
+  for(let r=1;r<rows.length;r++){
+    const row = rows[r];
+    if(row==null || row.length===0) continue;
+    const itemCode = String(row[idx.itemCode]||'').trim();
+    if(!itemCode) continue;
+    const invoiceDate = ixExcelSerialToDate(row[idx.invoiceDate]);
+    out.push({
+      invoiceNo: String(row[idx.invoiceNo]||'').trim(),
+      invoiceDate, invoiceDateStr: ixFmtDMY(invoiceDate),
+      dbCode: String(row[idx.dbCode]||'').trim(),
+      dbName: String(row[idx.dbName]||'').trim(),
+      itemCode, itemDesc: String(row[idx.itemDesc]||'').trim(),
+      qtyKg: Number(row[idx.qtyKg])||0,
+      basePrice: Number(row[idx.basePrice])||0,
+      totalAmt: idx.totalAmt!==-1 ? (Number(row[idx.totalAmt])||0) : 0,
+    });
+    if(onProgress && r%2000===0) onProgress(r, total);
+  }
+  return out;
+}
+
+/* ---------------- Comparison engine ----------------
+   For each sales row: resolve its distributor's Location from the PG
+   mapping, then find the rate-file row for that Location + Item Code whose
+   Effective Date is the LATEST one on or before the Invoice Date (the same
+   "most recent rate known at the time" principle Rate Master uses) — never
+   a rate that only took effect AFTER the invoice. Compares SAP's own Base
+   Price against that Distributor Rate (Exc-GST), which this check always
+   treats as correct. */
+function ixBuildRateIndex(){
+  const map = {}; // "location|code" (normalised) -> [{effDate, distRate, productName}] sorted by effDate asc
+  IX_STATE.rateRows.forEach(r=>{
+    const key = ixNormLoc(r.location)+'|'+String(r.productCode).trim();
+    (map[key] = map[key]||[]).push(r);
+  });
+  Object.values(map).forEach(list=>list.sort((a,b)=>a.effDate-b.effDate));
+  return map;
+}
+function ixFindRateFor(rateIndex, location, productCode, invoiceDate){
+  const key = ixNormLoc(location)+'|'+String(productCode).trim();
+  const list = rateIndex[key];
+  if(!list || !list.length) return null;
+  if(!invoiceDate) return list[list.length-1]; // no invoice date to compare — fall back to the latest known rate
+  let best = null;
+  for(const r of list){
+    if(r.effDate <= invoiceDate) best = r; else break;
+  }
+  return best; // null if every rate on file for this product started AFTER the invoice date
+}
+function ixRunCheck(){
+  const rateIndex = ixBuildRateIndex();
+  const pgByCode = {};
+  IX_STATE.pgMap.forEach(p=> pgByCode[p.dbCode] = p);
+  const TOL = 0.01; // rounding tolerance — SAP/PDF values are already 2-decimal, so anything bigger than a paise is a real mismatch
+  const results = IX_STATE.salesRows.map(s=>{
+    const pg = pgByCode[s.dbCode];
+    if(!pg){
+      return { ...s, location:'', expectedRate:null, diff:null, status:'No Location Mapping' };
+    }
+    const match = ixFindRateFor(rateIndex, pg.location, s.itemCode, s.invoiceDate);
+    if(!match){
+      return { ...s, location: pg.location, expectedRate:null, diff:null, status:'No Rate Found' };
+    }
+    const diff = Math.round((s.basePrice - match.distRate)*100)/100;
+    let status = 'Match';
+    if(diff > TOL) status = 'Overcharge';
+    else if(diff < -TOL) status = 'Undercharge';
+    return { ...s, location: pg.location, productName: match.productName, expectedRate: match.distRate, diff, status };
+  });
+  IX_STATE.results = results;
+  return results;
+}
+
+/* ---------------- UI state (view-only, not persisted) ---------------- */
+let IX_FILTERS = { status:'', location:'', q:'', page:1 };
+const IX_PAGE_SIZE = 100;
+
+function ixStatCardsHtml(results){
+  const over = results.filter(r=>r.status==='Overcharge');
+  const under = results.filter(r=>r.status==='Undercharge');
+  const match = results.filter(r=>r.status==='Match');
+  const noRate = results.filter(r=>r.status==='No Rate Found');
+  const noLoc = results.filter(r=>r.status==='No Location Mapping');
+  const overVal = over.reduce((s,r)=>s+(r.diff*r.qtyKg),0);
+  const underVal = under.reduce((s,r)=>s+(Math.abs(r.diff)*r.qtyKg),0);
+  const card = (label,val,sub,color)=>`<div class="stat-card"><div class="stat-label">${ixEsc(label)}</div><div class="stat-value" style="${color?`color:${color};`:''}">${val}</div>${sub?`<div class="small-muted" style="margin-top:3px;">${sub}</div>`:''}</div>`;
+  return `<div class="grid grid-4" style="margin-bottom:10px;">
+    ${card('Lines Checked', ixFmtInt(results.length))}
+    ${card('Overcharge Lines', ixFmtInt(over.length), `₹${ixFmtMoney(overVal)} total impact`, 'var(--danger)')}
+    ${card('Undercharge Lines', ixFmtInt(under.length), `₹${ixFmtMoney(underVal)} total impact`, 'var(--warn)')}
+    ${card('Exact Match', ixFmtInt(match.length), null, 'var(--success)')}
+  </div>
+  <div class="grid grid-2" style="margin-bottom:18px;">
+    ${card('No Rate Found', ixFmtInt(noRate.length), 'item code has no rate on file for that location/date')}
+    ${card('No Location Mapping', ixFmtInt(noLoc.length), 'distributor code missing from the mapping file')}
+  </div>`;
+}
+
+let __ixLoadedOnce = false;
+async function renderIntelX(){
+  if(!__ixLoadedOnce){
+    __ixLoadedOnce = true;
+    $('#view-intelx').innerHTML = '<div class="empty-state">Loading any INTELX data saved on this device…</div>';
+    await ixLoadAll();
+  }
+  const view = $('#view-intelx');
+  const hasRates = IX_STATE.rateRows.length>0;
+  const hasPg = IX_STATE.pgMap.length>0;
+  const hasSales = IX_STATE.salesRows.length>0;
+  const hasResults = IX_STATE.results.length>0;
+
+  view.innerHTML = `
+    <div class="view-head">
+      <div><h2>INTELX</h2><p class="sub">Standalone checker — compares SAP's Sales Register Base Price against the rate file's Distributor Rate (Exc-GST). Nothing here touches Rate Master, Rate Check, or your Google Sheet; every upload and export stays on this device.</p></div>
+    </div>
+
+    <div class="grid grid-3" style="margin-bottom:18px;align-items:stretch;">
+      <div class="card" style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-title">① Rate Files (ZIP of PDFs)</div>
+        <div class="small-muted">Same monthly rate-PDF ZIP(s) you already receive — upload as many as you like, one per effective date.</div>
+        <input type="file" id="ixRateInput" accept=".zip" multiple>
+        <div id="ixRateStatus">${hasRates ? ixRateFilesSummaryHtml() : '<span class="small-muted">No rate files loaded yet.</span>'}</div>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-title">② Distributor → Location Mapping</div>
+        <div class="small-muted">Excel/CSV with a distributor-code column and a Location column (Price Group column optional, for reference).</div>
+        <input type="file" id="ixPgInput" accept=".xlsx,.xls,.csv">
+        <div id="ixPgStatus">${hasPg ? `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(IX_STATE.pgMap.length)} distributors mapped</span>` : '<span class="small-muted">No mapping loaded yet.</span>'}</div>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-title">③ SAP Sales Register</div>
+        <div class="small-muted">The SAP export as-is — INTELX reads only Invoice No./Date, Bill to Party (+Name), Item Code/Description, Qty in KGs, Base Price, Total Amount.</div>
+        <input type="file" id="ixSalesInput" accept=".xlsx,.xls">
+        <div id="ixSalesStatus">${hasSales ? `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(IX_STATE.salesRows.length)} sales lines loaded</span>` : '<span class="small-muted">No sales register loaded yet.</span>'}</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:18px;">
+      <button class="btn accent" id="ixRunBtn" ${(hasRates&&hasPg&&hasSales)?'':'disabled'}>▶ Run Check</button>
+      <button class="btn secondary" id="ixClearBtn">Clear all local INTELX data</button>
+      <span class="small-muted">${(hasRates&&hasPg&&hasSales)?'':'Upload all three above to enable the check.'}</span>
+    </div>
+
+    <div id="ixResultsArea">${hasResults ? '' : '<div class="empty-state">Run the check to see results here.</div>'}</div>
+  `;
+
+  $('#ixRateInput').addEventListener('change', e=> ixHandleRateUpload(e.target.files));
+  $('#ixPgInput').addEventListener('change', e=> ixHandlePgUpload(e.target.files[0]));
+  $('#ixSalesInput').addEventListener('change', e=> ixHandleSalesUpload(e.target.files[0]));
+  $('#ixRunBtn').addEventListener('click', ()=>{ ixRunCheck(); ixSaveAll(); renderIxResults(); });
+  $('#ixClearBtn').addEventListener('click', async ()=>{
+    if(!confirm('This clears all INTELX rate files, the mapping, the sales register, and any results from this device. Continue?')) return;
+    await ixClearAll();
+    renderIntelX();
+    toast('INTELX local data cleared', 'ok');
+  });
+
+  if(hasResults) renderIxResults();
+}
+
+function ixRateFilesSummaryHtml(){
+  return `<div class="table-wrap" style="max-height:140px;overflow:auto;"><table>
+    <thead><tr><th>File</th><th>Location</th><th>Eff. Date</th><th class="num">Rows</th></tr></thead>
+    <tbody>${IX_STATE.rateFiles.map(f=>`<tr><td class="wrap">${ixEsc(f.fileName)}</td><td>${ixEsc(f.matchedLocation)}</td><td>${ixEsc(f.effDateStr)}</td><td class="num">${f.rowCount}</td></tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+async function ixHandleRateUpload(files){
+  if(!files || !files.length) return;
+  const statusDiv = $('#ixRateStatus');
+  const newFiles = [];
+  for(let fi=0; fi<files.length; fi++){
+    const file = files[fi];
+    statusDiv.innerHTML = `<span class="small-muted">Opening ${ixEsc(file.name)} (${fi+1}/${files.length})…</span>`;
+    let zip;
+    try{ zip = await JSZip.loadAsync(file); }
+    catch(e){ toast(`Could not read ${file.name} — skipped`, 'err'); continue; }
+    const pdfEntries = Object.values(zip.files).filter(f=>!f.dir && /\.pdf$/i.test(f.name));
+    if(!pdfEntries.length){ toast(`No PDFs found inside ${file.name}`, 'err'); continue; }
+    for(let i=0;i<pdfEntries.length;i++){
+      const entry = pdfEntries[i];
+      const name = entry.name.split('/').pop();
+      statusDiv.innerHTML = `<span class="small-muted">Parsing ${ixEsc(name)} (${i+1}/${pdfEntries.length})…</span>`;
+      const buf = await entry.async('arraybuffer');
+      const meta = ixParseRateFilename(name);
+      let rows = [];
+      try{ rows = await ixParseRatePdf(buf); } catch(e){ console.error('INTELX rate PDF parse failed for', name, e); toast(`Could not parse ${name}`, 'err'); continue; }
+      const effDate = ixParseDMY(meta.dateStr);
+      if(!effDate){ toast(`Could not find a date in "${name}" — expected it somewhere in the filename (e.g. 28-09-2026)`, 'err'); continue; }
+      const location = meta.location;
+      // Replace any earlier upload of the exact same location+date combo, so re-uploading a corrected file doesn't duplicate rows.
+      IX_STATE.rateRows = IX_STATE.rateRows.filter(r=> !(ixLocEq(r.location, location) && r.effDateStr===meta.dateStr));
+      IX_STATE.rateFiles = IX_STATE.rateFiles.filter(f=> !(ixLocEq(f.matchedLocation, location) && f.effDateStr===meta.dateStr));
+      rows.forEach(r=> IX_STATE.rateRows.push({...r, location, effDate, effDateStr: meta.dateStr, sourceFile: name}));
+      IX_STATE.rateFiles.push({ fileName: name, matchedLocation: location, effDateStr: meta.dateStr, rowCount: rows.length });
+      newFiles.push(name);
+    }
+  }
+  await ixSaveAll();
+  $('#ixRateStatus').innerHTML = ixRateFilesSummaryHtml();
+  if(newFiles.length) toast(`Loaded ${newFiles.length} rate file(s)`, 'ok');
+  ixRefreshRunButton();
+}
+
+async function ixHandlePgUpload(file){
+  if(!file) return;
+  const statusDiv = $('#ixPgStatus');
+  statusDiv.innerHTML = `<span class="small-muted">Reading ${ixEsc(file.name)}…</span>`;
+  try{
+    const rows = await ixParsePGMappingFile(file);
+    if(!rows.length){ toast('No usable rows found in that mapping file', 'err'); statusDiv.innerHTML = '<span class="small-muted">No mapping loaded yet.</span>'; return; }
+    IX_STATE.pgMap = rows;
+    await ixSaveAll();
+    statusDiv.innerHTML = `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(rows.length)} distributors mapped</span>`;
+    toast(`Loaded ${rows.length} distributor→location mappings`, 'ok');
+  } catch(e){
+    toast('Could not read that mapping file: ' + e.message, 'err');
+    statusDiv.innerHTML = '<span class="small-muted">No mapping loaded yet.</span>';
+  }
+  ixRefreshRunButton();
+}
+
+async function ixHandleSalesUpload(file){
+  if(!file) return;
+  const statusDiv = $('#ixSalesStatus');
+  statusDiv.innerHTML = `${loadingCardHtml('Reading SAP Sales Register', file.name, 0)}`;
+  try{
+    const rows = await ixParseSalesRegisterFile(file, (r,total)=>{
+      statusDiv.innerHTML = loadingCardHtml('Reading SAP Sales Register', `${ixFmtInt(r)} / ${ixFmtInt(total)} rows`, (r/total)*100);
+    });
+    if(!rows.length){ toast('No usable rows found in that Sales Register', 'err'); statusDiv.innerHTML = '<span class="small-muted">No sales register loaded yet.</span>'; return; }
+    IX_STATE.salesRows = rows;
+    IX_STATE.salesFileInfo = { fileName: file.name, rowCount: rows.length };
+    await ixSaveAll();
+    statusDiv.innerHTML = `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(rows.length)} sales lines loaded</span>`;
+    toast(`Loaded ${ixFmtInt(rows.length)} sales register lines`, 'ok');
+  } catch(e){
+    toast('Could not read that Sales Register: ' + e.message, 'err');
+    statusDiv.innerHTML = '<span class="small-muted">No sales register loaded yet.</span>';
+  }
+  ixRefreshRunButton();
+}
+
+function ixRefreshRunButton(){
+  const btn = $('#ixRunBtn');
+  if(!btn) return;
+  const ready = IX_STATE.rateRows.length>0 && IX_STATE.pgMap.length>0 && IX_STATE.salesRows.length>0;
+  btn.disabled = !ready;
+  const hint = btn.nextElementSibling;
+  if(hint) hint.textContent = ready ? '' : 'Upload all three above to enable the check.';
+}
+
+function renderIxResults(){
+  const area = $('#ixResultsArea');
+  const results = IX_STATE.results;
+  if(!results.length){ area.innerHTML = '<div class="empty-state">Run the check to see results here.</div>'; return; }
+
+  let rows = results;
+  if(IX_FILTERS.status) rows = rows.filter(r=>r.status===IX_FILTERS.status);
+  if(IX_FILTERS.location) rows = rows.filter(r=>r.location===IX_FILTERS.location);
+  if(IX_FILTERS.q){
+    const q = IX_FILTERS.q.toLowerCase();
+    rows = rows.filter(r=> (r.itemCode||'').toLowerCase().includes(q) || (r.itemDesc||'').toLowerCase().includes(q) || (r.dbName||'').toLowerCase().includes(q) || (r.dbCode||'').toLowerCase().includes(q));
+  }
+  const locations = Array.from(new Set(results.map(r=>r.location).filter(Boolean))).sort();
+  const totalPages = Math.max(1, Math.ceil(rows.length / IX_PAGE_SIZE));
+  if(IX_FILTERS.page > totalPages) IX_FILTERS.page = totalPages;
+  const pageRows = rows.slice((IX_FILTERS.page-1)*IX_PAGE_SIZE, IX_FILTERS.page*IX_PAGE_SIZE);
+
+  const statusColor = s => s==='Overcharge' ? 'var(--danger)' : s==='Undercharge' ? 'var(--warn)' : s==='Match' ? 'var(--success)' : 'var(--ink-faint)';
+
+  area.innerHTML = `
+    ${ixStatCardsHtml(results)}
+    <div class="filterbar">
+      <div class="field"><label>Status</label><select id="ixStatusFilter">
+        <option value="">All</option>
+        <option value="Overcharge" ${IX_FILTERS.status==='Overcharge'?'selected':''}>Overcharge</option>
+        <option value="Undercharge" ${IX_FILTERS.status==='Undercharge'?'selected':''}>Undercharge</option>
+        <option value="Match" ${IX_FILTERS.status==='Match'?'selected':''}>Match</option>
+        <option value="No Rate Found" ${IX_FILTERS.status==='No Rate Found'?'selected':''}>No Rate Found</option>
+        <option value="No Location Mapping" ${IX_FILTERS.status==='No Location Mapping'?'selected':''}>No Location Mapping</option>
+      </select></div>
+      <div class="field"><label>Location</label><select id="ixLocFilter"><option value="">All</option>${locations.map(l=>`<option ${IX_FILTERS.location===l?'selected':''}>${ixEsc(l)}</option>`).join('')}</select></div>
+      <div class="field grow"><label>Search item code / distributor</label><input type="text" id="ixSearchFilter" value="${ixEsc(IX_FILTERS.q)}" placeholder="Type to filter…"></div>
+      <button class="btn accent" id="ixExportDetailed" style="align-self:flex-end;">⬇ Export Detailed (Pro format)</button>
+      <button class="btn secondary" id="ixExportByProduct" style="align-self:flex-end;">⬇ Export by Product Code</button>
+    </div>
+    <div class="small-muted" style="margin-bottom:8px;">${ixFmtInt(rows.length)} line(s) match this filter · showing page ${IX_FILTERS.page} of ${totalPages}</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Invoice No</th><th>Invoice Date</th><th>DB Code</th><th>Distributor</th><th>Location</th><th>Item Code</th><th>Product</th><th class="num">Qty (kg)</th><th class="num">Base Price</th><th class="num">Expected Rate</th><th class="num">Diff/kg</th><th>Status</th></tr></thead>
+      <tbody>${pageRows.map(r=>`<tr>
+        <td>${ixEsc(r.invoiceNo)}</td><td>${ixEsc(r.invoiceDateStr)}</td><td>${ixEsc(r.dbCode)}</td><td class="wrap">${ixEsc(r.dbName)}</td><td>${ixEsc(r.location)}</td>
+        <td>${ixEsc(r.itemCode)}</td><td class="wrap">${ixEsc(r.itemDesc)}</td><td class="num">${ixFmtInt(r.qtyKg)}</td>
+        <td class="num">${ixFmtMoney(r.basePrice)}</td><td class="num">${r.expectedRate!=null?ixFmtMoney(r.expectedRate):'—'}</td>
+        <td class="num" style="color:${statusColor(r.status)};font-weight:700;">${r.diff!=null?(r.diff>0?'+':'')+ixFmtMoney(r.diff):'—'}</td>
+        <td><span style="color:${statusColor(r.status)};font-weight:700;">${ixEsc(r.status)}</span></td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px;">
+      <button class="btn small" id="ixPrevPage" ${IX_FILTERS.page<=1?'disabled':''}>← Prev</button>
+      <span class="small-muted">Page ${IX_FILTERS.page} / ${totalPages}</span>
+      <button class="btn small" id="ixNextPage" ${IX_FILTERS.page>=totalPages?'disabled':''}>Next →</button>
+    </div>
+  `;
+  $('#ixStatusFilter').addEventListener('change', e=>{ IX_FILTERS.status=e.target.value; IX_FILTERS.page=1; renderIxResults(); });
+  $('#ixLocFilter').addEventListener('change', e=>{ IX_FILTERS.location=e.target.value; IX_FILTERS.page=1; renderIxResults(); });
+  $('#ixSearchFilter').addEventListener('input', e=>{ IX_FILTERS.q=e.target.value; IX_FILTERS.page=1; renderIxResults(); });
+  $('#ixPrevPage').addEventListener('click', ()=>{ IX_FILTERS.page--; renderIxResults(); });
+  $('#ixNextPage').addEventListener('click', ()=>{ IX_FILTERS.page++; renderIxResults(); });
+  $('#ixExportDetailed').addEventListener('click', ()=> ixExportDetailedExcel(rows));
+  $('#ixExportByProduct').addEventListener('click', ()=> ixExportByProductExcel(rows));
+}
+
+/* ---------------- Pro-format exports (ExcelJS, saved locally only) ---------------- */
+const IX_COLORS = { INK:'FF1E2438', WHITE:'FFFFFFFF', DANGER:'FFB23A2E', DANGERSOFT:'FFF3DEDA', WARN:'FFB2790C', WARNSOFT:'FFF6E9D2', SUCCESS:'FF1E7A4C', SUCCESSSOFT:'FFDCEBE0', GREYSOFT:'FFECECEC' };
+
+function ixStampHeader(ws, title, subtitle, numCols){
+  ws.mergeCells(1,1,1,numCols);
+  ws.getCell(1,1).value = title;
+  ws.getCell(1,1).font = {size:14, bold:true, color:{argb:IX_COLORS.WHITE}};
+  ws.getCell(1,1).fill = {type:'pattern', pattern:'solid', fgColor:{argb:IX_COLORS.INK}};
+  ws.getRow(1).height = 24;
+  ws.mergeCells(2,1,2,numCols);
+  ws.getCell(2,1).value = subtitle;
+  ws.getCell(2,1).font = {size:10, italic:true, color:{argb:'FF6B6E76'}};
+}
+
+async function ixExportDetailedExcel(rows){
+  if(!rows.length){ toast('Nothing to export for the current filter', 'err'); return; }
+  const btn = $('#ixExportDetailed');
+  const orig = btn.textContent; btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Building…';
+  try{
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'INTELX'; wb.created = new Date();
+    const ws = wb.addWorksheet('INTELX Detailed', {views:[{state:'frozen', ySplit:4}]});
+    const cols = [
+      {header:'Invoice No', key:'invoiceNo', width:14}, {header:'Invoice Date', key:'invoiceDateStr', width:13},
+      {header:'DB Code', key:'dbCode', width:11}, {header:'Distributor', key:'dbName', width:28},
+      {header:'Location', key:'location', width:14}, {header:'Item Code', key:'itemCode', width:11},
+      {header:'Product', key:'itemDesc', width:32}, {header:'Qty (kg)', key:'qtyKg', width:11},
+      {header:'Base Price (SAP)', key:'basePrice', width:15}, {header:'Expected Rate (File)', key:'expectedRate', width:18},
+      {header:'Diff/kg', key:'diff', width:11}, {header:'₹ Impact', key:'impact', width:13}, {header:'Status', key:'status', width:18},
+    ];
+    ws.columns = cols.map(c=>({key:c.key, width:c.width}));
+    ixStampHeader(ws, 'INTELX — SAP vs RATE FILE CHECK (DETAILED)', `Generated ${formatISTDateTime(new Date())} IST · ${ixFmtInt(rows.length)} line(s)`, cols.length);
+    const headerRow = ws.getRow(4);
+    cols.forEach((c,i)=>{ headerRow.getCell(i+1).value = c.header; });
+    headerRow.eachCell(cell=>{ cell.font={bold:true,color:{argb:IX_COLORS.WHITE}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:IX_COLORS.INK}}; });
+    headerRow.height = 20;
+    let r = 5;
+    rows.forEach(rr=>{
+      const impact = rr.diff!=null ? Math.round(rr.diff*rr.qtyKg*100)/100 : null;
+      const row = ws.getRow(r);
+      cols.forEach((c,i)=>{
+        let v = c.key==='impact' ? impact : rr[c.key];
+        row.getCell(i+1).value = v==null ? '—' : v;
+      });
+      ['basePrice','expectedRate','diff','impact'].forEach(k=>{ const ci=cols.findIndex(c=>c.key===k)+1; if(typeof row.getCell(ci).value==='number') row.getCell(ci).numFmt='#,##0.00'; });
+      let fill=null, font=null;
+      if(rr.status==='Overcharge'){ fill=IX_COLORS.DANGERSOFT; font=IX_COLORS.DANGER; }
+      else if(rr.status==='Undercharge'){ fill=IX_COLORS.WARNSOFT; font=IX_COLORS.WARN; }
+      else if(rr.status==='Match'){ fill=IX_COLORS.SUCCESSSOFT; font=IX_COLORS.SUCCESS; }
+      else { fill=IX_COLORS.GREYSOFT; font='FF6B6E76'; }
+      const statusCell = row.getCell(cols.findIndex(c=>c.key==='status')+1);
+      statusCell.fill = {type:'pattern',pattern:'solid',fgColor:{argb:fill}};
+      statusCell.font = {bold:true,color:{argb:font}};
+      const diffCell = row.getCell(cols.findIndex(c=>c.key==='diff')+1);
+      if(rr.diff!=null) diffCell.font = {bold:true, color:{argb:font}};
+      r++;
+    });
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `INTELX_Detailed_${istDateISOForFilenames_()}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast('Detailed report exported', 'ok');
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+
+function ixAggregateByProduct(rows){
+  const byCode = {};
+  rows.forEach(r=>{
+    const key = r.itemCode;
+    if(!byCode[key]) byCode[key] = { itemCode:r.itemCode, itemDesc:r.itemDesc, lines:0, qtyKg:0, overLines:0, underLines:0, matchLines:0, noRateLines:0, overImpact:0, underImpact:0 };
+    const g = byCode[key];
+    g.lines++; g.qtyKg += r.qtyKg;
+    if(r.status==='Overcharge'){ g.overLines++; g.overImpact += r.diff*r.qtyKg; }
+    else if(r.status==='Undercharge'){ g.underLines++; g.underImpact += Math.abs(r.diff)*r.qtyKg; }
+    else if(r.status==='Match') g.matchLines++;
+    else g.noRateLines++;
+  });
+  return Object.values(byCode).sort((a,b)=> (b.overImpact+b.underImpact) - (a.overImpact+a.underImpact));
+}
+
+async function ixExportByProductExcel(rows){
+  if(!rows.length){ toast('Nothing to export for the current filter', 'err'); return; }
+  const btn = $('#ixExportByProduct');
+  const orig = btn.textContent; btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Building…';
+  try{
+    const agg = ixAggregateByProduct(rows);
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'INTELX'; wb.created = new Date();
+    const ws = wb.addWorksheet('INTELX by Product', {views:[{state:'frozen', ySplit:4}]});
+    const cols = [
+      {header:'Item Code', key:'itemCode', width:12}, {header:'Product', key:'itemDesc', width:34},
+      {header:'Total Lines', key:'lines', width:12}, {header:'Total Qty (kg)', key:'qtyKg', width:14},
+      {header:'Overcharge Lines', key:'overLines', width:16}, {header:'₹ Overcharge Impact', key:'overImpact', width:18},
+      {header:'Undercharge Lines', key:'underLines', width:17}, {header:'₹ Undercharge Impact', key:'underImpact', width:19},
+      {header:'Match Lines', key:'matchLines', width:12}, {header:'No Rate Found', key:'noRateLines', width:14},
+    ];
+    ws.columns = cols.map(c=>({key:c.key, width:c.width}));
+    ixStampHeader(ws, 'INTELX — SAP vs RATE FILE CHECK (BY PRODUCT CODE)', `Generated ${formatISTDateTime(new Date())} IST · ${ixFmtInt(agg.length)} product(s)`, cols.length);
+    const headerRow = ws.getRow(4);
+    cols.forEach((c,i)=>{ headerRow.getCell(i+1).value = c.header; });
+    headerRow.eachCell(cell=>{ cell.font={bold:true,color:{argb:IX_COLORS.WHITE}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:IX_COLORS.INK}}; });
+    headerRow.height = 20;
+    let r = 5;
+    agg.forEach(g=>{
+      const row = ws.getRow(r);
+      cols.forEach((c,i)=>{ row.getCell(i+1).value = Math.round((g[c.key]||0)*100)/100; });
+      row.getCell(1).value = g.itemCode; row.getCell(2).value = g.itemDesc;
+      ['overImpact','underImpact'].forEach(k=>{ const ci=cols.findIndex(c=>c.key===k)+1; row.getCell(ci).numFmt='#,##0.00'; });
+      if(g.overLines>0){ const ci=cols.findIndex(c=>c.key==='overLines')+1; row.getCell(ci).fill={type:'pattern',pattern:'solid',fgColor:{argb:IX_COLORS.DANGERSOFT}}; row.getCell(ci).font={bold:true,color:{argb:IX_COLORS.DANGER}};
+        const ci2=cols.findIndex(c=>c.key==='overImpact')+1; row.getCell(ci2).font={bold:true,color:{argb:IX_COLORS.DANGER}}; }
+      if(g.underLines>0){ const ci=cols.findIndex(c=>c.key==='underLines')+1; row.getCell(ci).fill={type:'pattern',pattern:'solid',fgColor:{argb:IX_COLORS.WARNSOFT}};
+        const ci2=cols.findIndex(c=>c.key==='underImpact')+1; row.getCell(ci2).font={bold:true,color:{argb:IX_COLORS.WARN}}; }
+      r++;
+    });
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `INTELX_By_Product_${istDateISOForFilenames_()}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast('Product-wise report exported', 'ok');
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+// IST-safe filename date stamp, independent of the rest of the app's own
+// istDateISO() (same approach, kept local so this file has zero dependency
+// on anything outside this block).
+function istDateISOForFilenames_(){
+  const p = {};
+  new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()).forEach(x=>p[x.type]=x.value);
+  return `${p.day}-${p.month}-${p.year}`; // DD-MM-YYYY, same as every other date in this app
+}
 
 </script>
 </body>
