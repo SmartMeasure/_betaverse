@@ -538,7 +538,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v70';
+const APP_VERSION = 'v71';
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -4797,9 +4797,15 @@ async function ixParsePGMappingFile(file){
   const header = rows[0];
   const iCode = ixHeaderIndex(header, ['Distributor Code','DB Code','Party Code','Bill to Party','Customer Code','Code']);
   const iName = ixHeaderIndex(header, ['Distributor Name','DB Name','Party Name','Bill to Party Name','Customer Name','Name']);
-  const iLoc = ixHeaderIndex(header, ['Location']);
+  // The standard Distributor Master file (same one used everywhere else in
+  // this app) has no column literally called "Location" — "Price Group
+  // Name" (e.g. "North Bengal", "Kolkata") IS the location, exactly as it's
+  // already treated throughout the rest of Rate Ledger. Recognising it here
+  // too means this SAME file can be uploaded directly, with no separate
+  // mapping file needed just for INTELX.
+  const iLoc = ixHeaderIndex(header, ['Location','Price Group Name']);
   const iPg = ixHeaderIndex(header, ['Price Group','PG']);
-  if(iCode===-1 || iLoc===-1) throw new Error('Could not find a distributor-code column and a Location column in this file — it needs at least those two.');
+  if(iCode===-1 || iLoc===-1) throw new Error('Could not find a distributor-code column and a Location (or "Price Group Name") column in this file — it needs at least those two.');
   const out = [];
   for(let r=1;r<rows.length;r++){
     const row = rows[r];
