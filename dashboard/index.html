@@ -150,7 +150,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v12';
+const APP_VERSION = 'v14';
 const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 const BACKEND_URL_KEY = 'rateLedger_backendUrl';
 // The Web App URL is now editable from the login screen's "Connection
@@ -720,6 +720,11 @@ async function renderPerformance(){
   // Date (All Submissions still defaults to Bill Date, for its audit-trail
   // purpose) — either can still be switched from the dropdown.
   if(window.__pfDateBasis===undefined) window.__pfDateBasis = 'submission';
+  // Same "This Week" first-visit default as All Submissions — this tab had
+  // none before, so it silently opened to All Time (blank boxes) instead.
+  if(window.__pfFrom===undefined && window.__pfTo===undefined){
+    window.__pfFrom = istWeekStartISO(); window.__pfTo = istDateISO();
+  }
   body.innerHTML = `
     <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
       ${dateRangeBarHtml('pf', window.__pfFrom, window.__pfTo, window.__pfDateBasis)}
@@ -845,7 +850,7 @@ async function exportPerformanceExcel(perfRows){
   ws.getCell(1,1).fill = {type:'pattern', pattern:'solid', fgColor:{argb:INK}};
   ws.getRow(1).height = 24;
   ws.mergeCells(2,1,2,cols.length);
-  ws.getCell(2,1).value = `Generated ${new Date().toLocaleDateString('en-IN')}`;
+  ws.getCell(2,1).value = `Generated ${formatISTDateTime(new Date())} IST`;
   ws.getCell(2,1).font = {size:10, italic:true, color:{argb:'FF6B6E76'}};
   const headerRow = ws.getRow(4);
   cols.forEach((c,i)=>{ headerRow.getCell(i+1).value = c.header; });
@@ -864,7 +869,7 @@ async function exportPerformanceExcel(perfRows){
   const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `Verifier_Auditor_Performance_${istDateISO()}.xlsx`;
+  a.href = url; a.download = `Verifier_Auditor_Performance_${istDateDMY()}.xlsx`;
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
@@ -902,6 +907,10 @@ async function renderSubmissions(){
   if(window.__subFrom===undefined && window.__subTo===undefined){
     window.__subFrom = istWeekStartISO(); window.__subTo = istDateISO();
   }
+  // Submission Date (when the row was actually entered) is the more useful
+  // default basis for "what came in" views — Bill Date stays selectable from
+  // the dropdown for anyone auditing by the invoice's own date instead.
+  if(window.__subDateBasis===undefined) window.__subDateBasis = 'submission';
   body.innerHTML = `
     <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
       ${dateRangeBarHtml('sub', window.__subFrom, window.__subTo, window.__subDateBasis)}
@@ -1121,7 +1130,7 @@ function exportRowsToExcel(rows, filenamePrefix){
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Data');
-  XLSX.writeFile(wb, `${filenamePrefix}_${istDateISO()}.xlsx`);
+  XLSX.writeFile(wb, `${filenamePrefix}_${istDateDMY()}.xlsx`);
 }
 
 /* Same colored "Pro" look AND the SAME full column set as Rate Ledger's own
@@ -1167,7 +1176,7 @@ async function exportProExcel(rows, filenamePrefix, viewLabel){
   const over = rows.filter(r=>r.Status==='over'), under = rows.filter(r=>r.Status==='under'), neg = rows.filter(r=>r.Status==='negligible');
   const overAmt = over.reduce((s,r)=>s+(Number(r.OverchargeAmt)||0),0), underAmt = under.reduce((s,r)=>s+(Number(r.UnderchargeAmt)||0),0);
   ws.mergeCells(2,1,2,cols.length);
-  ws.getCell(2,1).value = `Generated ${new Date().toLocaleDateString('en-IN')}  ·  ${rows.length} lines  ·  ${over.length} overcharge (₹${overAmt.toFixed(2)})  ·  ${under.length} undercharge (₹${underAmt.toFixed(2)})  ·  ${neg.length} negligible (<1%, excluded)`;
+  ws.getCell(2,1).value = `Generated ${formatISTDateTime(new Date())} IST  ·  ${rows.length} lines  ·  ${over.length} overcharge (₹${overAmt.toFixed(2)})  ·  ${under.length} undercharge (₹${underAmt.toFixed(2)})  ·  ${neg.length} negligible (<1%, excluded)`;
   ws.getCell(2,1).font = {name:'Calibri', size:10, italic:true, color:{argb:'FF6B6E76'}};
   const headerRow = ws.getRow(4);
   cols.forEach((c,i)=>{ headerRow.getCell(i+1).value = c.header; });
@@ -1255,7 +1264,7 @@ async function exportProExcel(rows, filenamePrefix, viewLabel){
   const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `${filenamePrefix}_${istDateISO()}.xlsx`;
+  a.href = url; a.download = `${filenamePrefix}_${istDateDMY()}.xlsx`;
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
@@ -1280,7 +1289,7 @@ async function exportBillPhotosZip(rows, btn){
     const blob = new Blob([bytes], {type:'application/zip'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = res.fileName || `Bill_Photos_${istDateISO()}.zip`;
+    a.href = url; a.download = res.fileName || `Bill_Photos_${istDateDMY()}.zip`;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
     toast(`Downloaded ${res.count} bill photo${res.count===1?'':'s'}, organised by DB`, 'ok');
