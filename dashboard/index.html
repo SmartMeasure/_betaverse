@@ -150,7 +150,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v14';
+const APP_VERSION = 'v15';
 const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
 const BACKEND_URL_KEY = 'rateLedger_backendUrl';
 // The Web App URL is now editable from the login screen's "Connection
@@ -450,11 +450,214 @@ function renderLogin(errorMsg){
   });
   $('#loginCode').focus();
 }
-function logout(){ clearSession(); boot(); }
+function logout(){ clearSession(); adminStoreWipe(); boot(); } // the stored copy is the whole sheet — don't leave it on the device after sign-out
 function switchToTab(id){ ACTIVE_TAB = id; renderShell(); }
 
 /* ==================== SHELL ==================== */
 let ACTIVE_TAB = null;
+/* ==================== Admin local data store ====================
+   Analytics, Performance and All Submissions all read from ONE copy of the
+   data that lives in this browser (IndexedDB, so it also survives a
+   refresh/reopen) instead of each tab asking the Sheet for its own copy every
+   time it's opened. The very first open downloads everything once (with real
+   progress); after that the Sheet is only asked for rows NEWER than the latest
+   one already stored — typically a handful — and those are merged in. Switching
+   tabs, changing a date range, or reopening the Dashboard never waits on the
+   Sheet again; everything is filtered/aggregated locally.
+   Admin-only: Auditor/Verifier views are server-scoped to their own rows and
+   keep their existing per-query behaviour — caching "everything" locally
+   would be wrong for a role that's only ever allowed to see a slice. */
+const AS_DB = 'DashboardAdminCacheDB';
+const AdminStore = { rows:[], byKey:new Map(), lastTs:'', lastSyncedAt:0, syncing:false, loaded:false, error:'', progress:null };
+let __asDbPromise = null;
+function asOpen(){
+  if(__asDbPromise) return __asDbPromise;
+  __asDbPromise = new Promise((resolve,reject)=>{
+    if(!window.indexedDB){ reject(new Error('IndexedDB unavailable')); return; }
+    const req = indexedDB.open(AS_DB, 1);
+    req.onupgradeneeded = e=>{ const db=e.target.result;
+      if(!db.objectStoreNames.contains('rows')) db.createObjectStore('rows',{keyPath:'_k'});
+      if(!db.objectStoreNames.contains('meta')) db.createObjectStore('meta',{keyPath:'key'}); };
+    req.onsuccess = e=>resolve(e.target.result);
+    req.onerror = ()=>reject(req.error);
+  });
+  return __asDbPromise;
+}
+function asTx(stores, mode, fn){
+  return asOpen().then(db=>new Promise((resolve,reject)=>{
+    const tx = db.transaction(stores, mode);
+    const out = fn(tx);
+    tx.oncomplete = ()=>resolve(out && out.result!==undefined ? out.result : out);
+    tx.onerror = ()=>reject(tx.error);
+    tx.onabort = ()=>reject(tx.error);
+  }));
+}
+function asOwner(){ const s=getSession(); return s ? `${s.code}|${WEB_APP_URL}` : ''; }
+// A row's identity: a bill line is unique per BillUID + ProductCode (same
+// rule the server uses to drop duplicates). Very old rows with no BillUID
+// fall back to a composite of their own fields.
+function asKey(r){
+  if(r.BillUID) return r.BillUID+'|'+(r.ProductCode||'');
+  return 'legacy|'+[r.Timestamp,r.ProductCode,r.DBCode,r.BillNo,r.InvoiceRate].join('|');
+}
+function asResetMemory(){ AdminStore.rows=[]; AdminStore.byKey=new Map(); AdminStore.lastTs=''; AdminStore.lastSyncedAt=0; AdminStore.loaded=false; AdminStore.error=''; }
+async function asLoad(){
+  if(AdminStore.loaded) return;
+  try{
+    const owner = asOwner();
+    const meta = await asTx(['meta'],'readonly', tx=>{ const o={}; ['owner','lastTs','lastSyncedAt'].forEach(k=>{ const r=tx.objectStore('meta').get(k); r.onsuccess=()=>{ o[k]=r.result?r.result.value:null; }; }); return {get result(){return o;}}; });
+    if(meta.owner && meta.owner!==owner){ await asWipeDb(); }
+    else if(meta.owner){
+      const rows = await asTx(['rows'],'readonly', tx=>{ const r=tx.objectStore('rows').getAll(); return {get result(){return r.result||[];}}; });
+      rows.forEach(r=>{ AdminStore.byKey.set(r._k, r); });
+      AdminStore.rows = rows;
+      AdminStore.lastTs = meta.lastTs||''; AdminStore.lastSyncedAt = meta.lastSyncedAt||0;
+    }
+  } catch(e){ /* IndexedDB blocked (private mode etc.) — still works for this session from memory, just won't persist */ }
+  AdminStore.loaded = true;
+}
+async function asWipeDb(){ try{ await asTx(['rows','meta'],'readwrite', tx=>{ tx.objectStore('rows').clear(); tx.objectStore('meta').clear(); }); }catch(e){} }
+async function asPersist(putRows){
+  try{
+    await asTx(['rows','meta'],'readwrite', tx=>{
+      const rs = tx.objectStore('rows'); putRows.forEach(r=>rs.put(r));
+      const ms = tx.objectStore('meta');
+      ms.put({key:'owner', value:asOwner()}); ms.put({key:'lastTs', value:AdminStore.lastTs}); ms.put({key:'lastSyncedAt', value:AdminStore.lastSyncedAt});
+    });
+  } catch(e){}
+}
+function asCompact(raw){ const r={}; for(const k in raw){ const v=raw[k]; if(v!=='' && v!=null) r[k]=v; } r._k=asKey(r); return r; }
+// Pulls whatever the Sheet has that this browser doesn't (everything, the
+// first time) and merges it in. Safe to call any time; concurrent calls are
+// collapsed into one. Returns how many rows were added/updated.
+// Single-flight: if a sync is already running, every other caller (e.g. two
+// tabs rendering at once on first open) waits for THAT one and gets its
+// result, rather than returning early and painting a half-loaded store.
+let __adminSyncInflight = null;
+function adminSync(opts){
+  if(__adminSyncInflight) return __adminSyncInflight;
+  __adminSyncInflight = adminSyncRun(opts).finally(()=>{ __adminSyncInflight = null; });
+  return __adminSyncInflight;
+}
+async function adminSyncRun(opts){
+  opts = opts||{};
+  const s = getSession();
+  if(!s || s.role!=='Admin') return {changed:0};
+  AdminStore.syncing = true; AdminStore.error=''; updateAdminSyncChip();
+  let changed = 0;
+  try{
+    await asLoad();
+    if(opts.full){ await asWipeDb(); asResetMemory(); AdminStore.loaded=true; }
+    const firstEver = AdminStore.rows.length===0;
+    let offset = 0, total = null, photoLinks = {};
+    const putRows = [];
+    // Captured ONCE: the server pages through "rows newer than this", so if
+    // this moved with each page (lastTs advances as rows are merged) page 2
+    // would be an offset into a DIFFERENT, shorter list and rows would be skipped.
+    const sinceAtStart = AdminStore.lastTs||'';
+    for(;;){
+      const res = await backendGet({ action:'syncdata', code:s.code, pin:s.pin, sinceISO: sinceAtStart, offset:String(offset) });
+      if(!res.ok) throw new Error(res.error||'Could not sync');
+      if(total===null) total = res.total||0;
+      res.rows.forEach(raw=>{
+        const r = asCompact(raw);
+        if(!AdminStore.byKey.has(r._k)){ AdminStore.byKey.set(r._k, r); AdminStore.rows.push(r); putRows.push(r); changed++; }
+        if(r.Timestamp && (!AdminStore.lastTs || new Date(r.Timestamp) > new Date(AdminStore.lastTs))) AdminStore.lastTs = r.Timestamp;
+      });
+      AdminStore.progress = { done: Math.min(offset + res.rows.length, total), total };
+      if(firstEver) updateAdminLoadingProgress();
+      updateAdminSyncChip();
+      if(res.nextOffset==null){ photoLinks = res.photoLinks||{}; break; }
+      offset = res.nextOffset;
+    }
+    // Photos get linked to a bill's rows AFTER those rows were first written,
+    // without changing their Timestamp — apply the server's current links so
+    // already-stored rows pick them up.
+    AdminStore.rows.forEach(r=>{
+      const l = photoLinks[r.BillUID];
+      if(l && r.BillCopyURL!==l.url){ r.BillCopyURL=l.url; if(l.dl) r.BillCopyDownloadURL=l.dl; putRows.push(r); changed++; }
+    });
+    AdminStore.lastSyncedAt = Date.now();
+    AdminStore.progress = null;
+    await asPersist(putRows);
+  } catch(e){
+    AdminStore.error = e.message || 'Sync failed';
+    AdminStore.progress = null;
+  } finally {
+    AdminStore.syncing = false;
+    updateAdminSyncChip();
+  }
+  if(changed && typeof window.__adminRepaint==='function') window.__adminRepaint();
+  return {changed};
+}
+function updateAdminLoadingProgress(){
+  const el = $('#adminFirstLoad'); const p = AdminStore.progress;
+  if(!el || !p) return;
+  const pct = p.total ? Math.round(p.done/p.total*100) : 0;
+  el.querySelector('.afl-text').textContent = `${fmtInt(p.done)} / ${fmtInt(p.total)} rows`;
+  el.querySelector('.afl-fill').style.width = pct+'%';
+}
+// Resolves once the store has data to show. Instant when it's already
+// stored (the common case); only the very first-ever open actually waits,
+// and shows real progress while it does.
+async function adminStoreReady(containerSel){
+  await asLoad();
+  if(AdminStore.rows.length){ adminBackgroundSync(); return true; }
+  const el = $(containerSel);
+  if(el) el.innerHTML = `<div class="empty-state" id="adminFirstLoad" style="max-width:420px;margin:30px auto;">
+    <div style="font-weight:700;margin-bottom:6px;">Downloading all submissions to this device — one time only</div>
+    <div class="small-muted" style="margin-bottom:10px;">After this, only new bills are fetched, so every tab opens instantly.</div>
+    <div style="height:8px;background:var(--panel-2);border-radius:99px;overflow:hidden;"><div class="afl-fill" style="height:100%;width:0%;background:var(--ink);transition:width .2s;"></div></div>
+    <div class="afl-text small-muted" style="margin-top:6px;">Starting…</div></div>`;
+  await adminSync();
+  if(AdminStore.error && !AdminStore.rows.length){
+    if(el) el.innerHTML = `<div class="empty-state">${esc(AdminStore.error)}<br><button class="btn small" id="adminRetrySync" style="margin-top:10px;">Retry</button></div>`;
+    const b=$('#adminRetrySync'); if(b) b.addEventListener('click', ()=>{ if(typeof window.__adminRepaint==='function') window.__adminRepaint(true); });
+    return false;
+  }
+  return true;
+}
+function adminBackgroundSync(){
+  // Don't hammer the Sheet when tabs are flipped quickly — a sync in the last
+  // 20 seconds already has everything.
+  if(__adminSyncInflight || Date.now()-AdminStore.lastSyncedAt < 20000) return;
+  adminSync();
+}
+function adminAgoText(){
+  if(!AdminStore.lastSyncedAt) return 'not synced yet';
+  const sec = Math.round((Date.now()-AdminStore.lastSyncedAt)/1000);
+  if(sec<10) return 'just now'; if(sec<60) return sec+'s ago';
+  const m=Math.round(sec/60); if(m<60) return m+' min ago'; return Math.round(m/60)+' hr ago';
+}
+function updateAdminSyncChip(){
+  const el = $('#adminSyncChip'); if(!el) return;
+  const st = AdminStore;
+  const dot = st.error ? 'var(--danger)' : (st.syncing ? 'var(--warn)' : 'var(--success)');
+  const label = st.syncing ? 'Syncing…' : (st.error ? 'Sync failed — showing saved data' : `Synced ${adminAgoText()}`);
+  el.innerHTML = `<span class="status-dot" style="background:${dot};"></span>
+    <span>${esc(label)} · ${fmtInt(st.rows.length)} rows stored</span>
+    <button class="btn small" id="adminSyncNow" ${st.syncing?'disabled':''} title="Fetch only what's new since the last sync">↻ Sync</button>
+    <button class="btn small" id="adminFullRefresh" ${st.syncing?'disabled':''} title="Throw away the stored copy and download everything again — use after deleting/editing rows directly in the Sheet">Full refresh</button>`;
+  $('#adminSyncNow').addEventListener('click', ()=>adminSync());
+  $('#adminFullRefresh').addEventListener('click', async ()=>{
+    if(!confirm('Re-download every submission from the Sheet? This can take a little while.')) return;
+    await adminSync({full:true});
+  });
+}
+let __adminAutoTimer = null;
+function adminStartAutoSync(){
+  if(__adminAutoTimer) return;
+  __adminAutoTimer = setInterval(()=>{
+    const s=getSession(); if(!s || s.role!=='Admin'){ clearInterval(__adminAutoTimer); __adminAutoTimer=null; return; }
+    if(document.hidden) return;
+    if(Date.now()-AdminStore.lastSyncedAt >= 60000) adminSync(); else updateAdminSyncChip();
+  }, 30000);
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ const s=getSession(); if(s && s.role==='Admin') adminBackgroundSync(); } });
+}
+async function adminStoreWipe(){ asResetMemory(); await asWipeDb(); }
+// Filtered view of the store for one tab's own date range/basis.
+function adminRowsFor(from, to, basis){ return filterRowsByDateClient(AdminStore.rows, from||'', to||'', basis); }
+
 function renderShell(){
   const s = getSession();
   const tabs = s.role==='Admin'
@@ -470,6 +673,7 @@ function renderShell(){
         <div class="brand-text"><h1>Rate Ledger <span class="version-badge" title="Build version — check this matches what support/chat referenced">${APP_VERSION}</span></h1><p>Dashboard</p></div>
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
+        ${s.role==='Admin' ? '<div class="status-chip" id="adminSyncChip" style="gap:8px;font-size:12px;"></div>' : ''}
         <div class="status-chip"><span class="status-dot"></span>${esc(s.name)} (${esc(s.role)})</div>
         <button class="btn small" id="logoutBtn">Log Out</button>
       </div>
@@ -478,6 +682,8 @@ function renderShell(){
     <main id="tabBody"></main>
   `;
   $('#logoutBtn').addEventListener('click', logout);
+  window.__adminRepaint = null; // each admin tab registers its own below
+  if(s.role==='Admin'){ updateAdminSyncChip(); adminStartAutoSync(); }
   $all('.tab-btn').forEach(b=>b.addEventListener('click', ()=>{ ACTIVE_TAB=b.dataset.tab; renderShell(); }));
   const renderers = { analytics:renderAnalytics, performance:renderPerformance, submissions:renderSubmissions, users:renderUsers, mydata:renderMyData, myverified:renderMyVerified };
   (renderers[ACTIVE_TAB]||(()=>{}))();
@@ -517,19 +723,19 @@ function destroyCharts(){ chartInstances.forEach(c=>c.destroy()); chartInstances
 
 async function renderAnalytics(){
   const body = $('#tabBody');
+  if(window.__anDateBasis===undefined) window.__anDateBasis = 'submission';
   body.innerHTML = `
-    ${dateRangeBarHtml('an', window.__anFrom, window.__anTo)}
-    <div id="anContent"><div class="empty-state">Loading analytics…</div></div>
+    ${dateRangeBarHtml('an', window.__anFrom, window.__anTo, window.__anDateBasis)}
+    <div id="anContent"></div>
   `;
+  const paint = ()=>{ if(ACTIVE_TAB!=='analytics') return; renderAnalyticsContent(adminRowsFor(window.__anFrom, window.__anTo, window.__anDateBasis)); };
+  window.__adminRepaint = (force)=>{ if(force) renderAnalytics(); else paint(); };
   wireDateRangeBar('an', ()=>{
     window.__anFrom = $('#anFrom').value; window.__anTo = $('#anTo').value;
-    renderAnalytics();
+    window.__anDateBasis = $('#anDateBasis').value;
+    paint();
   });
-  const s = getSession();
-  const res = await backendGet({ action:'alldata', code:s.code, pin:s.pin, fromDate: window.__anFrom||'', toDate: window.__anTo||'' });
-  if(!res.ok){ $('#anContent').innerHTML = `<div class="empty-state">${esc(res.error||'Could not load data.')}</div>`; return; }
-  const rows = res.rows;
-  renderAnalyticsContent(rows);
+  if(await adminStoreReady('#anContent')) paint();
 }
 
 function renderAnalyticsContent(rows){
@@ -553,7 +759,7 @@ function renderAnalyticsContent(rows){
   const uniqueDBsOverIds = new Set(over.map(r=>r.DBName));
   const uniqueDBsTotalIds = new Set(rows.map(r=>r.DBName));
   const uniqueBillsNegIds = new Set(neg.map(r=>r.BillUID));
-  const rangeFilters = { fromDate: window.__anFrom||'', toDate: window.__anTo||'' };
+  const rangeFilters = { fromDate: window.__anFrom||'', toDate: window.__anTo||'', dateBasis: window.__anDateBasis||'' };
 
   const statCard = ({icon, iconBg, label, value, sub, filters, info})=>{
     const clickAttr = filters ? `data-goto='${esc(JSON.stringify({...rangeFilters, ...filters}))}'` : '';
@@ -643,7 +849,7 @@ function renderAnalyticsContent(rows){
       ['Overcharge', over.length, 'var(--danger)', {status:'over'}], ['Overcharge – Negligible', neg.length, 'var(--negligible)', {status:'negligible'}],
       ['Undercharge', under.length, 'var(--warn)', {status:'under'}], ['Match', match.length, 'var(--success)', {status:'match'}],
     ], false, rangeFilters);
-    $('#chTrendWrap').innerHTML = days.length ? simpleBarListHtml(days.map(d=>[d, Math.round(byDay[d]*100)/100, 'var(--danger)', {status:'over', fromDate:d, toDate:d}]), true, rangeFilters) : '<div class="empty-state">No overcharge lines in this period.</div>';
+    $('#chTrendWrap').innerHTML = days.length ? simpleBarListHtml(days.map(d=>[d, Math.round(byDay[d]*100)/100, 'var(--danger)', {status:'over', fromDate:dmyToISOClient(d), toDate:dmyToISOClient(d), dateBasis:'bill'}]), true, rangeFilters) : '<div class="empty-state">No overcharge lines in this period.</div>';
     $('#chAuditorsWrap').innerHTML = topAud.length ? simpleBarListHtml(topAud.map(([k,v])=>[k,v,'var(--ink)', {status:'over', auditorName:k}]), false, rangeFilters) : '<div class="empty-state">No overcharge lines.</div>';
     $('#chDBsWrap').innerHTML = topDB.length ? simpleBarListHtml(topDB.map(([k,v])=>[k,v,'var(--danger)', {status:'over', dbName:k}]), false, rangeFilters) : '<div class="empty-state">No overcharge lines.</div>';
     $('#chCategoryWrap').innerHTML = topCat.length ? simpleBarListHtml(topCat.map(([k,v])=>[k,v,'var(--negligible)', {status:'over', category:k}]), false, rangeFilters) : '<div class="empty-state">No overcharge lines.</div>';
@@ -669,7 +875,7 @@ function renderAnalyticsContent(rows){
     options:{ plugins:{legend:{display:false}}, scales:{x:{ticks:{font:{size:10}}}, y:{ticks:{font:{size:10}}}}, onClick:(evt,els)=>{
       if(!els.length) return;
       const d = days[els[0].index];
-      goToFilteredSubmissions({status:'over', fromDate:d, toDate:d});
+      goToFilteredSubmissions({status:'over', fromDate:dmyToISOClient(d), toDate:dmyToISOClient(d), dateBasis:'bill'});
     }, onHover:(evt,els)=>{ evt.native.target.style.cursor = els.length?'pointer':'default'; } }
   }));
   chartInstances.push(new Chart($('#chAuditors'), {
@@ -731,30 +937,22 @@ async function renderPerformance(){
       ${quickRangeHtml('pf')}
       <button class="btn accent" id="pfExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
     </div>
-    <div id="pfContent">${ultimateLoaderHtml('pfLoader')}</div>
+    <div id="pfContent"></div>
   `;
   wireDateRangeBar('pf', ()=>{
     window.__pfFrom = $('#pfFrom').value; window.__pfTo = $('#pfTo').value;
     window.__pfDateBasis = $('#pfDateBasis').value;
-    renderPerformance();
+    paintPerfNow();
   });
   wireQuickRange('pf', (from,to)=>{
     window.__pfFrom = from; window.__pfTo = to;
-    renderPerformance();
+    $('#pfFrom').value = from; $('#pfTo').value = to;
+    paintPerfNow();
   });
-  const s = getSession();
-  const params = { action:'alldata', code:s.code, pin:s.pin, fromDate: window.__pfFrom||'', toDate: window.__pfTo||'', dateBasis: window.__pfDateBasis||'' };
-  const stop = startUltimateLoader('pfLoader');
-  let painted = false;
-  await cachedBackendGet(params,
-    (data)=>{ painted = true; stop('Loaded from local cache'); paintPerformance(data.rows||[]); },
-    (fresh)=>{
-      if(document.querySelector('.tab-btn.active')?.dataset.tab !== 'performance') return;
-      if(!fresh.ok){ if(!painted) $('#pfContent').innerHTML = `<div class="empty-state">${esc(fresh.error||'Could not load data.')}</div>`; return; }
-      stop();
-      paintPerformance(fresh.rows);
-    }
-  );
+  const paintPerfNow = ()=>{ if(AdminStore.rows.length) paintPerformance(adminRowsFor(window.__pfFrom, window.__pfTo, window.__pfDateBasis)); };
+  const paint = ()=>{ if(ACTIVE_TAB!=='performance') return; paintPerformance(adminRowsFor(window.__pfFrom, window.__pfTo, window.__pfDateBasis)); };
+  window.__adminRepaint = (force)=>{ if(force) renderPerformance(); else paint(); };
+  if(await adminStoreReady('#pfContent')) paint();
 }
 function computePerformanceRows(rows, nameField){
   const byPerson = {};
@@ -885,6 +1083,7 @@ function parseDMYClient(s){
   if(!m) return null;
   return new Date(Number(m[3]), Number(m[2])-1, Number(m[1]));
 }
+function dmyToISOClient(s){ const m=String(s).match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/); return m ? `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}` : ''; }
 function filterRowsByDateClient(rows, fromStr, toStr, dateBasis){
   if(!fromStr && !toStr) return rows;
   const from = fromStr ? new Date(fromStr+'T00:00:00') : null;
@@ -950,42 +1149,11 @@ async function renderSubmissions(){
 // background-prefetched full dataset if it's ready, otherwise via the
 // normal per-range server fetch (same as before this existed).
 async function applyRangeToSubmissions(isInitialLoad){
-  const s = getSession();
-  if(window.__subFullDataset){
-    const filtered = filterRowsByDateClient(window.__subFullDataset, window.__subFrom||'', window.__subTo||'', window.__subDateBasis);
-    $('#subContent').innerHTML = `<div id="subInner"></div>`;
-    paintSubmissions(filtered, false);
-    if(isInitialLoad) prefetchAllSubmissionsInBackground(s);
-    return;
-  }
-  const params = { action:'alldata', code:s.code, pin:s.pin, fromDate: window.__subFrom||'', toDate: window.__subTo||'', dateBasis: window.__subDateBasis||'' };
-  const stop = startUltimateLoader('subLoader');
-  $('#subContent').innerHTML = ultimateLoaderHtml('subLoader');
-  let painted = false;
-  await cachedBackendGet(params,
-    (data)=>{ painted = true; stop('Loaded from local cache'); paintSubmissions(data.rows||[], true); },
-    (fresh)=>{
-      if(document.querySelector('.tab-btn.active')?.dataset.tab !== 'submissions') return;
-      if(!fresh.ok){ if(!painted) $('#subContent').innerHTML = `<div class="empty-state">${esc(fresh.error||'Could not load data.')}</div>`; return; }
-      stop();
-      paintSubmissions(fresh.rows, false);
-      if(isInitialLoad) prefetchAllSubmissionsInBackground(s);
-    }
-  );
-}
-// Fires once per tab-visit, right after the fast initial (This Week) paint
-// — pulls the FULL dataset quietly in the background. Once it lands, any
-// later Today/Week/Month/All Time/custom-range change is filtered from
-// this in memory instead of hitting the server again.
-function prefetchAllSubmissionsInBackground(s){
-  if(window.__subPrefetching || window.__subFullDataset) return;
-  window.__subPrefetching = true;
-  backendGet({ action:'alldata', code:s.code, pin:s.pin, fromDate:'', toDate:'' })
-    .then(res=>{
-      window.__subPrefetching = false;
-      if(res && res.ok){ window.__subFullDataset = res.rows; }
-    })
-    .catch(()=>{ window.__subPrefetching = false; });
+  window.__adminRepaint = (force)=>{ if(force) renderSubmissions(); else if(ACTIVE_TAB==='submissions') applyRangeToSubmissions(); };
+  if(!(await adminStoreReady('#subContent'))) return;
+  const filtered = adminRowsFor(window.__subFrom, window.__subTo, window.__subDateBasis);
+  $('#subContent').innerHTML = `<div id="subInner"></div>`;
+  paintSubmissions(filtered, false);
 }
 function paintSubmissions(rows, isStale){
   window.__subRows = rows;
@@ -1009,6 +1177,8 @@ function paintSubmissions(rows, isStale){
 }
 function applySubmissionFilters(){
   let rows = window.__subRows||[];
+  const sig = [window.__subAuditor,window.__subVerifier,window.__subStatus,window.__subCategory,window.__subDBName,window.__subUniqueBillsOnly,window.__subFrom,window.__subTo,window.__subDateBasis].join('|');
+  if(sig!==window.__subSig){ window.__subSig = sig; window.__subPage = 1; } // a background sync adding rows keeps your page; changing a filter starts from page 1
   if(window.__subAuditor) rows = rows.filter(r=>r.AuditorName===window.__subAuditor);
   if(window.__subVerifier) rows = rows.filter(r=>r.VerifiedBy===window.__subVerifier);
   if(window.__subStatus) rows = rows.filter(r=>r.Status===window.__subStatus);
@@ -1071,6 +1241,7 @@ function goToFilteredSubmissions(filters){
   window.__subUniqueBillsOnly = !!filters.uniqueBillsOnly;
   if(filters.fromDate!==undefined) window.__subFrom = filters.fromDate;
   if(filters.toDate!==undefined) window.__subTo = filters.toDate;
+  if(filters.dateBasis) window.__subDateBasis = filters.dateBasis;
   switchToTab('submissions');
 }
 function renderActiveFilterChips(){
@@ -1109,9 +1280,20 @@ function renderSubmissionsTable(rows){
   if(!rows.length){ content.innerHTML = '<div class="empty-state">No submissions match these filters.</div>'; return; }
   const cols = ['Timestamp','BillUID','AuditorCode','AuditorName','VerifiedBy','DBCode','DBName','Location','Retailer','BillDate','SOSubmitDate','ProductName','ProductCode','CompanyRate','InvoiceRate','VariancePct','Status','OverchargeAmt','UnderchargeAmt','BillCopy'];
   let lastAuditor = null;
-  content.innerHTML = `<div class="table-wrap"><table>
+  // Only one page of rows is ever drawn into the DOM — with the whole sheet
+  // held locally, painting every row (tens of thousands) would freeze the
+  // tab. Export, the analytics strip and filters still work on ALL rows.
+  const PAGE = 200;
+  const totalPages = Math.max(1, Math.ceil(rows.length/PAGE));
+  if(!window.__subPage || window.__subPage>totalPages) window.__subPage = 1;
+  const pageRows = rows.slice((window.__subPage-1)*PAGE, window.__subPage*PAGE);
+  const pager = rows.length>PAGE ? `<div style="display:flex;gap:10px;align-items:center;margin:10px 0;">
+      <button class="btn small" id="subPrev" ${window.__subPage<=1?'disabled':''}>← Prev</button>
+      <span class="small-muted">Rows ${fmtInt((window.__subPage-1)*PAGE+1)}–${fmtInt(Math.min(window.__subPage*PAGE, rows.length))} of ${fmtInt(rows.length)} · page ${window.__subPage}/${totalPages}</span>
+      <button class="btn small" id="subNext" ${window.__subPage>=totalPages?'disabled':''}>Next →</button></div>` : '';
+  content.innerHTML = `${pager}<div class="table-wrap"><table>
     <thead><tr>${cols.map(c=>`<th>${c==='BillCopy'?'Bill Copy':c}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map(r=>{
+    <tbody>${pageRows.map(r=>{
       const newGroup = r.AuditorName!==lastAuditor;
       lastAuditor = r.AuditorName;
       return `<tr class="${newGroup?'auditor-group-start':''}">${cols.map(c=>{
@@ -1123,7 +1305,9 @@ function renderSubmissionsTable(rows){
       if(DATE_DISPLAY_FIELDS.includes(c)) return `<td>${esc(normalizeDMYDisplay(r[c]))}</td>`;
       return `<td>${esc(r[c])}</td>`;
     }).join('')}</tr>`; }).join('')}</tbody>
-  </table></div>`;
+  </table></div>${pager}`;
+  $all('#subPrev').forEach(b=>b.addEventListener('click', ()=>{ window.__subPage--; renderSubmissionsTable(rows); }));
+  $all('#subNext').forEach(b=>b.addEventListener('click', ()=>{ window.__subPage++; renderSubmissionsTable(rows); }));
 }
 function exportRowsToExcel(rows, filenamePrefix){
   if(!rows || !rows.length){ toast('Nothing to export', 'err'); return; }
