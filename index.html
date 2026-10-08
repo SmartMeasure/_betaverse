@@ -538,7 +538,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v72-supabase';
+const APP_VERSION = 'v73-supabase';
 /* Supabase connection is configured inside the BACKEND block just below (SUPABASE_URL_DEFAULT / SUPABASE_ANON_KEY_DEFAULT). */
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -4641,6 +4641,8 @@ const IX_STATE = {
   pgMap: [],        // {dbCode, dbName, pg, location}
   salesRows: [],    // {invoiceNo, invoiceDate(Date), invoiceDateStr, dbCode, dbName, itemCode, itemDesc, qtyKg, basePrice, taxableAmt, totalAmt}
   salesFileInfo: null, // {fileName, rowCount}
+  uomMap: {},       // itemCode -> {name, kgPerPc, kgPerBag} — INTELX's own UOM Conversion upload
+  uomFileInfo: null,// {fileName, count}
   results: [],      // computed by ixRunCheck()
 };
 
@@ -4670,7 +4672,7 @@ async function ixSaveAll(){
     const db = await ixOpenIDB();
     const tx = db.transaction('blobs','readwrite');
     const store = tx.objectStore('blobs');
-    ['rateRows','rateFiles','pgMap','salesRows','salesFileInfo'].forEach(k=>{
+    ['rateRows','rateFiles','pgMap','salesRows','salesFileInfo','uomMap','uomFileInfo'].forEach(k=>{
       store.put({key:k, value: IX_STATE[k]});
     });
     await new Promise((res,rej)=>{ tx.oncomplete=res; tx.onerror=()=>rej(tx.error); });
@@ -4681,7 +4683,7 @@ async function ixLoadAll(){
     const db = await ixOpenIDB();
     const tx = db.transaction('blobs','readonly');
     const store = tx.objectStore('blobs');
-    const keys = ['rateRows','rateFiles','pgMap','salesRows','salesFileInfo'];
+    const keys = ['rateRows','rateFiles','pgMap','salesRows','salesFileInfo','uomMap','uomFileInfo'];
     const vals = await Promise.all(keys.map(k=>new Promise((res,rej)=>{
       const r = store.get(k); r.onsuccess=()=>res(r.result?r.result.value:null); r.onerror=()=>rej(r.error);
     })));
@@ -4696,7 +4698,7 @@ async function ixLoadAll(){
   } catch(e){ return 0; }
 }
 async function ixClearAll(){
-  IX_STATE.rateRows=[]; IX_STATE.rateFiles=[]; IX_STATE.pgMap=[]; IX_STATE.salesRows=[]; IX_STATE.salesFileInfo=null; IX_STATE.results=[];
+  IX_STATE.rateRows=[]; IX_STATE.rateFiles=[]; IX_STATE.pgMap=[]; IX_STATE.salesRows=[]; IX_STATE.salesFileInfo=null; IX_STATE.results=[]; IX_STATE.uomMap={}; IX_STATE.uomFileInfo=null;
   try{
     const db = await ixOpenIDB();
     const tx = db.transaction('blobs','readwrite');
@@ -4951,28 +4953,37 @@ async function ixParsePGMappingFile(file){
    slower across tens of thousands of rows; the header text is a stable
    enough anchor). Handles the sheet's own double-space "Total  Amount". */
 const IX_SALES_COLS = {
+  // the YELLOW-highlighted columns of the SAP register
   invoiceNo:  ['Internal Invoice No.','Invoice No'],
   invoiceDate:['Invoice Date'],
+  orderNo:    ['Order Number'],
+  orderDate:  ['Order Date'],
   dbCode:     ['Bill to Party'],
   dbName:     ['Bill to Party Name'],
   itemCode:   ['Item Code'],
   itemDesc:   ['Item Description'],
   qtyKg:      ['Qty in KGs'],
   basePrice:  ['Base Price'],
+  perUom:     ['per UoM'],
   taxableAmt: ['Taxable Amount'],
   totalAmt:   ['Total Amount','Total  Amount'],
+  // helper columns (not yellow) — only used to convert PC / BAG based Base Prices to per-KG when the UOM master has no entry
+  qtyPcs:     ['Qty in PCS'],
+  bags:       ['Bag'],
 };
+const IX_OPTIONAL_COLS = ['totalAmt','taxableAmt','orderNo','orderDate','perUom','qtyPcs','bags'];
 function ixExcelSerialToDate(v){
   if(v instanceof Date) return v;
   if(typeof v === 'number'){
-    // Excel's day-0 is 1899-12-30 in the standard (non-Mac) epoch.
-    return new Date(Math.round((v - 25569) * 86400 * 1000));
+    // Excel serial -> the calendar day it shows, independent of the device time zone (UTC maths, then a local-midnight Date).
+    const d = new Date(Math.round(v * 86400000) + Date.UTC(1899, 11, 30));
+    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   }
   return ixParseDMY(v) || (v ? new Date(v) : null);
 }
 async function ixParseSalesRegisterFile(file, onProgress){
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, {type:'array', cellDates:true});
+  const wb = XLSX.read(buf, {type:'array', cellDates:false});
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
   if(!rows.length) return [];
@@ -4981,39 +4992,107 @@ async function ixParseSalesRegisterFile(file, onProgress){
   for(const key in IX_SALES_COLS){
     idx[key] = ixHeaderIndex(header, IX_SALES_COLS[key]);
   }
-  const missing = Object.keys(idx).filter(k=>idx[k]===-1 && k!=='totalAmt');
+  // 'per UoM' appears 3 times in the SAP export (Base Price / Surcharge 1 / Surcharge 2) — the FIRST one belongs to Base Price.
+  const missing = Object.keys(idx).filter(k=>idx[k]===-1 && !IX_OPTIONAL_COLS.includes(k));
   if(missing.length) throw new Error('Could not find these expected columns in the Sales Register: ' + missing.join(', '));
   const out = [];
   const total = rows.length;
+  const cell = (row,i)=> i===-1 ? '' : row[i];
   for(let r=1;r<rows.length;r++){
     const row = rows[r];
     if(row==null || row.length===0) continue;
     const itemCode = String(row[idx.itemCode]||'').trim();
     if(!itemCode) continue;
     const invoiceDate = ixExcelSerialToDate(row[idx.invoiceDate]);
+    const orderDate = idx.orderDate!==-1 ? ixExcelSerialToDate(row[idx.orderDate]) : null;
     out.push({
+      seq: r,   // original row number in the SAP file — export keeps this exact order
       invoiceNo: String(row[idx.invoiceNo]||'').trim(),
       invoiceDate, invoiceDateStr: ixFmtDMY(invoiceDate),
+      orderNo: String(cell(row,idx.orderNo)||'').trim(),
+      orderDateStr: orderDate ? ixFmtDMY(orderDate) : '',
       dbCode: String(row[idx.dbCode]||'').trim(),
       dbName: String(row[idx.dbName]||'').trim(),
       itemCode, itemDesc: String(row[idx.itemDesc]||'').trim(),
       qtyKg: Number(row[idx.qtyKg])||0,
       basePrice: Number(row[idx.basePrice])||0,
-      totalAmt: idx.totalAmt!==-1 ? (Number(row[idx.totalAmt])||0) : 0,
+      perUom: String(cell(row,idx.perUom)||'').trim(),
+      qtyPcs: Number(cell(row,idx.qtyPcs))||0,
+      bags: Number(cell(row,idx.bags))||0,
+      taxableAmt: Number(cell(row,idx.taxableAmt))||0,
+      totalAmt: Number(cell(row,idx.totalAmt))||0,
     });
     if(onProgress && r%2000===0) onProgress(r, total);
   }
   return out;
 }
 
+/* ---------------- UOM Conversion master (INTELX's own upload — separate from the main app's) ---------------- */
+async function ixParseUomFile(file){
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, {type:'array', cellDates:false});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+  let hi = -1;
+  for(let i=0;i<Math.min(rows.length,15);i++){
+    const h = rows[i].map(c=>String(c).toLowerCase());
+    if(h.some(x=>/product\s*code|item\s*code|^sku$|^code$/.test(x.trim())) && h.some(x=>/pc|bag|pack/.test(x))){ hi = i; break; }
+  }
+  if(hi===-1) throw new Error('Could not find a header row with a Product Code column and a "1 PC = ? KG" column.');
+  const header = rows[hi].map(c=>String(c).trim());
+  const find = (...res)=> header.findIndex(h=>res.some(re=>re.test(h)));
+  const iCode = find(/product\s*code/i,/item\s*code/i,/^sku$/i,/^code$/i);
+  const iName = find(/product\s*name/i,/item\s*(name|desc)/i,/^name$/i);
+  const iPc   = find(/pc.*kg/i,/kg.*pc/i,/per\s*pc/i,/1\s*pc/i);
+  const iBag  = find(/bag.*kg/i,/kg.*bag/i,/per\s*bag/i,/1\s*bag/i);
+  if(iCode===-1) throw new Error('No Product Code column found.');
+  if(iPc===-1 && iBag===-1) throw new Error('No "1 PC = ? KG" (or "1 BAG = ? KG") column found.');
+  const map = {};
+  for(let r=hi+1;r<rows.length;r++){
+    const row = rows[r];
+    const code = String(row[iCode]==null?'':row[iCode]).trim();
+    if(!code) continue;
+    const pc = iPc!==-1 ? parseFloat(row[iPc]) : NaN;
+    const bag = iBag!==-1 ? parseFloat(row[iBag]) : NaN;
+    map[code] = { name: iName!==-1 ? String(row[iName]||'').trim() : '', kgPerPc: isNaN(pc)||pc<=0?null:pc, kgPerBag: isNaN(bag)||bag<=0?null:bag };
+  }
+  return map;
+}
+
+/* SAP's "Base Price" is quoted per its own "per UoM" unit (almost always "1 KG", but "1 PC" for piece-billed items).
+   The rate file is always per KG, so convert Base Price to ₹/KG first. */
+function ixBasePerKg(s){
+  const base = s.basePrice;
+  const m = String(s.perUom||'1 KG').trim().toUpperCase().match(/^([\d.]+)?\s*([A-Z]+)/);
+  const n = m && m[1] ? (parseFloat(m[1])||1) : 1;
+  const unit = m ? m[2] : 'KG';
+  const u = IX_STATE.uomMap[s.itemCode];
+  if(unit==='KG' || unit==='KGS') return { perKg: base/n, note:'' };
+  if(unit==='G' || unit==='GM' || unit==='GMS') return { perKg: base/(n/1000), note:'per '+n+' GM → per KG' };
+  if(unit==='PC' || unit==='PCS' || unit==='NOS' || unit==='EA'){
+    // Only the UOM Conversion master is trusted here: SAP's own Qty-in-KGs ÷ Qty-in-PCS can include "extra" weight
+    // (e.g. a 200 GM pack with 30 GM free ships 230 GM) while the rate file prices the nominal pack size.
+    const kpp = u && u.kgPerPc;
+    if(!kpp){
+      const hint = (s.qtyPcs>0 && s.qtyKg>0) ? ` (SAP shows ${Math.round(s.qtyKg/s.qtyPcs*10000)/10000} kg/pc incl. any free weight)` : '';
+      return { perKg:null, note:'Price is per PC but this item has no "1 PC = ? KG" in the UOM Conversion file'+hint };
+    }
+    return { perKg: base/(n*kpp), note:`PC → KG (${Math.round(kpp*10000)/10000} kg/pc, UOM Conversion)` };
+  }
+  if(unit==='BAG'){
+    const kpb = u && u.kgPerBag;
+    if(!kpb) return { perKg:null, note:'Price is per BAG but this item has no "1 BAG = ? KG" in the UOM Conversion file' };
+    return { perKg: base/(n*kpb), note:`BAG → KG (${Math.round(kpb*10000)/10000} kg/bag, UOM Conversion)` };
+  }
+  return { perKg:null, note:'Unknown "per UoM" unit: '+s.perUom };
+}
+
 /* ---------------- Comparison engine ----------------
-   For each sales row: resolve its distributor's Location from the PG
-   mapping, then find the rate-file row for that Location + Item Code whose
-   Effective Date is the LATEST one on or before the Invoice Date (the same
-   "most recent rate known at the time" principle Rate Master uses) — never
-   a rate that only took effect AFTER the invoice. Compares SAP's own Base
-   Price against that Distributor Rate (Exc-GST), which this check always
-   treats as correct. */
+   For each sales row: resolve its distributor's Price Group / Price Group Name from the master, then find the
+   rate-file row for that Price Group Name + Item Code whose Effective Date is the LATEST one on or before the
+   Invoice Date — product by product, because different products change rate on different dates. Example: invoice
+   on 30-Sep, no rate change on 30-Sep, product's last change was 28-Sep → checked against the 28-Sep rate, and
+   "Rate File Date" (last column) says so. A rate that only took effect AFTER the invoice is never used. */
 function ixBuildRateIndex(){
   const map = {}; // "location|code" (normalised) -> [{effDate, distRate, productName}] sorted by effDate asc
   IX_STATE.rateRows.forEach(r=>{
@@ -5026,13 +5105,14 @@ function ixBuildRateIndex(){
 function ixFindRateFor(rateIndex, location, productCode, invoiceDate){
   const key = ixNormLoc(location)+'|'+String(productCode).trim();
   const list = rateIndex[key];
-  if(!list || !list.length) return null;
-  if(!invoiceDate) return list[list.length-1]; // no invoice date to compare — fall back to the latest known rate
+  if(!list || !list.length) return { match:null, reason:'Item code not in the rate file for this Price Group Name' };
+  if(!invoiceDate) return { match:list[list.length-1], reason:'' }; // no invoice date to compare — fall back to the latest known rate
   let best = null;
   for(const r of list){
     if(r.effDate <= invoiceDate) best = r; else break;
   }
-  return best; // null if every rate on file for this product started AFTER the invoice date
+  if(!best) return { match:null, reason:`Earliest rate on file starts ${list[0].effDateStr}, after this invoice date` };
+  return { match:best, reason:'' };
 }
 function ixRunCheck(){
   const rateIndex = ixBuildRateIndex();
@@ -5042,24 +5122,32 @@ function ixRunCheck(){
   const results = IX_STATE.salesRows.map(s=>{
     const pg = pgByCode[s.dbCode];
     if(!pg){
-      return { ...s, location:'', expectedRate:null, diff:null, status:'No Location Mapping' };
+      return { ...s, priceGroup:'', location:'', expectedRate:null, diff:null, baseKg:null, rateDateStr:'', status:'No Location Mapping', remark:'Distributor code not found in the Distributor Master' };
     }
-    const match = ixFindRateFor(rateIndex, pg.location, s.itemCode, s.invoiceDate);
-    if(!match){
-      return { ...s, location: pg.location, expectedRate:null, diff:null, status:'No Rate Found' };
+    const f = ixFindRateFor(rateIndex, pg.location, s.itemCode, s.invoiceDate);
+    if(!f.match){
+      return { ...s, priceGroup: pg.pg, location: pg.location, expectedRate:null, diff:null, baseKg:null, rateDateStr:'', status:'No Rate Found', remark: f.reason };
     }
-    const diff = Math.round((s.basePrice - match.distRate)*100)/100;
+    const match = f.match;
+    const conv = ixBasePerKg(s);
+    if(conv.perKg==null){
+      return { ...s, priceGroup: pg.pg, location: pg.location, productName: match.productName, expectedRate: match.distRate, diff:null, baseKg:null, rateDateStr: match.effDateStr, status:'UOM Missing', remark: conv.note };
+    }
+    const baseKg = Math.round(conv.perKg*100)/100;
+    const diff = Math.round((baseKg - match.distRate)*100)/100;
     let status = 'Match';
     if(diff > TOL) status = 'Overcharge';
     else if(diff < -TOL) status = 'Undercharge';
-    return { ...s, location: pg.location, productName: match.productName, expectedRate: match.distRate, diff, status };
+    const sameDay = match.effDateStr === s.invoiceDateStr;
+    const remark = [conv.note, sameDay ? '' : `Latest rate change on/before invoice date: ${match.effDateStr}`].filter(Boolean).join(' · ');
+    return { ...s, priceGroup: pg.pg, location: pg.location, productName: match.productName, expectedRate: match.distRate, baseKg, diff, status, rateDateStr: match.effDateStr, remark };
   });
   IX_STATE.results = results;
   return results;
 }
 
 /* ---------------- UI state (view-only, not persisted) ---------------- */
-let IX_FILTERS = { status:'', location:'', q:'', page:1 };
+let IX_FILTERS = { status:'', location:'', pg:'', q:'', page:1 };
 const IX_PAGE_SIZE = 100;
 
 function ixStatCardsHtml(results){
@@ -5068,6 +5156,7 @@ function ixStatCardsHtml(results){
   const match = results.filter(r=>r.status==='Match');
   const noRate = results.filter(r=>r.status==='No Rate Found');
   const noLoc = results.filter(r=>r.status==='No Location Mapping');
+  const noUom = results.filter(r=>r.status==='UOM Missing');
   const overVal = over.reduce((s,r)=>s+(r.diff*r.qtyKg),0);
   const underVal = under.reduce((s,r)=>s+(Math.abs(r.diff)*r.qtyKg),0);
   const card = (label,val,sub,color)=>`<div class="stat-card"><div class="stat-label">${ixEsc(label)}</div><div class="stat-value" style="${color?`color:${color};`:''}">${val}</div>${sub?`<div class="small-muted" style="margin-top:3px;">${sub}</div>`:''}</div>`;
@@ -5077,9 +5166,10 @@ function ixStatCardsHtml(results){
     ${card('Undercharge Lines', ixFmtInt(under.length), `₹${ixFmtMoney(underVal)} total impact`, 'var(--warn)')}
     ${card('Exact Match', ixFmtInt(match.length), null, 'var(--success)')}
   </div>
-  <div class="grid grid-2" style="margin-bottom:18px;">
-    ${card('No Rate Found', ixFmtInt(noRate.length), 'item code has no rate on file for that location/date')}
-    ${card('No Location Mapping', ixFmtInt(noLoc.length), 'distributor code missing from the mapping file')}
+  <div class="grid grid-3" style="margin-bottom:18px;">
+    ${card('No Rate Found', ixFmtInt(noRate.length), 'item not in the rate file for that Price Group Name / date')}
+    ${card('No Location Mapping', ixFmtInt(noLoc.length), 'distributor code missing from the Distributor Master')}
+    ${card('UOM Missing', ixFmtInt(noUom.length), 'piece/bag-priced item with no kg conversion — upload UOM Conversion')}
   </div>`;
 }
 
@@ -5101,22 +5191,28 @@ async function renderIntelX(){
       <div><h2>INTELX</h2><p class="sub">Standalone checker — compares SAP's Sales Register Base Price against the rate file's Distributor Rate (Exc-GST). Nothing here touches Rate Master, Rate Check, or your Google Sheet; every upload and export stays on this device.</p></div>
     </div>
 
-    <div class="grid grid-3" style="margin-bottom:18px;align-items:stretch;">
+    <div class="grid grid-4" style="margin-bottom:18px;align-items:stretch;">
       <div class="card" style="display:flex;flex-direction:column;gap:10px;">
         <div class="section-title">① Rate Files (ZIP of PDFs)</div>
-        <div class="small-muted">Same monthly rate-PDF ZIP(s) you already receive — upload as many as you like, one per effective date.</div>
+        <div class="small-muted">Monthly rate-PDF ZIP(s) — upload as many as you like, one per effective date. Each product is checked against its own latest rate date.</div>
         <input type="file" id="ixRateInput" accept=".zip" multiple>
         <div id="ixRateStatus">${hasRates ? ixRateFilesSummaryHtml() : '<span class="small-muted">No rate files loaded yet.</span>'}</div>
       </div>
       <div class="card" style="display:flex;flex-direction:column;gap:10px;">
-        <div class="section-title">② Distributor → Location Mapping</div>
-        <div class="small-muted">Excel/CSV with a distributor-code column and a Location column (Price Group column optional, for reference).</div>
+        <div class="section-title">② Distributor Master (Price Group)</div>
+        <div class="small-muted">Excel/CSV with Distributor Code, <b>Price Group</b> and <b>Price Group Name</b>. The rate is matched on Price Group Name.</div>
         <input type="file" id="ixPgInput" accept=".xlsx,.xls,.csv">
         <div id="ixPgStatus">${hasPg ? `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(IX_STATE.pgMap.length)} distributors mapped</span>` : '<span class="small-muted">No mapping loaded yet.</span>'}</div>
       </div>
       <div class="card" style="display:flex;flex-direction:column;gap:10px;">
-        <div class="section-title">③ SAP Sales Register</div>
-        <div class="small-muted">The SAP export as-is — INTELX reads only Invoice No./Date, Bill to Party (+Name), Item Code/Description, Qty in KGs, Base Price, Total Amount.</div>
+        <div class="section-title">③ UOM Conversion</div>
+        <div class="small-muted">Product Code + "1 PC = ? KG" (and bag size). Needed for items SAP bills per PC. Required only for items SAP prices per PC — those show "UOM Missing" until it is uploaded.</div>
+        <input type="file" id="ixUomInput" accept=".xlsx,.xls,.csv">
+        <div id="ixUomStatus">${Object.keys(IX_STATE.uomMap||{}).length ? `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(Object.keys(IX_STATE.uomMap).length)} products converted</span>` : '<span class="small-muted">No UOM file loaded yet.</span>'}</div>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-title">④ SAP Sales Register</div>
+        <div class="small-muted">The SAP export as-is. Imports the yellow columns: Invoice No/Date, Order No/Date, Bill to Party (+Name), Item Code/Description, Qty in KGs, Base Price + per UoM, Taxable/Total Amount. Row order is preserved in the export.</div>
         <input type="file" id="ixSalesInput" accept=".xlsx,.xls">
         <div id="ixSalesStatus">${hasSales ? `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(IX_STATE.salesRows.length)} sales lines loaded</span>` : '<span class="small-muted">No sales register loaded yet.</span>'}</div>
       </div>
@@ -5125,7 +5221,7 @@ async function renderIntelX(){
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:18px;">
       <button class="btn accent" id="ixRunBtn" ${(hasRates&&hasPg&&hasSales)?'':'disabled'}>▶ Run Check</button>
       <button class="btn secondary" id="ixClearBtn">Clear all local INTELX data</button>
-      <span class="small-muted">${(hasRates&&hasPg&&hasSales)?'':'Upload all three above to enable the check.'}</span>
+      <span class="small-muted">${(hasRates&&hasPg&&hasSales)?'':'Upload Rate Files, Distributor Master and Sales Register to enable the check (UOM Conversion needed only for PC-priced items).'}</span>
     </div>
 
     <div id="ixResultsArea">${hasResults ? '' : '<div class="empty-state">Run the check to see results here.</div>'}</div>
@@ -5134,9 +5230,10 @@ async function renderIntelX(){
   $('#ixRateInput').addEventListener('change', e=> ixHandleRateUpload(e.target.files));
   $('#ixPgInput').addEventListener('change', e=> ixHandlePgUpload(e.target.files[0]));
   $('#ixSalesInput').addEventListener('change', e=> ixHandleSalesUpload(e.target.files[0]));
+  $('#ixUomInput').addEventListener('change', e=> ixHandleUomUpload(e.target.files[0]));
   $('#ixRunBtn').addEventListener('click', ()=>{ ixRunCheck(); ixSaveAll(); renderIxResults(); });
   $('#ixClearBtn').addEventListener('click', async ()=>{
-    if(!confirm('This clears all INTELX rate files, the mapping, the sales register, and any results from this device. Continue?')) return;
+    if(!confirm('This clears all INTELX rate files, the Distributor Master, the UOM file, the sales register, and any results from this device. Continue?')) return;
     await ixClearAll();
     renderIntelX();
     toast('INTELX local data cleared', 'ok');
@@ -5228,13 +5325,31 @@ async function ixHandleSalesUpload(file){
   ixRefreshRunButton();
 }
 
+async function ixHandleUomUpload(file){
+  if(!file) return;
+  const statusDiv = $('#ixUomStatus');
+  statusDiv.innerHTML = `<span class="small-muted">Reading ${ixEsc(file.name)}…</span>`;
+  try{
+    const map = await ixParseUomFile(file);
+    const n = Object.keys(map).length;
+    if(!n){ toast('No usable rows found in that UOM file', 'err'); statusDiv.innerHTML = '<span class="small-muted">No UOM file loaded yet.</span>'; return; }
+    IX_STATE.uomMap = map; IX_STATE.uomFileInfo = { fileName:file.name, count:n };
+    await ixSaveAll();
+    statusDiv.innerHTML = `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(n)} products converted</span>`;
+    toast(`Loaded UOM conversion for ${n} products`, 'ok');
+  } catch(e){
+    toast('Could not read that UOM file: ' + e.message, 'err');
+    statusDiv.innerHTML = '<span class="small-muted">No UOM file loaded yet.</span>';
+  }
+}
+
 function ixRefreshRunButton(){
   const btn = $('#ixRunBtn');
   if(!btn) return;
   const ready = IX_STATE.rateRows.length>0 && IX_STATE.pgMap.length>0 && IX_STATE.salesRows.length>0;
   btn.disabled = !ready;
   const hint = btn.nextElementSibling;
-  if(hint) hint.textContent = ready ? '' : 'Upload all three above to enable the check.';
+  if(hint) hint.textContent = ready ? '' : 'Upload Rate Files, Distributor Master and Sales Register to enable the check (UOM Conversion needed only for PC-priced items).';
 }
 
 function renderIxResults(){
@@ -5245,11 +5360,13 @@ function renderIxResults(){
   let rows = results;
   if(IX_FILTERS.status) rows = rows.filter(r=>r.status===IX_FILTERS.status);
   if(IX_FILTERS.location) rows = rows.filter(r=>r.location===IX_FILTERS.location);
+  if(IX_FILTERS.pg) rows = rows.filter(r=>r.priceGroup===IX_FILTERS.pg);
   if(IX_FILTERS.q){
     const q = IX_FILTERS.q.toLowerCase();
-    rows = rows.filter(r=> (r.itemCode||'').toLowerCase().includes(q) || (r.itemDesc||'').toLowerCase().includes(q) || (r.dbName||'').toLowerCase().includes(q) || (r.dbCode||'').toLowerCase().includes(q));
+    rows = rows.filter(r=> (r.invoiceNo||'').toLowerCase().includes(q) || (r.orderNo||'').toLowerCase().includes(q) || (r.itemCode||'').toLowerCase().includes(q) || (r.itemDesc||'').toLowerCase().includes(q) || (r.dbName||'').toLowerCase().includes(q) || (r.dbCode||'').toLowerCase().includes(q));
   }
   const locations = Array.from(new Set(results.map(r=>r.location).filter(Boolean))).sort();
+  const pgs = Array.from(new Set(results.map(r=>r.priceGroup).filter(Boolean))).sort();
   const totalPages = Math.max(1, Math.ceil(rows.length / IX_PAGE_SIZE));
   if(IX_FILTERS.page > totalPages) IX_FILTERS.page = totalPages;
   const pageRows = rows.slice((IX_FILTERS.page-1)*IX_PAGE_SIZE, IX_FILTERS.page*IX_PAGE_SIZE);
@@ -5266,21 +5383,23 @@ function renderIxResults(){
         <option value="Match" ${IX_FILTERS.status==='Match'?'selected':''}>Match</option>
         <option value="No Rate Found" ${IX_FILTERS.status==='No Rate Found'?'selected':''}>No Rate Found</option>
         <option value="No Location Mapping" ${IX_FILTERS.status==='No Location Mapping'?'selected':''}>No Location Mapping</option>
+        <option value="UOM Missing" ${IX_FILTERS.status==='UOM Missing'?'selected':''}>UOM Missing</option>
       </select></div>
-      <div class="field"><label>Location</label><select id="ixLocFilter"><option value="">All</option>${locations.map(l=>`<option ${IX_FILTERS.location===l?'selected':''}>${ixEsc(l)}</option>`).join('')}</select></div>
-      <div class="field grow"><label>Search item code / distributor</label><input type="text" id="ixSearchFilter" value="${ixEsc(IX_FILTERS.q)}" placeholder="Type to filter…"></div>
+      <div class="field"><label>Price Group</label><select id="ixPgFilter"><option value="">All</option>${pgs.map(l=>`<option ${IX_FILTERS.pg===l?'selected':''}>${ixEsc(l)}</option>`).join('')}</select></div>
+      <div class="field"><label>Price Group Name</label><select id="ixLocFilter"><option value="">All</option>${locations.map(l=>`<option ${IX_FILTERS.location===l?'selected':''}>${ixEsc(l)}</option>`).join('')}</select></div>
+      <div class="field grow"><label>Search invoice / order / item / distributor</label><input type="text" id="ixSearchFilter" value="${ixEsc(IX_FILTERS.q)}" placeholder="Type to filter…"></div>
       <button class="btn accent" id="ixExportDetailed" style="align-self:flex-end;">⬇ Export Detailed (Pro format)</button>
       <button class="btn secondary" id="ixExportByProduct" style="align-self:flex-end;">⬇ Export by Product Code</button>
     </div>
     <div class="small-muted" style="margin-bottom:8px;">${ixFmtInt(rows.length)} line(s) match this filter · showing page ${IX_FILTERS.page} of ${totalPages}</div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Invoice No</th><th>Invoice Date</th><th>DB Code</th><th>Distributor</th><th>Location</th><th>Item Code</th><th>Product</th><th class="num">Qty (kg)</th><th class="num">Base Price</th><th class="num">Expected Rate</th><th class="num">Diff/kg</th><th>Status</th></tr></thead>
-      <tbody>${pageRows.map(r=>`<tr>
-        <td>${ixEsc(r.invoiceNo)}</td><td>${ixEsc(r.invoiceDateStr)}</td><td>${ixEsc(r.dbCode)}</td><td class="wrap">${ixEsc(r.dbName)}</td><td>${ixEsc(r.location)}</td>
+      <thead><tr><th>Invoice No</th><th>Invoice Date</th><th>Order No</th><th>Order Date</th><th>DB Code</th><th>Distributor</th><th>Price Group</th><th>Price Group Name</th><th>Item Code</th><th>Product</th><th class="num">Qty (kg)</th><th class="num">Base Price</th><th>per UoM</th><th class="num">Base/kg</th><th class="num">Rate File (Exc-GST)</th><th class="num">Diff/kg</th><th>Status</th><th>Rate File Date</th></tr></thead>
+      <tbody>${pageRows.map(r=>`<tr title="${ixEsc(r.remark||'')}">
+        <td>${ixEsc(r.invoiceNo)}</td><td>${ixEsc(r.invoiceDateStr)}</td><td>${ixEsc(r.orderNo)}</td><td>${ixEsc(r.orderDateStr)}</td><td>${ixEsc(r.dbCode)}</td><td class="wrap">${ixEsc(r.dbName)}</td><td>${ixEsc(r.priceGroup)}</td><td>${ixEsc(r.location)}</td>
         <td>${ixEsc(r.itemCode)}</td><td class="wrap">${ixEsc(r.itemDesc)}</td><td class="num">${ixFmtInt(r.qtyKg)}</td>
-        <td class="num">${ixFmtMoney(r.basePrice)}</td><td class="num">${r.expectedRate!=null?ixFmtMoney(r.expectedRate):'—'}</td>
+        <td class="num">${ixFmtMoney(r.basePrice)}</td><td>${ixEsc(r.perUom)}</td><td class="num">${r.baseKg!=null?ixFmtMoney(r.baseKg):'—'}</td><td class="num">${r.expectedRate!=null?ixFmtMoney(r.expectedRate):'—'}</td>
         <td class="num" style="color:${statusColor(r.status)};font-weight:700;">${r.diff!=null?(r.diff>0?'+':'')+ixFmtMoney(r.diff):'—'}</td>
-        <td><span style="color:${statusColor(r.status)};font-weight:700;">${ixEsc(r.status)}</span></td>
+        <td><span style="color:${statusColor(r.status)};font-weight:700;">${ixEsc(r.status)}</span></td><td>${ixEsc(r.rateDateStr||'—')}</td>
       </tr>`).join('')}</tbody>
     </table></div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:10px;">
@@ -5290,6 +5409,7 @@ function renderIxResults(){
     </div>
   `;
   $('#ixStatusFilter').addEventListener('change', e=>{ IX_FILTERS.status=e.target.value; IX_FILTERS.page=1; renderIxResults(); });
+  $('#ixPgFilter').addEventListener('change', e=>{ IX_FILTERS.pg=e.target.value; IX_FILTERS.page=1; renderIxResults(); });
   $('#ixLocFilter').addEventListener('change', e=>{ IX_FILTERS.location=e.target.value; IX_FILTERS.page=1; renderIxResults(); });
   $('#ixSearchFilter').addEventListener('input', e=>{ IX_FILTERS.q=e.target.value; IX_FILTERS.page=1; renderIxResults(); });
   $('#ixPrevPage').addEventListener('click', ()=>{ IX_FILTERS.page--; renderIxResults(); });
@@ -5319,14 +5439,24 @@ async function ixExportDetailedExcel(rows){
   try{
     const wb = new ExcelJS.Workbook();
     wb.creator = 'INTELX'; wb.created = new Date();
-    const ws = wb.addWorksheet('INTELX Detailed', {views:[{state:'frozen', ySplit:4}]});
+    const ws = wb.addWorksheet('INTELX Detailed', {views:[{state:'frozen', ySplit:4, xSplit:3}]});
+    // Same left-to-right order as the SAP register's yellow columns, then the check; "Rate File Date" is ALWAYS the last column.
+    rows = rows.slice().sort((a,b)=>a.seq-b.seq);   // exact SAP row order
     const cols = [
-      {header:'Invoice No', key:'invoiceNo', width:14}, {header:'Invoice Date', key:'invoiceDateStr', width:13},
-      {header:'DB Code', key:'dbCode', width:11}, {header:'Distributor', key:'dbName', width:28},
-      {header:'Location', key:'location', width:14}, {header:'Item Code', key:'itemCode', width:11},
-      {header:'Product', key:'itemDesc', width:32}, {header:'Qty (kg)', key:'qtyKg', width:11},
-      {header:'Base Price (SAP)', key:'basePrice', width:15}, {header:'Expected Rate (File)', key:'expectedRate', width:18},
-      {header:'Diff/kg', key:'diff', width:11}, {header:'₹ Impact', key:'impact', width:13}, {header:'Status', key:'status', width:18},
+      {header:'SAP Row #', key:'seq', width:10},
+      {header:'Internal Invoice No.', key:'invoiceNo', width:16}, {header:'Invoice Date', key:'invoiceDateStr', width:13},
+      {header:'Order Number', key:'orderNo', width:14}, {header:'Order Date', key:'orderDateStr', width:13},
+      {header:'Bill to Party', key:'dbCode', width:12}, {header:'Bill to Party Name', key:'dbName', width:28},
+      {header:'Price Group', key:'priceGroup', width:12}, {header:'Price Group Name', key:'location', width:16},
+      {header:'Item Code', key:'itemCode', width:11}, {header:'Item Description', key:'itemDesc', width:32},
+      {header:'Qty in KGs', key:'qtyKg', width:11},
+      {header:'Base Price (SAP)', key:'basePrice', width:14}, {header:'per UoM', key:'perUom', width:9},
+      {header:'Base Price per KG', key:'baseKg', width:15},
+      {header:'Distributor Rate (Rate File, Exc-GST)', key:'expectedRate', width:20},
+      {header:'Diff/kg', key:'diff', width:11}, {header:'₹ Impact', key:'impact', width:13},
+      {header:'Taxable Amount', key:'taxableAmt', width:15}, {header:'Total Amount', key:'totalAmt', width:15},
+      {header:'Status', key:'status', width:18}, {header:'Remark', key:'remark', width:44},
+      {header:'Rate File Date (checked against)', key:'rateDateStr', width:20},
     ];
     ws.columns = cols.map(c=>({key:c.key, width:c.width}));
     ixStampHeader(ws, 'INTELX — SAP vs RATE FILE CHECK (DETAILED)', `Generated ${formatISTDateTime(new Date())} IST · ${ixFmtInt(rows.length)} line(s)`, cols.length);
@@ -5340,9 +5470,9 @@ async function ixExportDetailedExcel(rows){
       const row = ws.getRow(r);
       cols.forEach((c,i)=>{
         let v = c.key==='impact' ? impact : rr[c.key];
-        row.getCell(i+1).value = v==null ? '—' : v;
+        row.getCell(i+1).value = (v==null || v==='') ? (['remark','orderNo','orderDateStr','perUom'].includes(c.key) ? '' : '—') : v;
       });
-      ['basePrice','expectedRate','diff','impact'].forEach(k=>{ const ci=cols.findIndex(c=>c.key===k)+1; if(typeof row.getCell(ci).value==='number') row.getCell(ci).numFmt='#,##0.00'; });
+      ['basePrice','baseKg','expectedRate','diff','impact','taxableAmt','totalAmt'].forEach(k=>{ const ci=cols.findIndex(c=>c.key===k)+1; if(typeof row.getCell(ci).value==='number') row.getCell(ci).numFmt='#,##0.00'; });
       let fill=null, font=null;
       if(rr.status==='Overcharge'){ fill=IX_COLORS.DANGERSOFT; font=IX_COLORS.DANGER; }
       else if(rr.status==='Undercharge'){ fill=IX_COLORS.WARNSOFT; font=IX_COLORS.WARN; }
@@ -5355,6 +5485,18 @@ async function ixExportDetailedExcel(rows){
       if(rr.diff!=null) diffCell.font = {bold:true, color:{argb:font}};
       r++;
     });
+    ws.autoFilter = { from:{row:4,column:1}, to:{row:4,column:cols.length} };
+    // Second sheet: every rate-change date on file per Price Group Name + product, so it is clear WHICH date each product was checked against.
+    const wr = wb.addWorksheet('Rate Change Dates', {views:[{state:'frozen', ySplit:4}]});
+    const rc = [{header:'Price Group Name',key:'location',width:18},{header:'Item Code',key:'productCode',width:12},{header:'Product',key:'productName',width:34},{header:'Rate File Date (effective)',key:'effDateStr',width:22},{header:'Distributor Rate (Exc-GST)',key:'distRate',width:22},{header:'Source File',key:'sourceFile',width:34}];
+    wr.columns = rc.map(c=>({key:c.key,width:c.width}));
+    ixStampHeader(wr, 'RATE FILE — CHANGE DATES PER PRODUCT', 'Every effective date loaded, oldest first, per Price Group Name and item code', rc.length);
+    const hr = wr.getRow(4);
+    rc.forEach((c,i)=>{ hr.getCell(i+1).value = c.header; });
+    hr.eachCell(cell=>{ cell.font={bold:true,color:{argb:IX_COLORS.WHITE}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:IX_COLORS.INK}}; });
+    const sortedRates = IX_STATE.rateRows.slice().sort((a,b)=> String(a.location).localeCompare(String(b.location)) || String(a.productCode).localeCompare(String(b.productCode)) || a.effDate-b.effDate);
+    sortedRates.forEach((x,i)=>{ const row = wr.getRow(5+i); rc.forEach((c,j)=>{ row.getCell(j+1).value = x[c.key]; }); row.getCell(5).numFmt='#,##0.00'; });
+    wr.autoFilter = { from:{row:4,column:1}, to:{row:4,column:rc.length} };
     const buf = await wb.xlsx.writeBuffer();
     const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
     const url = URL.createObjectURL(blob);
@@ -5436,8 +5578,6 @@ function istDateISOForFilenames_(){
   const p = {};
   new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()).forEach(x=>p[x.type]=x.value);
   return `${p.day}-${p.month}-${p.year}`; // DD-MM-YYYY, same as every other date in this app
-}
-
-</script>
+}</script>
 </body>
 </html>
