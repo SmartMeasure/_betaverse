@@ -61,7 +61,7 @@ h1,h2,h3{font-family:var(--font-display);font-weight:600;margin:0;color:var(--in
 .stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);font-weight:600;}
 .info-dot{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:var(--panel-3, var(--edge));color:var(--ink-soft);font-size:9px;font-weight:700;font-style:italic;font-family:Georgia,serif;margin-left:5px;cursor:help;position:relative;vertical-align:middle;text-transform:none;letter-spacing:0;}
 .info-dot:hover{background:var(--ink);color:#fff;}
-.info-dot::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:8px 11px;border-radius:8px;font-size:11px;font-weight:500;line-height:1.4;width:220px;white-space:normal;text-align:left;opacity:0;pointer-events:none;transition:opacity .12s ease;z-index:20;box-shadow:0 8px 20px rgba(0,0,0,.2);}
+.info-dot::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:8px 11px;border-radius:8px;font-size:11px;font-weight:500;line-height:1.4;width:270px;white-space:normal;text-align:left;opacity:0;pointer-events:none;transition:opacity .12s ease;z-index:20;box-shadow:0 8px 20px rgba(0,0,0,.2);}
 .info-dot::before{content:'';position:absolute;bottom:100%;left:50%;transform:translateX(-50%);border:5px solid transparent;border-top-color:var(--ink);margin-bottom:-2px;opacity:0;transition:opacity .12s ease;z-index:20;}
 .info-dot:hover::after, .info-dot:hover::before{opacity:1;}
 .stat-value{font-family:var(--font-mono);font-size:26px;font-weight:600;margin-top:6px;}
@@ -150,7 +150,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v17-supabase';
+const APP_VERSION = 'v18-supabase';
 /* ==================== SUPABASE BACKEND ====================
    Same action names the app has always used (login / submit / mydata / syncdata …) — each one is
    now a single fast call to a Postgres function (rl_*) on Supabase. Photos go straight to Supabase
@@ -1705,6 +1705,7 @@ async function addUserHandler(){
 /* ==================== BILLS I VERIFIED (Verifier) ==================== */
 async function renderMyVerified(){
   const body = $('#tabBody');
+  window.__rd.mv = {};
   if(window.__mvDateBasis===undefined) window.__mvDateBasis = 'submission';
   if(window.__mvFrom===undefined && window.__mvTo===undefined){ window.__mvFrom = istWeekStartISO(); window.__mvTo = istDateISO(); }
   body.innerHTML = `
@@ -1738,74 +1739,152 @@ async function renderMyVerified(){
     }
   );
 }
-function paintMyVerified(rows, isStale){
-  const el = $('#mvContent');
-  const over = rows.filter(r=>r.Status==='over');
-  const under = rows.filter(r=>r.Status==='under');
-  const neg = rows.filter(r=>r.Status==='negligible');
-  $('#mvExport').disabled = !rows.length;
-  $('#mvExport').onclick = ()=>exportProExcel(window.__mvFilteredRows||rows, 'Bills_I_Verified', 'Bills I Verified');
-  $('#mvExportPhotos').disabled = !rows.length;
-  $('#mvExportPhotos').onclick = ()=>exportBillPhotosZip(window.__mvFilteredRows||rows, $('#mvExportPhotos'));
-  window.__mvAllRows = rows;
-  window.__mvFilteredRows = rows;
-  // Micro-level: which PRODUCT shows up most often in what I've verified,
-  // and its own over/under split — click a bar to filter the table below.
+/* ==================== SHARED ROLE VIEW (Auditor "My Data" + Verifier "Bills I Verified") ====================
+   Same tiles as the Admin Analytics tab — line-level AND unique-bill / unique-distributor — each with an
+   info (i) tooltip explaining the logic, and every tile is clickable: it filters the table below in place. */
+window.__rd = window.__rd || {};
+function rdFilter(rows, st){
+  let f = rows;
+  if(st.status) f = f.filter(r=>r.Status===st.status);
+  if(st.db) f = f.filter(r=>(r.DBName||'—')===st.db);
+  if(st.product) f = f.filter(r=>(r.ProductName||'—')===st.product);
+  if(st.clean){
+    const dirty = new Set(rows.filter(r=>r.Status!=='match').map(r=>r.BillUID));
+    f = f.filter(r=>!dirty.has(r.BillUID));
+  }
+  if(st.unique){ const seen = new Set(); f = f.filter(r=>{ if(seen.has(r.BillUID)) return false; seen.add(r.BillUID); return true; }); }
+  return f;
+}
+function rdChips(st){
+  const c = [];
+  if(st.view==='dbs') c.push(['view','Distributor summary']);
+  if(st.status) c.push(['status','Status: '+statusLabelFor(st.status)]);
+  if(st.clean) c.push(['clean','Clean bills only']);
+  if(st.db) c.push(['db','Distributor: '+st.db]);
+  if(st.product) c.push(['product','Product: '+st.product]);
+  if(st.unique) c.push(['unique','One row per unique bill']);
+  return c;
+}
+function rdTableHtml(rows, st, cfg){
+  if(st.view==='dbs'){
+    const m = {};
+    rows.forEach(r=>{ const k=r.DBName||'—'; const o=m[k]=m[k]||{name:k,bills:new Set(),lines:0,overBills:new Set(),over:0,overAmt:0}; o.bills.add(r.BillUID); o.lines++; if(r.Status==='over'){ o.overBills.add(r.BillUID); o.over++; o.overAmt+=Number(r.OverchargeAmt)||0; } });
+    const list = Object.values(m).sort((x,y)=>y.overBills.size-x.overBills.size || y.bills.size-x.bills.size);
+    return `<div class="table-wrap"><table>
+      <thead><tr><th>Distributor</th><th class="num">Unique Bills</th><th class="num">Lines</th><th class="num">Bills w/ Overcharge</th><th class="num">Overcharge Lines</th><th class="num">Overcharge ₹</th></tr></thead>
+      <tbody>${list.map(o=>`<tr class="rd-db-row" data-db="${esc(o.name)}" style="cursor:pointer;"><td>${esc(o.name)}</td><td class="num">${fmtInt(o.bills.size)}</td><td class="num">${fmtInt(o.lines)}</td><td class="num">${fmtInt(o.overBills.size)}</td><td class="num">${fmtInt(o.over)}</td><td class="num">₹${fmtMoney(o.overAmt)}</td></tr>`).join('')}</tbody></table></div>
+      <div class="small-muted" style="margin-top:6px;">Click a distributor to see its bills.</div>`;
+  }
+  if(!rows.length) return `<div class="empty-state">${st.status||st.db||st.product||st.clean ? 'Nothing matches this filter.' : cfg.emptyMsg}</div>`;
+  const CAP = 500, shown = rows.slice(0, CAP);
+  return `<div class="table-wrap"><table>
+      <thead><tr><th>Bill Date</th><th>Distributor</th><th>Retailer</th><th>Product</th><th>${cfg.personCol}</th><th class="num">Company Rate</th><th class="num">Invoice Rate</th><th>Status</th><th>Bill UID</th><th>Bill Copy</th></tr></thead>
+      <tbody>${shown.map(r=>`<tr>
+        <td>${esc(normalizeDMYDisplay(r.BillDate))}</td><td>${esc(r.DBName)}</td><td>${esc(r.Retailer)}</td><td>${esc(r.ProductName)}</td><td>${esc(r[cfg.personKey])}</td>
+        <td class="num">${fmtMoney(r.CompanyRate)}</td><td class="num">${fmtMoney(r.InvoiceRate)}</td>
+        <td>${statusBadge(r.Status)}</td><td class="small-muted">${esc(String(r.BillUID||'').replace('bill_',''))}</td><td>${billCopyLinkCell(r)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>${rows.length>CAP?`<div class="small-muted" style="margin-top:6px;">Showing the first ${CAP} of ${fmtInt(rows.length)} lines — Export includes all of them.</div>`:''}`;
+}
+function paintRoleView(cfg, rows, isStale){
+  const el = $(cfg.content);
+  if(!el) return;
+  const p = cfg.p;
+  const st = window.__rd[p] = window.__rd[p] || {};
+  const over = rows.filter(r=>r.Status==='over'), under = rows.filter(r=>r.Status==='under'), neg = rows.filter(r=>r.Status==='negligible');
+  const overAmt = over.reduce((s,r)=>s+(Number(r.OverchargeAmt)||0),0);
+  const underAmt = under.reduce((s,r)=>s+(Number(r.UnderchargeAmt)||0),0);
+  const ub = new Set(rows.map(r=>r.BillUID)), udb = new Set(rows.map(r=>r.DBName||'—'));
+  const ubOver = new Set(over.map(r=>r.BillUID)), ubUnder = new Set(under.map(r=>r.BillUID)), ubNeg = new Set(neg.map(r=>r.BillUID));
+  const dbOver = new Set(over.map(r=>r.DBName||'—'));
+  const cleanN = ub.size - new Set([...ubOver,...ubUnder,...ubNeg]).size;
+  const pct = n => ub.size ? Math.round(n/ub.size*100) : 0;
+  $(cfg.exportBtn).disabled = !rows.length; $(cfg.photoBtn).disabled = !rows.length;
+  window[cfg.allKey] = rows;
+
+  const tile = (icon, bg, label, value, sub, filt, info) => `<div class="stat-card clickable" data-filt='${esc(JSON.stringify(filt))}'>
+      <div class="stat-card-top"><div>
+        <div class="stat-label">${label}<span class="info-dot" data-tip="${esc(info)}">i</span></div>
+        <div class="stat-value">${value}</div>${sub?`<div class="stat-card-sub">${sub}</div>`:''}
+      </div><div class="stat-card-icon" style="background:${bg};">${icon}</div></div>
+      <div class="stat-card-hint">View →</div></div>`;
+
   const byProduct = {};
   rows.forEach(r=>{ const k=r.ProductName||'—'; (byProduct[k]=byProduct[k]||[]).push(r); });
   const topProducts = Object.entries(byProduct).sort((a,b)=>b[1].length-a[1].length).slice(0,8);
   const maxCount = topProducts.length ? topProducts[0][1].length : 1;
+
   el.innerHTML = `
     ${isStale ? `<div class="stale-banner"><span class="spin"></span> Refreshing in the background…</div>` : ''}
-    <div class="grid grid-4" style="margin-bottom:18px;">
-      <div class="stat-card"><div class="stat-label">Lines Verified</div><div class="stat-value">${fmtInt(rows.length)}</div></div>
-      <div class="stat-card"><div class="stat-label">Overcharge</div><div class="stat-value" style="color:var(--danger);">${fmtInt(over.length)}</div></div>
-      <div class="stat-card"><div class="stat-label">Undercharge</div><div class="stat-value" style="color:var(--warn);">${fmtInt(under.length)}</div></div>
-      <div class="stat-card"><div class="stat-label">Negligible</div><div class="stat-value" style="color:var(--negligible);">${fmtInt(neg.length)}</div></div>
+    <div class="section-eyebrow">Line-level</div>
+    <div class="grid grid-4" style="margin-bottom:8px;">
+      ${tile('📋','var(--panel-2)',cfg.linesLabel,fmtInt(rows.length),'',{}, 'Every product line in the selected date range. A bill with 5 products = 5 lines. Lines = count of rows '+cfg.scope+'.')}
+      ${tile('⚠️','var(--danger-soft)','Overcharge Lines',fmtInt(over.length),`₹${fmtMoney(overAmt)} total`,{status:'over'}, 'Lines where Invoice Rate (per kg, incl. GST) is higher than Company Rate by 1% or more. Variance % = (Invoice − Company) ÷ Company × 100 (≥ 1%). ₹ total = Σ (Invoice − Company) × Qty in kg over these lines.')}
+      ${tile('↩️','var(--warn-soft)','Undercharge Lines',fmtInt(under.length),`₹${fmtMoney(underAmt)} total`,{status:'under'}, 'Lines where Invoice Rate is below Company Rate (any amount, no tolerance band). ₹ total = Σ (Company − Invoice) × Qty in kg.')}
+      ${tile('≈','var(--negligible-soft)','Negligible',fmtInt(neg.length),'',{status:'negligible'}, 'Lines where Invoice Rate is above Company Rate but by less than 1% (0% < variance < 1%). Technically an overcharge, too small to flag, so it is counted separately and NOT in Overcharge Lines.')}
     </div>
-    ${topProducts.length ? `
-    <div class="card" style="margin-bottom:16px;">
+    <div class="section-eyebrow">Unique bills — actual bills, not lines</div>
+    <div class="grid grid-4" style="margin-bottom:8px;">
+      ${tile('🧾','var(--panel-2)','Total Unique Bills',fmtInt(ub.size),'',{unique:true}, 'Count of distinct Bill UIDs in this range. Every bill gets one UID when saved, so a bill with 5 product lines is still counted once.')}
+      ${tile('🏬','var(--panel-2)','Total Unique Distributors',fmtInt(udb.size),'',{view:'dbs'}, 'Count of distinct distributor (DB) names in this range, whether or not any of their bills had an overcharge. Click to see a distributor-wise summary.')}
+      ${tile('🔴','var(--danger-soft)','Unique Bills w/ Overcharge',fmtInt(ubOver.size),`${pct(ubOver.size)}% of all bills`,{status:'over',unique:true}, 'Distinct bills having AT LEAST ONE Overcharge line (variance ≥ 1%). A bill with 2 overcharge lines counts once. % = this ÷ Total Unique Bills × 100.')}
+      ${tile('🏢','var(--danger-soft)','Distributors w/ Overcharge',fmtInt(dbOver.size),`of ${fmtInt(udb.size)} distributors`,{status:'over',view:'dbs'}, 'Distinct distributors with at least one Overcharge line in this range. Compare with Total Unique Distributors to see how many distributors were clean.')}
+    </div>
+    <div class="grid grid-3" style="margin-bottom:18px;">
+      ${tile('🟡','var(--warn-soft)','Unique Bills w/ Undercharge',fmtInt(ubUnder.size),`${pct(ubUnder.size)}% of all bills`,{status:'under',unique:true}, 'Distinct bills having at least one Undercharge line (Invoice Rate below Company Rate).')}
+      ${tile('🔵','var(--negligible-soft)','Unique Bills w/ Negligible',fmtInt(ubNeg.size),`${pct(ubNeg.size)}% — under 1%, not flagged`,{status:'negligible',unique:true}, 'Distinct bills having at least one Negligible line (overcharge below 1%).')}
+      ${tile('🟢','var(--success-soft)','Clean Bills',fmtInt(cleanN),'every line matched',{clean:true,unique:true}, 'Total Unique Bills minus every bill that has even one Over / Under / Negligible line. All lines on these bills matched the Company Rate exactly.')}
+    </div>
+    ${topProducts.length ? `<div class="card" style="margin-bottom:16px;">
       <div class="section-title">By Product — click to filter below</div>
       ${topProducts.map(([name, list])=>{
         const o = list.filter(r=>r.Status==='over').length;
-        return `<div class="micro-bar-row" data-product="${esc(name)}">
+        return `<div class="micro-bar-row ${st.product===name?'active':''}" data-product="${esc(name)}">
           <div class="mb-label" title="${esc(name)}">${esc(name)}</div>
           <div class="mb-track"><div class="mb-fill" style="width:${(list.length/maxCount)*100}%;background:${o>0?'var(--danger)':'var(--accent)'};"></div></div>
-          <div class="mb-count">${list.length} bill${list.length===1?'':'s'}</div>
-        </div>`;
-      }).join('')}
+          <div class="mb-count">${list.length} line${list.length===1?'':'s'}</div>
+        </div>`; }).join('')}
     </div>` : ''}
-    <div id="mvTableWrap"></div>
-  `;
-  renderMyVerifiedTable(rows);
-  $all('.micro-bar-row', el).forEach(row=>row.addEventListener('click', ()=>{
-    const wasActive = row.classList.contains('active');
-    $all('.micro-bar-row', el).forEach(r=>r.classList.remove('active'));
-    if(wasActive){ window.__mvFilteredRows = rows; renderMyVerifiedTable(rows); return; }
-    row.classList.add('active');
-    const p = row.dataset.product;
-    const filtered = rows.filter(r=>(r.ProductName||'—')===p);
-    window.__mvFilteredRows = filtered;
-    renderMyVerifiedTable(filtered);
+    <div id="${p}Chips" style="margin-bottom:8px;"></div>
+    <div id="${p}TableWrap"></div>`;
+
+  const apply = ()=>{
+    const f = st.view==='dbs' ? rows.filter(r=>!st.status || r.Status===st.status) : rdFilter(rows, st);
+    window[cfg.filtKey] = (st.view==='dbs') ? f : f;
+    const chips = rdChips(st);
+    $(`#${p}Chips`).innerHTML = chips.map(([k,l])=>`<span class="filter-chip" data-k="${k}">${esc(l)} <b>×</b></span>`).join('');
+    $all(`#${p}Chips .filter-chip`).forEach(ch=>ch.addEventListener('click', ()=>{ const k=ch.dataset.k; if(k==='view') st.view=''; else if(k==='unique') st.unique=false; else if(k==='clean') st.clean=false; else st[k]=''; apply(); }));
+    const wrap = $(`#${p}TableWrap`);
+    wrap.innerHTML = rdTableHtml(f, st, cfg);
+    $all('.rd-db-row', wrap).forEach(tr=>tr.addEventListener('click', ()=>{ st.view=''; st.db = tr.dataset.db; apply(); }));
+    $all('.micro-bar-row', el).forEach(r=>r.classList.toggle('active', r.dataset.product===st.product));
+  };
+  $all('.stat-card.clickable', el).forEach(card=>card.addEventListener('click', ()=>{
+    const f = JSON.parse(card.getAttribute('data-filt'));
+    window.__rd[p] = Object.assign(st, {status:'', db:'', product:'', clean:false, unique:false, view:''}, f);
+    apply();
+    $(`#${p}Chips`).scrollIntoView({behavior:'smooth', block:'nearest'});
   }));
+  $all('.micro-bar-row', el).forEach(row=>row.addEventListener('click', ()=>{ st.product = (st.product===row.dataset.product) ? '' : row.dataset.product; apply(); }));
+  $(cfg.exportBtn).onclick = ()=>exportProExcel(window[cfg.filtKey]||rows, cfg.exportName, cfg.sheetName);
+  $(cfg.photoBtn).onclick = ()=>exportBillPhotosZip(window[cfg.filtKey]||rows, $(cfg.photoBtn));
+  apply();
 }
-function renderMyVerifiedTable(rows){
-  const wrap = $('#mvTableWrap');
-  if(!wrap) return;
-  if(!rows.length){ wrap.innerHTML = '<div class="empty-state">No bills verified against your name in this period yet.</div>'; return; }
-  wrap.innerHTML = `<div class="table-wrap"><table>
-      <thead><tr><th>Bill Date</th><th>Retailer</th><th>Product</th><th>Collected By</th><th class="num">Company Rate</th><th class="num">Invoice Rate</th><th>Status</th><th>Bill Copy</th></tr></thead>
-      <tbody>${rows.map(r=>`<tr>
-        <td>${esc(normalizeDMYDisplay(r.BillDate))}</td><td>${esc(r.Retailer)}</td><td>${esc(r.ProductName)}</td><td>${esc(r.CollectedBy)}</td>
-        <td class="num">${fmtMoney(r.CompanyRate)}</td><td class="num">${fmtMoney(r.InvoiceRate)}</td>
-        <td>${statusBadge(r.Status)}</td><td>${billCopyLinkCell(r)}</td>
-      </tr>`).join('')}</tbody>
-    </table></div>`;
+function paintMyVerified(rows, isStale){
+  paintRoleView({ p:'mv', content:'#mvContent', exportBtn:'#mvExport', photoBtn:'#mvExportPhotos', allKey:'__mvAllRows', filtKey:'__mvFilteredRows',
+    exportName:'Bills_I_Verified', sheetName:'Bills I Verified', linesLabel:'Lines Verified', scope:'verified against your name',
+    personCol:'Collected By', personKey:'CollectedBy', emptyMsg:'No bills verified against your name in this period yet.' }, rows, isStale);
+}
+function paintMyData(rows, isStale){
+  paintRoleView({ p:'my', content:'#myContent', exportBtn:'#myExport', photoBtn:'#myExportPhotos', allKey:'__myAllRows', filtKey:'__myFilteredRows',
+    exportName:'My_Data', sheetName:'My Data', linesLabel:'Lines Submitted', scope:'you submitted',
+    personCol:'Verified By', personKey:'VerifiedBy', emptyMsg:'No submissions in this period yet.' }, rows, isStale);
 }
 
 /* ==================== MY DATA (Auditor) ==================== */
 async function renderMyData(){
   const body = $('#tabBody');
+  window.__rd.my = {};
   if(window.__myDateBasis===undefined) window.__myDateBasis = 'submission';
   if(window.__myFrom===undefined && window.__myTo===undefined){ window.__myFrom = istWeekStartISO(); window.__myTo = istDateISO(); }
   body.innerHTML = `
@@ -1839,70 +1918,6 @@ async function renderMyData(){
     }
   );
 }
-function paintMyData(rows, isStale){
-  const el = $('#myContent');
-  const over = rows.filter(r=>r.Status==='over');
-  const under = rows.filter(r=>r.Status==='under');
-  const neg = rows.filter(r=>r.Status==='negligible');
-  $('#myExport').disabled = !rows.length;
-  $('#myExport').onclick = ()=>exportProExcel(window.__myFilteredRows||rows, 'My_Data', 'My Data');
-  $('#myExportPhotos').disabled = !rows.length;
-  $('#myExportPhotos').onclick = ()=>exportBillPhotosZip(window.__myFilteredRows||rows, $('#myExportPhotos'));
-  window.__myAllRows = rows;
-  window.__myFilteredRows = rows;
-  const byProduct = {};
-  rows.forEach(r=>{ const k=r.ProductName||'—'; (byProduct[k]=byProduct[k]||[]).push(r); });
-  const topProducts = Object.entries(byProduct).sort((a,b)=>b[1].length-a[1].length).slice(0,8);
-  const maxCount = topProducts.length ? topProducts[0][1].length : 1;
-  el.innerHTML = `
-    ${isStale ? `<div class="stale-banner"><span class="spin"></span> Refreshing in the background…</div>` : ''}
-    <div class="grid grid-4" style="margin-bottom:18px;">
-      <div class="stat-card"><div class="stat-label">Lines Submitted</div><div class="stat-value">${fmtInt(rows.length)}</div></div>
-      <div class="stat-card"><div class="stat-label">Overcharge</div><div class="stat-value" style="color:var(--danger);">${fmtInt(over.length)}</div></div>
-      <div class="stat-card"><div class="stat-label">Undercharge</div><div class="stat-value" style="color:var(--warn);">${fmtInt(under.length)}</div></div>
-      <div class="stat-card"><div class="stat-label">Negligible</div><div class="stat-value" style="color:var(--negligible);">${fmtInt(neg.length)}</div></div>
-    </div>
-    ${topProducts.length ? `
-    <div class="card" style="margin-bottom:16px;">
-      <div class="section-title">By Product — click to filter below</div>
-      ${topProducts.map(([name, list])=>{
-        const o = list.filter(r=>r.Status==='over').length;
-        return `<div class="micro-bar-row" data-product="${esc(name)}">
-          <div class="mb-label" title="${esc(name)}">${esc(name)}</div>
-          <div class="mb-track"><div class="mb-fill" style="width:${(list.length/maxCount)*100}%;background:${o>0?'var(--danger)':'var(--accent)'};"></div></div>
-          <div class="mb-count">${list.length} bill${list.length===1?'':'s'}</div>
-        </div>`;
-      }).join('')}
-    </div>` : ''}
-    <div id="myTableWrap"></div>
-  `;
-  renderMyDataTable(rows);
-  $all('.micro-bar-row', el).forEach(row=>row.addEventListener('click', ()=>{
-    const wasActive = row.classList.contains('active');
-    $all('.micro-bar-row', el).forEach(r=>r.classList.remove('active'));
-    if(wasActive){ window.__myFilteredRows = rows; renderMyDataTable(rows); return; }
-    row.classList.add('active');
-    const p = row.dataset.product;
-    const filtered = rows.filter(r=>(r.ProductName||'—')===p);
-    window.__myFilteredRows = filtered;
-    renderMyDataTable(filtered);
-  }));
-}
-function renderMyDataTable(rows){
-  const wrap = $('#myTableWrap');
-  if(!wrap) return;
-  if(!rows.length){ wrap.innerHTML = '<div class="empty-state">No submissions in this period yet.</div>'; return; }
-  wrap.innerHTML = `<div class="table-wrap"><table>
-      <thead><tr><th>Bill Date</th><th>Retailer</th><th>Product</th><th class="num">Company Rate</th><th class="num">Invoice Rate</th><th>Status</th><th>Verified By</th><th>Bill Copy</th></tr></thead>
-      <tbody>${rows.map(r=>`<tr>
-        <td>${esc(normalizeDMYDisplay(r.BillDate))}</td><td>${esc(r.Retailer)}</td><td>${esc(r.ProductName)}</td>
-        <td class="num">${fmtMoney(r.CompanyRate)}</td><td class="num">${fmtMoney(r.InvoiceRate)}</td>
-        <td>${statusBadge(r.Status)}</td><td>${esc(r.VerifiedBy)}</td><td>${billCopyLinkCell(r)}</td>
-      </tr>`).join('')}</tbody>
-    </table></div>`;
-}
-
-
 /* ==================== BOOT ==================== */
 function boot(){
   const s = getSession();
