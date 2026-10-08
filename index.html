@@ -538,12 +538,11 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v71';
-const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
+const APP_VERSION = 'v72-supabase';
+/* Supabase connection is configured inside the BACKEND block just below (SUPABASE_URL_DEFAULT / SUPABASE_ANON_KEY_DEFAULT). */
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
 const DASHBOARD_URL = 'dashboard/';
-function backendConfigured(){ return WEB_APP_URL && !WEB_APP_URL.includes('PASTE_YOUR_WEB_APP_URL_HERE'); }
 
 /* ---------------- Session (login identity) ----------------
    Stored in localStorage so a refresh doesn't force re-login. Includes
@@ -571,21 +570,153 @@ function setSession(s, remember){
 }
 function clearSession(){ try{ localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); }catch(e){} }
 
-/* Apps Script web apps don't handle CORS preflight (OPTIONS) requests, so
-   POSTs must avoid triggering one: send the JSON body as plain text with
-   a simple content-type, which browsers don't preflight. */
-async function backendPost(payload){
-  const res = await fetch(WEB_APP_URL, {
-    method:'POST',
-    headers: {'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify(payload),
-  });
-  return res.json();
+/* ==================== SUPABASE BACKEND (replaces Google Sheet / Apps Script) ====================
+   Same action names the app has always used (login / submit / mydata / syncdata …) — each one is
+   now a single fast call to a Postgres function (rl_*) on Supabase. Photos go straight to Supabase
+   Storage (public link, opens for anyone — no Google login wall). Every submit is idempotent on the
+   server (BillUID + ProductCode unique), so an automatic retry can never create a duplicate audit. */
+const SUPABASE_URL_DEFAULT = 'https://zhdewzebwzcobdugaiwm.supabase.co';        // e.g. https://abcdxyz.supabase.co
+const SUPABASE_ANON_KEY_DEFAULT = 'sb_publishable_3wjAnYsE9NcFYfXvlLUMKg_UlSFjVby'; // Project Settings → API → anon public key
+const SUPA_BUCKET = 'bill-copies';
+const SUPA_CFG_KEY = 'rateLedger_supabaseCfg';
+const SUPA_TIMEOUT_MS = 15000;
+function supaCfg(){
+  let o = {};
+  try{ o = JSON.parse(localStorage.getItem(SUPA_CFG_KEY)||'{}') || {}; }catch(e){}
+  const url = (SUPABASE_URL_DEFAULT.startsWith('PASTE') ? '' : SUPABASE_URL_DEFAULT) || o.url || '';
+  const key = (SUPABASE_ANON_KEY_DEFAULT.startsWith('PASTE') ? '' : SUPABASE_ANON_KEY_DEFAULT) || o.key || '';
+  return { url: url.replace(/\/+$/,''), key };
 }
-async function backendGet(params){
-  const qs = new URLSearchParams(params).toString();
-  const res = await fetch(`${WEB_APP_URL}?${qs}`);
-  return res.json();
+function supaSaveCfg(url, key, photoUrl){ try{ const o = JSON.parse(localStorage.getItem(SUPA_CFG_KEY)||'{}'); localStorage.setItem(SUPA_CFG_KEY, JSON.stringify({url, key, photoUrl: photoUrl===undefined ? (o.photoUrl||'') : photoUrl})); }catch(e){} }
+
+/* Bill photos live in GOOGLE DRIVE (served by the small photo Apps Script); Supabase only stores the link.
+   PHOTO_APP_URL = that script's /exec URL. If it is not set, photos fall back to Supabase Storage. */
+const PHOTO_APP_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
+function photoAppUrl(){
+  if(!PHOTO_APP_URL_DEFAULT.startsWith('PASTE')) return PHOTO_APP_URL_DEFAULT;
+  try{ return (JSON.parse(localStorage.getItem(SUPA_CFG_KEY)||'{}').photoUrl || '').trim(); }catch(e){ return ''; }
+}
+function photoFileId(url){ const m = String(url||'').match(/[?&]fileId=([^&]+)/) || String(url||'').match(/[?&]id=([^&]+)/); return m ? m[1] : null; }
+// Any stored Drive-photo link (old or new deployment) -> opens through the CURRENT photo script.
+function photoViewUrl(url){
+  const base = photoAppUrl(), id = photoFileId(url);
+  return (base && id) ? `${base}?action=viewphoto&fileId=${id}` : url;
+}
+async function driveUploadBillCopy(session, billUid, fileName, mimeType, base64Data){
+  const res = await fetch(photoAppUrl(), { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({ action:'uploadBillCopy', code:session.code, pin:session.pin, billUid, fileName, mimeType, base64Data }) });
+  const j = await res.json();
+  if(!j.ok) return { ok:false, error: j.error || 'Drive upload failed' };
+  const at = await supaRpc('rl_attach_copy', { p_code:session.code, p_pin:session.pin, p_bill_uid:billUid, p_url:j.url, p_dl_url:j.url, p_path:j.fileId }, 3);
+  if(!at.ok) return { ok:false, error: at.error || 'Could not link the photo to the bill' };
+  return { ok:true, url:j.url };
+}
+function backendConfigured(){ const c = supaCfg(); return !!(c.url && c.key); }
+
+async function supaFetch(path, options, timeoutMs){
+  const c = supaCfg();
+  if(!c.url || !c.key) throw new Error('Supabase is not configured yet (URL / anon key missing).');
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), timeoutMs || SUPA_TIMEOUT_MS);
+  try{
+    return await fetch(c.url + path, { ...options, signal: controller.signal,
+      headers: { apikey: c.key, ...(c.key.startsWith('sb_') ? {} : { Authorization: 'Bearer ' + c.key }), ...(options && options.headers || {}) } });
+  } catch(e){
+    if(e.name === 'AbortError') throw new Error('Request timed out — check your internet connection and try again.');
+    throw e;
+  } finally { clearTimeout(timer); }
+}
+// retries: network errors / 5xx are retried automatically (safe — every write is idempotent server-side).
+async function supaRpc(fn, args, retries){
+  let lastErr;
+  for(let attempt = 0; attempt <= (retries||0); attempt++){
+    try{
+      const res = await supaFetch('/rest/v1/rpc/' + fn, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(args||{}) });
+      if(res.status >= 500 && attempt < (retries||0)){ await new Promise(r=>setTimeout(r, 600*(attempt+1))); continue; }
+      let j = null; try{ j = await res.json(); }catch(e){}
+      if(!res.ok){
+        if(j && j.message) return { ok:false, error: j.message };
+        throw new Error('Server error ' + res.status);
+      }
+      return j;
+    } catch(e){
+      lastErr = e;
+      if(attempt < (retries||0)) await new Promise(r=>setTimeout(r, 600*(attempt+1)));
+    }
+  }
+  throw lastErr || new Error('Could not reach the server.');
+}
+
+// Rate Ledger's in-app record -> the header-keyed row the database stores (same columns the Sheet had).
+function supaMapRow(r){
+  const tf = v => v===true ? 'TRUE' : (v===false ? 'FALSE' : '');
+  return {
+    BillUID:r.billUid||'', Designation:r.designation||'', VerifiedBy:r.verifiedBy||'',
+    DBCode:r.dbCode||'', DBName:r.dbName||'', PriceGroup:r.pg||'', Location:r.location||'', BeatCode:r.beatCode||'', BeatName:r.beatName||'',
+    SOName:r.so||'', ASMName:r.asm||'', RSMName:r.rsm||'', DBStatus:r.dbActive||'',
+    Retailer:r.retailer||'', BillType:r.billType||'', BillNo:r.billNo||'', BillDate:r.billDateStr||'',
+    ProductName:r.productName||'', ProductCode:r.productCode||'', Category:r.category||'',
+    CompanyRate:r.companyRate||0, InvoiceRate:r.invoiceRate||0, GSTPct:r.gstPct||0,
+    DiffPerKg:r.diff||0, VariancePct:r.pct||0, Status:r.status||'', Qty:r.qty||'', UOM:r.uom||'', QtyKG:r.qtyKg||'',
+    OverchargeAmt:r.overchargeAmt||0, UnderchargeAmt:r.underchargeAmt||0, NegligibleAmt:r.negligibleAmt||0,
+    CollectedBy:r.collectedBy||'', SubmissionDate:r.submissionStr||'', VerifiedByCode:r.verifiedByCode||'',
+    PackSizeKg:r.packSizeKg||'', BagSizeLabel:r.bagSizeLabel||'', ComponentsSummary:r.componentsSummary||'', DiffPerPc:r.diffPerPc||'', DiffPerBag:r.diffPerBag||'',
+    AmountExcludesGst: r.amountExcludesGst===true?'TRUE':(r.amountExcludesGst===false?'FALSE':''),
+    TotalInvoicedExclGst:r.totalInvoicedExclGst||'', AmountInclGstShown:r.amountInclGstShown||'', GSTPctCharged:r.gstPctCharged||'',
+    GSTMismatch: r.gstMismatch===true?'TRUE':'', GSTMismatchAmt:r.gstMismatchAmt||'', GSTEntrySuspect: r.gstEntrySuspect===true?'TRUE':'',
+    BillCopyURL:r.billCopyUrl||'', BillCopyDownloadURL:r.billCopyDownloadUrl||'', SOSubmitDate:r.soSubmitDateStr||''
+  };
+}
+
+async function supaDispatch(a){
+  const act = String(a.action||'').toLowerCase();
+  const nz = v => (v===undefined || v===null || v==='') ? null : v;
+  switch(act){
+    case 'login':          return supaRpc('rl_login', { p_code:a.code, p_pin:a.pin }, 1);
+    case 'verifiers':      return supaRpc('rl_verifiers', {}, 1);
+    case 'submit':         return supaRpc('rl_submit', { p_code:a.code, p_pin:a.pin, p_rows:(a.rows||[]).map(supaMapRow) }, 3);
+    case 'attachbillcopyurl': return supaRpc('rl_attach_copy', { p_code:a.code, p_pin:a.pin, p_bill_uid:a.billUid, p_url:a.url, p_dl_url:a.downloadUrl||a.url, p_path:a.path||null }, 3);
+    case 'mydata':         return supaRpc('rl_my_data', { p_code:a.code, p_pin:a.pin, p_from:nz(a.fromDate), p_to:nz(a.toDate), p_basis:a.dateBasis||'bill' }, 1);
+    case 'myverifieddata': return supaRpc('rl_my_verified_data', { p_code:a.code, p_pin:a.pin, p_from:nz(a.fromDate), p_to:nz(a.toDate), p_basis:a.dateBasis||'bill' }, 1);
+    case 'alldata':        return supaRpc('rl_all_data', { p_code:a.code, p_pin:a.pin, p_from:nz(a.fromDate), p_to:nz(a.toDate), p_auditor:nz(a.auditorCode), p_basis:a.dateBasis||'bill' }, 1);
+    case 'syncdata':       return supaRpc('rl_sync', { p_code:a.code, p_pin:a.pin, p_since:nz(a.sinceISO), p_offset:Number(a.offset)||0 }, 2);
+    case 'users':          return supaRpc('rl_users_list', { p_code:a.code, p_pin:a.pin }, 1);
+    case 'adduser':        return supaRpc('rl_add_user', { p_code:a.code, p_pin:a.pin, p_new:a.newUser }, 0);
+    case 'toggleuser':     return supaRpc('rl_toggle_user', { p_code:a.code, p_pin:a.pin, p_target:a.targetCode, p_active:!!a.active }, 0);
+    case 'resetpin':       return supaRpc('rl_reset_pin', { p_code:a.code, p_pin:a.pin, p_target:a.targetCode, p_new_pin:a.newPin }, 0);
+  }
+  return { ok:false, error:'Unknown action: ' + a.action };
+}
+const backendPost = supaDispatch;
+const backendGet = supaDispatch;
+
+/* Photo / PDF -> Supabase Storage, then link it to the bill. Returns {ok, url} / {ok:false, error}. */
+function supaB64ToBlob(b64, mime){
+  const bin = atob(b64); const bytes = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+async function supaUploadBillCopy(session, billUid, fileName, mimeType, base64Data){
+  if(photoAppUrl() && base64Data) return driveUploadBillCopy(session, billUid, fileName, mimeType, base64Data);
+  if(!base64Data) return { ok:false, error:'No file data' };
+  const safe = s => String(s||'').replace(/[^A-Za-z0-9._-]+/g,'_').slice(0,80) || 'file';
+  const d = new Date();
+  const rand = Math.random().toString(36).slice(2,8);
+  const path = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}/${safe(billUid)}/${Date.now()}_${rand}_${safe(fileName)}`;
+  const blob = supaB64ToBlob(base64Data, mimeType);
+  let res;
+  for(let attempt=0; attempt<3; attempt++){
+    try{
+      res = await supaFetch(`/storage/v1/object/${SUPA_BUCKET}/${path}`, { method:'POST', headers:{ 'Content-Type': mimeType, 'x-upsert':'false', 'cache-control':'max-age=31536000' }, body: blob }, 60000);
+      if(res.ok || res.status < 500) break;
+    } catch(e){ if(attempt===2) throw e; }
+    await new Promise(r=>setTimeout(r, 700*(attempt+1)));
+  }
+  if(!res.ok){ let m=''; try{ m=(await res.json()).message||''; }catch(e){} return { ok:false, error: m || ('Upload failed (' + res.status + ')') }; }
+  const url = `${supaCfg().url}/storage/v1/object/public/${SUPA_BUCKET}/${path}`;
+  const at = await supaRpc('rl_attach_copy', { p_code:session.code, p_pin:session.pin, p_bill_uid:billUid, p_url:url, p_dl_url:url, p_path:path }, 3);
+  if(!at.ok) return { ok:false, error: at.error || 'Could not link the photo to the bill' };
+  return { ok:true, url };
 }
 
 /* ---------------- Pending submissions (offline resilience) ----------------
@@ -612,11 +743,11 @@ async function retryPendingSubmissions(silent){
   for(const item of list){
     try{
       const res = await backendPost({ action:'submit', code:session.code, pin:session.pin, rows:item.rows });
-      if(res.ok) sent += item.rows.length; else { remaining.push(item); lastError = res.error || 'Unknown error from the Sheet.'; }
-    }catch(e){ remaining.push(item); lastError = 'Could not reach the server (check your internet connection, the Web App URL, and that it is deployed as "Anyone" access).'; }
+      if(res.ok) sent += item.rows.length; else { remaining.push(item); lastError = res.error || 'Unknown error from the server.'; }
+    }catch(e){ remaining.push(item); lastError = 'Could not reach the server (check your internet connection).'; }
   }
   setPendingSubmissions(remaining);
-  if(sent && !silent) toast(`${sent} pending line(s) submitted to the Sheet`, 'ok');
+  if(sent && !silent) toast(`${sent} pending line(s) submitted to the server`, 'ok');
   STATE.syncStatus = remaining.length ? { state:'error', message:lastError } : { state:'idle', message:'' };
   renderStatusStrip();
   renderSyncBanner();
@@ -642,11 +773,7 @@ function queuePendingPhoto(billUid, fileName, mimeType, base64Data){
   setPendingPhotos(list);
 }
 async function uploadAndAttachOnePhoto_(session, billUid, fileName, mimeType, base64Data){
-  const upRes = await backendPost({ action:'uploadBillCopy', code:session.code, pin:session.pin, billUid, fileName, mimeType, base64Data });
-  if(!upRes.ok) return { ok:false, error: upRes.error || 'Upload failed' };
-  const atRes = await backendPost({ action:'attachBillCopyUrl', code:session.code, pin:session.pin, billUid, url:upRes.url, downloadUrl:upRes.downloadUrl });
-  if(!atRes.ok) return { ok:false, error: atRes.error || 'Could not link the photo to the bill' };
-  return { ok:true };
+  return supaUploadBillCopy(session, billUid, fileName, mimeType, base64Data);
 }
 async function retryPendingPhotos(silent){
   if(!backendConfigured()) return;
@@ -1150,7 +1277,7 @@ function renderShell(){
       <section class="view" id="view-reports"></section>
       <section class="view" id="view-intelx"></section>
     </main>
-    <footer class="appfoot">${backendConfigured() ? 'Bills you save are submitted to your organisation\'s Google Sheet, in addition to this local report.' : 'All data stays in this browser — nothing is uploaded to a server.'} Saved bills and their photos now survive a refresh (stored locally on this device) — only your Rate Master / DB Master uploads clear on refresh, so re-upload those after reopening. Your Collected By / Designation / Verified By stay remembered too, until you clear browser data.</footer>
+    <footer class="appfoot">${backendConfigured() ? 'Bills you save are submitted to your organisation\'s database, in addition to this local report.' : 'All data stays in this browser — nothing is uploaded to a server.'} Saved bills and their photos now survive a refresh (stored locally on this device) — only your Rate Master / DB Master uploads clear on refresh, so re-upload those after reopening. Your Collected By / Designation / Verified By stay remembered too, until you clear browser data.</footer>
   `;
   renderTabs();
   renderStatusStrip();
@@ -1176,12 +1303,12 @@ function renderSyncBanner(){
   if(pending<=0 && pendingPhotos<=0 && s.state!=='error'){ el.innerHTML=''; return; }
   const isErr = s.state==='error';
   const parts = [];
-  if(pending>0) parts.push(`${pending} bill line(s) not yet in the Sheet`);
+  if(pending>0) parts.push(`${pending} bill line(s) not yet on the server`);
   if(pendingPhotos>0) parts.push(`${pendingPhotos} bill photo(s) not yet uploaded`);
   el.innerHTML = `
     <div class="sync-banner ${isErr?'err':'warn'}">
       <div>
-        <strong>${parts.length ? parts.join(' · ')+'.' : 'Sheet sync issue.'}</strong>
+        <strong>${parts.length ? parts.join(' · ')+'.' : 'Sync issue.'}</strong>
         ${s.message ? `<span class="sync-banner-msg">${esc(s.message)}</span>` : ''}
       </div>
       <button class="btn small" id="syncRetryBtn">Retry now</button>
@@ -3789,20 +3916,20 @@ async function saveBill(){
       backendPost({ action:'submit', code:session.code, pin:session.pin, rows:newRecords })
         .then(res=>{
           if(res.ok){
-            toast(`Saved locally and submitted ${res.submitted} line(s) to the Sheet`, 'ok');
+            toast(`Saved locally and submitted ${res.submitted} line(s) to the server`, 'ok');
             STATE.syncStatus = { state:'idle', message:'' };
           } else {
             queuePendingSubmission(newRecords);
-            toast(`Saved locally — Sheet submit failed (${res.error||'unknown error'}), queued to retry`, 'err');
-            STATE.syncStatus = { state:'error', message: res.error || 'Unknown error from the Sheet.' };
+            toast(`Saved locally — Server submit failed (${res.error||'unknown error'}), queued to retry`, 'err');
+            STATE.syncStatus = { state:'error', message: res.error || 'Unknown error from the server.' };
             renderStatusStrip();
           }
           renderSyncBanner();
         })
         .catch(()=>{
           queuePendingSubmission(newRecords);
-          toast('Saved locally — no connection, queued to submit to the Sheet later', 'err');
-          STATE.syncStatus = { state:'error', message:'Could not reach the server (check your internet connection, the Web App URL, and that it is deployed as "Anyone" access).' };
+          toast('Saved locally — no connection, queued to submit later', 'err');
+          STATE.syncStatus = { state:'error', message:'Could not reach the server (check your internet connection).' };
           renderStatusStrip();
           renderSyncBanner();
         });
@@ -3854,7 +3981,7 @@ function renderReports(){
       <div><h2>Reports</h2><p class="sub">Every product line checked in Rate Check, ready to filter and export.</p></div>
       <button class="btn accent" id="repExport">⬇ Export Excel (Pro format)</button>
       <button class="btn secondary" id="repExportPhotos">📷 Download All Photos (ZIP)</button>
-      <button class="btn small" id="repClearLocal" style="margin-left:auto;color:var(--danger);border-color:var(--danger);" title="Clears the bills/photos saved on THIS device only — already-submitted rows stay safe in the Sheet.">Clear local data</button>
+      <button class="btn small" id="repClearLocal" style="margin-left:auto;color:var(--danger);border-color:var(--danger);" title="Clears the bills/photos saved on THIS device only — already-submitted rows stay safe on the server.">Clear local data</button>
     </div>
     <div class="filterbar">
       <div class="field"><label>Location</label><select id="repLoc"><option value="">All</option>${locs.map(l=>`<option ${REP_FILTERS.location===l?'selected':''}>${esc(l)}</option>`).join('')}</select></div>
