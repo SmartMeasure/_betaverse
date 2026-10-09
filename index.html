@@ -5000,7 +5000,6 @@ async function ixParsePGMappingFile(file){
    enough anchor). Handles the sheet's own double-space "Total  Amount". */
 const IX_SALES_COLS = {
   // the YELLOW-highlighted columns of the SAP register
-  invoiceNo:  ['Internal Invoice No.','Invoice No'],
   invoiceDate:['Invoice Date'],
   orderNo:    ['Order Number'],
   orderDate:  ['Order Date'],
@@ -5017,7 +5016,7 @@ const IX_SALES_COLS = {
   qtyPcs:     ['Qty in PCS'],
   bags:       ['Bag'],
 };
-const IX_OPTIONAL_COLS = ['totalAmt','taxableAmt','orderNo','orderDate','perUom','qtyPcs','bags'];
+const IX_OPTIONAL_COLS = ['totalAmt','taxableAmt','orderDate','perUom','qtyPcs','bags'];
 function ixExcelSerialToDate(v){
   if(v instanceof Date) return v;
   if(typeof v === 'number'){
@@ -5053,7 +5052,6 @@ async function ixParseSalesRegisterFile(file, onProgress){
     const orderDate = idx.orderDate!==-1 ? ixExcelSerialToDate(row[idx.orderDate]) : null;
     out.push({
       seq: r,   // original row number in the SAP file — export keeps this exact order
-      invoiceNo: String(row[idx.invoiceNo]||'').trim(),
       invoiceDate, invoiceDateStr: ixFmtDMY(invoiceDate),
       orderNo: String(cell(row,idx.orderNo)||'').trim(),
       orderDateStr: orderDate ? ixFmtDMY(orderDate) : '',
@@ -5260,7 +5258,7 @@ async function renderIntelX(){
       </div>
       <div class="ix-step${hasSales?' done':''}">
         <div class="ix-step-h"><span class="ix-num">4</span><span class="ix-step-t">SAP Sales Register</span></div>
-        <div class="ix-step-d">The SAP export as-is. Imports the yellow columns: Invoice, Order, Bill to Party, Item, Qty, Base Price, per UoM, Amounts. Row order is preserved in the export.</div>
+        <div class="ix-step-d">The SAP export as-is. Imports the yellow columns: Order No/Date, Invoice Date, Bill to Party, Item, Qty, Base Price, per UoM, Amounts. Row order is preserved in the export.</div>
         <label class="ix-drop"><input type="file" id="ixSalesInput" accept=".xlsx,.xls"><span class="ix-drop-ic">📂</span><span class="ix-drop-t">Choose file</span><span class="ix-drop-n" data-for="ixSalesInput">No file chosen</span></label>
         <div class="ix-status" id="ixSalesStatus">${hasSales ? `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(IX_STATE.salesRows.length)} sales lines loaded</span>` : '<span class="small-muted">No sales register loaded yet.</span>'}</div>
       </div>
@@ -5491,7 +5489,7 @@ function renderIxResults(){
   if(IX_FILTERS.pg) rows = rows.filter(r=>r.priceGroup===IX_FILTERS.pg);
   if(IX_FILTERS.q){
     const q = IX_FILTERS.q.toLowerCase();
-    rows = rows.filter(r=> (r.invoiceNo||'').toLowerCase().includes(q) || (r.orderNo||'').toLowerCase().includes(q) || (r.itemCode||'').toLowerCase().includes(q) || (r.itemDesc||'').toLowerCase().includes(q) || (r.dbName||'').toLowerCase().includes(q) || (r.dbCode||'').toLowerCase().includes(q));
+    rows = rows.filter(r=> (r.orderNo||'').toLowerCase().includes(q) || (r.itemCode||'').toLowerCase().includes(q) || (r.itemDesc||'').toLowerCase().includes(q) || (r.dbName||'').toLowerCase().includes(q) || (r.dbCode||'').toLowerCase().includes(q));
   }
   const locations = Array.from(new Set(results.map(r=>r.location).filter(Boolean))).sort();
   const pgs = Array.from(new Set(results.map(r=>r.priceGroup).filter(Boolean))).sort();
@@ -5521,9 +5519,9 @@ function renderIxResults(){
     </div>
     <div class="small-muted" style="margin-bottom:8px;">${ixFmtInt(rows.length)} line(s) match this filter · showing page ${IX_FILTERS.page} of ${totalPages}</div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Invoice No</th><th>Invoice Date</th><th>Order No</th><th>Order Date</th><th>DB Code</th><th>Distributor</th><th>Price Group</th><th>Price Group Name</th><th>Item Code</th><th>Product</th><th class="num">Qty (kg)</th><th class="num">Base Price</th><th>per UoM</th><th class="num">Base/kg</th><th class="num">Rate File (Exc-GST)</th><th class="num">Diff/kg</th><th>Status</th><th>Rate File Date</th></tr></thead>
+      <thead><tr><th>Order No</th><th>Order Date</th><th>Invoice Date</th><th>DB Code</th><th>Distributor</th><th>Price Group</th><th>Price Group Name</th><th>Item Code</th><th>Product</th><th class="num">Qty (kg)</th><th class="num">Base Price</th><th>per UoM</th><th class="num">Base/kg</th><th class="num">Rate File (Exc-GST)</th><th class="num">Diff/kg</th><th>Status</th><th>Rate File Date</th></tr></thead>
       <tbody>${pageRows.map(r=>`<tr title="${ixEsc(r.remark||'')}">
-        <td>${ixEsc(r.invoiceNo)}</td><td>${ixEsc(r.invoiceDateStr)}</td><td>${ixEsc(r.orderNo)}</td><td>${ixEsc(r.orderDateStr)}</td><td>${ixEsc(r.dbCode)}</td><td class="wrap">${ixEsc(r.dbName)}</td><td>${ixEsc(r.priceGroup)}</td><td>${ixEsc(r.location)}</td>
+        <td>${ixEsc(r.orderNo)}</td><td>${ixEsc(r.orderDateStr)}</td><td>${ixEsc(r.invoiceDateStr)}</td><td>${ixEsc(r.dbCode)}</td><td class="wrap">${ixEsc(r.dbName)}</td><td>${ixEsc(r.priceGroup)}</td><td>${ixEsc(r.location)}</td>
         <td>${ixEsc(r.itemCode)}</td><td class="wrap">${ixEsc(r.itemDesc)}</td><td class="num">${ixFmtInt(r.qtyKg)}</td>
         <td class="num">${ixFmtMoney(r.basePrice)}</td><td>${ixEsc(r.perUom)}</td><td class="num">${r.baseKg!=null?ixFmtMoney(r.baseKg):'—'}</td><td class="num">${r.expectedRate!=null?ixFmtMoney(r.expectedRate):'—'}</td>
         <td class="num" style="color:${statusColor(r.status)};font-weight:700;">${r.diff!=null?(r.diff>0?'+':'')+ixFmtMoney(r.diff):'—'}</td>
@@ -5572,8 +5570,8 @@ async function ixExportDetailedExcel(rows){
     rows = rows.slice().sort((a,b)=>a.seq-b.seq);   // exact SAP row order
     const cols = [
       {header:'SAP Row #', key:'seq', width:10},
-      {header:'Internal Invoice No.', key:'invoiceNo', width:16}, {header:'Invoice Date', key:'invoiceDateStr', width:13},
       {header:'Order Number', key:'orderNo', width:14}, {header:'Order Date', key:'orderDateStr', width:13},
+      {header:'Invoice Date', key:'invoiceDateStr', width:13},
       {header:'Bill to Party', key:'dbCode', width:12}, {header:'Bill to Party Name', key:'dbName', width:28},
       {header:'Price Group', key:'priceGroup', width:12}, {header:'Price Group Name', key:'location', width:16},
       {header:'Item Code', key:'itemCode', width:11}, {header:'Item Description', key:'itemDesc', width:32},
