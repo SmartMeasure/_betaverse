@@ -243,7 +243,7 @@ tr.row-gst-suspect:hover{background:rgba(255,194,78,0.15) !important;}
 .status-chip.ready{color:var(--ink);border-color:rgba(51,240,180,0.4);background:rgba(51,240,180,0.08);}
 
 /* Tab strip */
-.tabstrip{display:flex;gap:4px;margin-top:26px;border-bottom:1px solid var(--edge);padding-left:2px;position:relative;animation:dropIn .6s cubic-bezier(.2,.8,.2,1) .05s both;}
+.tabstrip{display:flex;gap:4px;margin-top:26px;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--edge);padding-left:2px;position:relative;animation:dropIn .6s cubic-bezier(.2,.8,.2,1) .05s both;}
 .tab-btn{
   font-family:var(--font-body);font-weight:600;font-size:13.5px;color:var(--ink-soft);
   background:transparent;border:1px solid transparent;border-bottom:none;
@@ -325,7 +325,38 @@ main{
 .view-head .sub{color:var(--ink-soft);font-size:13px;margin-top:4px;max-width:60ch;}
 
 /* ---------- Cards / Grid ---------- */
-.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+.grid-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;}
+/* ===== INTELX upload steps (responsive) ===== */
+.ix-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:14px;margin-bottom:16px;}
+.ix-step{min-width:0;display:flex;flex-direction:column;gap:12px;padding:16px;background:var(--panel);border:1px solid var(--edge-soft);border-radius:12px;transition:border-color .15s;}
+.ix-step:hover{border-color:var(--edge);}
+.ix-step.done{border-color:rgba(51,240,180,0.35);}
+.ix-step-h{display:flex;align-items:center;gap:10px;min-width:0;}
+.ix-num{flex:0 0 26px;height:26px;border-radius:50%;background:var(--panel-3);color:var(--ink);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;}
+.ix-step.done .ix-num{background:var(--success-soft);color:var(--success);}
+.ix-step-t{font-size:14px;font-weight:700;color:var(--ink);line-height:1.25;overflow-wrap:anywhere;}
+.ix-tag{margin-left:auto;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-faint);border:1px solid var(--edge);border-radius:20px;padding:2px 8px;white-space:nowrap;}
+.ix-step-d{font-size:12px;line-height:1.5;color:var(--ink-soft);overflow-wrap:anywhere;}
+.ix-drop{display:flex;align-items:center;gap:10px;min-width:0;padding:11px 12px;border:1.5px dashed var(--edge);border-radius:10px;background:var(--panel-2);cursor:pointer;transition:all .15s;}
+.ix-drop:hover{border-color:var(--ink-soft);background:var(--panel-3);}
+.ix-drop input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;}
+.ix-drop-ic{flex:0 0 auto;font-size:16px;line-height:1;}
+.ix-drop-t{font-size:13px;font-weight:600;color:var(--ink);white-space:nowrap;}
+.ix-drop-n{font-size:12px;color:var(--ink-faint);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ix-status{min-width:0;font-size:12px;color:var(--ink-soft);}
+.ix-files{max-height:170px;overflow:auto;border:1px solid var(--edge-soft);border-radius:8px;background:var(--panel-2);}
+.ix-file{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:7px 10px;border-bottom:1px solid var(--edge-soft);font-size:11.5px;}
+.ix-file:last-child{border-bottom:0;}
+.ix-file b{color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ix-file span{color:var(--ink-faint);}
+.ix-file .r{text-align:right;color:var(--ink-soft);white-space:nowrap;}
+.ix-status .table-wrap{max-height:150px;overflow:auto;border:1px solid var(--edge-soft);border-radius:8px;}
+.ix-status table{width:100%;font-size:11px;}
+.ix-status th,.ix-status td{padding:5px 7px;}
+.ix-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px;padding:12px 14px;background:var(--panel-2);border:1px solid var(--edge-soft);border-radius:12px;}
+.ix-actions .ix-hint{flex:1 1 220px;min-width:0;font-size:12px;color:var(--ink-soft);}
+@media (max-width:600px){.ix-actions .btn{flex:1 1 100%;}}
+
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
 @media (max-width:900px){.grid-4{grid-template-columns:repeat(2,1fr);}.grid-2{grid-template-columns:1fr;}}
 
@@ -4712,14 +4743,17 @@ function ixPad2(n){ return String(n).padStart(2,'0'); }
 function ixFmtDMY(d){ return d ? `${ixPad2(d.getDate())}-${ixPad2(d.getMonth()+1)}-${d.getFullYear()}` : ''; }
 function ixParseDMY(s){
   if(!s) return null;
-  const m = String(s).trim().match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
+  const m = String(s).trim().match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})$/);
   if(!m) return null;
   const yr = m[3].length===2 ? '20'+m[3] : m[3];
   return new Date(Number(yr), Number(m[2])-1, Number(m[1]));
 }
 function ixNormLoc(s){
   if(!s) return '';
-  return String(s).toLowerCase().trim().replace(/[._]/g,' ').replace(/\s+/g,' ').replace(/^location\s*-?\s*/,'').trim();
+  let n = String(s).toLowerCase().trim().replace(/[._]/g,' ').replace(/\s+/g,' ').replace(/^location\s*-?\s*/,'').trim();
+  n = n.replace(/\s+zone$/,'');                       // "Uttar Pradesh Zone" == "Uttar Pradesh"
+  if(n==='wb') n='west bengal';                        // sheet "WB" == Price Group Name "West Bengal"
+  return n;
 }
 function ixLocEq(a,b){
   const na=ixNormLoc(a), nb=ixNormLoc(b);
@@ -4780,6 +4814,11 @@ async function ixParseRatePdf(arrayBuffer){
       line.items.push(it);
     });
     lines.sort((a,b)=> b.y - a.y);
+    // Column anchor from the page's own header: everything left of the "Retailer" header is the Distributor column,
+    // everything from it onwards is the Retailer column. A row that only prints one number can then never have a
+    // Retailer rate mistaken for the Distributor rate.
+    const retHdr = items.filter(it=>/^retailer$/i.test(it.text.trim())).map(it=>it.x);
+    const retX = retHdr.length ? Math.min(...retHdr) - 6 : null;
     for(const line of lines){
       line.items.sort((a,b)=>a.x-b.x);
       const nameWords=[], skuWords=[], codeWords=[], rateItems=[];
@@ -4808,8 +4847,15 @@ async function ixParseRatePdf(arrayBuffer){
       // (sorted left-to-right, which this template always renders them in)
       // adapts automatically to any of these layouts without guessing a cutoff.
       rateItems.sort((a,b)=>a.x-b.x);
-      const distText = (rateItems[0] && rateItems[0].text || '').trim();
-      const retailText = (rateItems[1] && rateItems[1].text || '').trim();
+      let distText, retailText;
+      if(retX!=null){
+        const dI = rateItems.filter(it=>it.x < retX), rI = rateItems.filter(it=>it.x >= retX);
+        distText = (dI[0] && dI[0].text || '').trim();
+        retailText = (rI[0] && rI[0].text || '').trim();
+      } else {
+        distText = (rateItems[0] && rateItems[0].text || '').trim();
+        retailText = (rateItems[1] && rateItems[1].text || '').trim();
+      }
       if(finalNameText==='Product' && skuText==='SKU') continue;
       const distNum = parseFloat(distText.replace(/[^0-9.]/g,''));
       const retailNum = retailText ? parseFloat(retailText.replace(/[^0-9.]/g,'')) : null;
@@ -5184,6 +5230,7 @@ async function renderIntelX(){
   const hasRates = IX_STATE.rateRows.length>0;
   const hasPg = IX_STATE.pgMap.length>0;
   const hasSales = IX_STATE.salesRows.length>0;
+  const hasUom = Object.keys(IX_STATE.uomMap||{}).length>0;
   const hasResults = IX_STATE.results.length>0;
 
   view.innerHTML = `
@@ -5191,42 +5238,46 @@ async function renderIntelX(){
       <div><h2>INTELX</h2><p class="sub">Standalone checker — compares SAP's Sales Register Base Price against the rate file's Distributor Rate (Exc-GST). Nothing here touches Rate Master, Rate Check, or your Google Sheet; every upload and export stays on this device.</p></div>
     </div>
 
-    <div class="grid grid-4" style="margin-bottom:18px;align-items:stretch;">
-      <div class="card" style="display:flex;flex-direction:column;gap:10px;">
-        <div class="section-title">① Rate Files (ZIP of PDFs)</div>
-        <div class="small-muted">Monthly rate-PDF ZIP(s) — upload as many as you like, one per effective date. Each product is checked against its own latest rate date.</div>
-        <input type="file" id="ixRateInput" accept=".zip" multiple>
-        <div id="ixRateStatus">${hasRates ? ixRateFilesSummaryHtml() : '<span class="small-muted">No rate files loaded yet.</span>'}</div>
+    <div class="ix-steps">
+      <div class="ix-step${hasRates?' done':''}">
+        <div class="ix-step-h"><span class="ix-num">1</span><span class="ix-step-t">Rate Files (Excel / ZIP)</span></div>
+        <div class="ix-step-d">Upload as many as you like: month-wise rate <b>Excel</b> (one sheet per Price Group Name, with a Rate Change Date row) and/or rate-PDF <b>ZIP</b>s. #N/A and blank rates are ignored. Each product is checked against its own latest rate date.</div>
+        <label class="ix-drop"><input type="file" id="ixRateInput" accept=".zip,.xlsx,.xls" multiple><span class="ix-drop-ic">📂</span><span class="ix-drop-t">Choose file</span><span class="ix-drop-n" data-for="ixRateInput">No file chosen</span></label>
+        <div class="ix-status" id="ixRateStatus">${hasRates ? ixRateFilesSummaryHtml() : '<span class="small-muted">No rate files loaded yet.</span>'}</div>
       </div>
-      <div class="card" style="display:flex;flex-direction:column;gap:10px;">
-        <div class="section-title">② Distributor Master (Price Group)</div>
-        <div class="small-muted">Excel/CSV with Distributor Code, <b>Price Group</b> and <b>Price Group Name</b>. The rate is matched on Price Group Name.</div>
-        <input type="file" id="ixPgInput" accept=".xlsx,.xls,.csv">
-        <div id="ixPgStatus">${hasPg ? `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(IX_STATE.pgMap.length)} distributors mapped</span>` : '<span class="small-muted">No mapping loaded yet.</span>'}</div>
+      <div class="ix-step${hasPg?' done':''}">
+        <div class="ix-step-h"><span class="ix-num">2</span><span class="ix-step-t">Distributor Master</span></div>
+        <div class="ix-step-d">Excel/CSV with Distributor Code, <b>Price Group</b> and <b>Price Group Name</b>. The rate is matched on Price Group Name.</div>
+        <label class="ix-drop"><input type="file" id="ixPgInput" accept=".xlsx,.xls,.csv"><span class="ix-drop-ic">📂</span><span class="ix-drop-t">Choose file</span><span class="ix-drop-n" data-for="ixPgInput">No file chosen</span></label>
+        <div class="ix-status" id="ixPgStatus">${hasPg ? `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(IX_STATE.pgMap.length)} distributors mapped</span>` : '<span class="small-muted">No mapping loaded yet.</span>'}</div>
       </div>
-      <div class="card" style="display:flex;flex-direction:column;gap:10px;">
-        <div class="section-title">③ UOM Conversion</div>
-        <div class="small-muted">Product Code + "1 PC = ? KG" (and bag size). Needed for items SAP bills per PC. Required only for items SAP prices per PC — those show "UOM Missing" until it is uploaded.</div>
-        <input type="file" id="ixUomInput" accept=".xlsx,.xls,.csv">
-        <div id="ixUomStatus">${Object.keys(IX_STATE.uomMap||{}).length ? `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(Object.keys(IX_STATE.uomMap).length)} products converted</span>` : '<span class="small-muted">No UOM file loaded yet.</span>'}</div>
+      <div class="ix-step${hasUom?' done':''}">
+        <div class="ix-step-h"><span class="ix-num">3</span><span class="ix-step-t">UOM Conversion</span><span class="ix-tag">Optional</span></div>
+        <div class="ix-step-d">Product Code + "1 PC = ? KG" (and bag size). Only needed for items SAP prices per PC — those show "UOM Missing" until uploaded.</div>
+        <label class="ix-drop"><input type="file" id="ixUomInput" accept=".xlsx,.xls,.csv"><span class="ix-drop-ic">📂</span><span class="ix-drop-t">Choose file</span><span class="ix-drop-n" data-for="ixUomInput">No file chosen</span></label>
+        <div class="ix-status" id="ixUomStatus">${hasUom ? `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(Object.keys(IX_STATE.uomMap).length)} products converted</span>` : '<span class="small-muted">No UOM file loaded yet.</span>'}</div>
       </div>
-      <div class="card" style="display:flex;flex-direction:column;gap:10px;">
-        <div class="section-title">④ SAP Sales Register</div>
-        <div class="small-muted">The SAP export as-is. Imports the yellow columns: Invoice No/Date, Order No/Date, Bill to Party (+Name), Item Code/Description, Qty in KGs, Base Price + per UoM, Taxable/Total Amount. Row order is preserved in the export.</div>
-        <input type="file" id="ixSalesInput" accept=".xlsx,.xls">
-        <div id="ixSalesStatus">${hasSales ? `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(IX_STATE.salesRows.length)} sales lines loaded</span>` : '<span class="small-muted">No sales register loaded yet.</span>'}</div>
+      <div class="ix-step${hasSales?' done':''}">
+        <div class="ix-step-h"><span class="ix-num">4</span><span class="ix-step-t">SAP Sales Register</span></div>
+        <div class="ix-step-d">The SAP export as-is. Imports the yellow columns: Invoice, Order, Bill to Party, Item, Qty, Base Price, per UoM, Amounts. Row order is preserved in the export.</div>
+        <label class="ix-drop"><input type="file" id="ixSalesInput" accept=".xlsx,.xls"><span class="ix-drop-ic">📂</span><span class="ix-drop-t">Choose file</span><span class="ix-drop-n" data-for="ixSalesInput">No file chosen</span></label>
+        <div class="ix-status" id="ixSalesStatus">${hasSales ? `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(IX_STATE.salesRows.length)} sales lines loaded</span>` : '<span class="small-muted">No sales register loaded yet.</span>'}</div>
       </div>
     </div>
 
-    <div style="display:flex;gap:10px;align-items:center;margin-bottom:18px;">
+    <div class="ix-actions">
       <button class="btn accent" id="ixRunBtn" ${(hasRates&&hasPg&&hasSales)?'':'disabled'}>▶ Run Check</button>
       <button class="btn secondary" id="ixClearBtn">Clear all local INTELX data</button>
-      <span class="small-muted">${(hasRates&&hasPg&&hasSales)?'':'Upload Rate Files, Distributor Master and Sales Register to enable the check (UOM Conversion needed only for PC-priced items).'}</span>
+      <span class="ix-hint">${(hasRates&&hasPg&&hasSales)?'Ready — click Run Check.':'Upload steps 1, 2 and 4 to enable the check. Step 3 (UOM) is needed only for PC-priced items.'}</span>
     </div>
 
     <div id="ixResultsArea">${hasResults ? '' : '<div class="empty-state">Run the check to see results here.</div>'}</div>
   `;
 
+  view.querySelectorAll('.ix-drop input[type=file]').forEach(inp=>inp.addEventListener('change',()=>{
+    const n=view.querySelector('.ix-drop-n[data-for="'+inp.id+'"]'); const f=inp.files||[];
+    if(n) n.textContent = f.length>1 ? f.length+' files' : (f[0]?f[0].name:'No file chosen');
+  }));
   $('#ixRateInput').addEventListener('change', e=> ixHandleRateUpload(e.target.files));
   $('#ixPgInput').addEventListener('change', e=> ixHandlePgUpload(e.target.files[0]));
   $('#ixSalesInput').addEventListener('change', e=> ixHandleSalesUpload(e.target.files[0]));
@@ -5243,10 +5294,67 @@ async function renderIntelX(){
 }
 
 function ixRateFilesSummaryHtml(){
-  return `<div class="table-wrap" style="max-height:140px;overflow:auto;"><table>
-    <thead><tr><th>File</th><th>Location</th><th>Eff. Date</th><th class="num">Rows</th></tr></thead>
-    <tbody>${IX_STATE.rateFiles.map(f=>`<tr><td class="wrap">${ixEsc(f.fileName)}</td><td>${ixEsc(f.matchedLocation)}</td><td>${ixEsc(f.effDateStr)}</td><td class="num">${f.rowCount}</td></tr>`).join('')}</tbody>
-  </table></div>`;
+  const n=IX_STATE.rateFiles.length;
+  return `<div style="margin-bottom:6px;"><span class="status-chip ready"><span class="status-dot"></span>${n} rate file${n===1?'':'s'} loaded</span></div>
+  <div class="ix-files">${IX_STATE.rateFiles.map(f=>`<div class="ix-file"><b title="${ixEsc(f.fileName)}">${ixEsc(f.matchedLocation||f.fileName)}</b><span class="r">${ixEsc(f.effDateStr)}</span><span>${ixEsc(f.fileName)}</span><span class="r">${f.note?ixEsc(f.note):f.rowCount+' rows'}</span></div>`).join('')}</div>`;
+}
+
+
+// Month-wise Excel rate file: one sheet per Price Group Name, a "Rate Change Date" row, product codes down the side.
+// Only real numbers are read — #N/A, blanks and text are ignored, so they never show up anywhere.
+function ixParseRateExcelBuffer(buf){
+  const wb = XLSX.read(buf, { type:'array', cellDates:false });
+  const out = []; // {location, rows:[{productCode,productName,distRate,effDate,effDateStr}]}
+  wb.SheetNames.forEach(sn=>{
+    const ws = wb.Sheets[sn];
+    if(!ws || !ws['!ref']) return;
+    const rg = XLSX.utils.decode_range(ws['!ref']);
+    const cellAt = (r,c)=> ws[XLSX.utils.encode_cell({r,c})];
+    let hdrRow=-1, codeCol=-1, nameCol=-1;
+    for(let r=rg.s.r; r<=Math.min(rg.e.r, rg.s.r+15) && hdrRow<0; r++){
+      for(let c=rg.s.c; c<=rg.e.c; c++){
+        const v = cellAt(r,c); const t = v && v.t==='s' ? String(v.v).trim().toLowerCase() : '';
+        if(/^(product\s*code|item\s*code|material\s*code)$/.test(t)){ hdrRow=r; codeCol=c; }
+      }
+    }
+    if(hdrRow<0) return;                       // not a rate sheet (e.g. a summary sheet)
+    for(let c=rg.s.c; c<=rg.e.c; c++){
+      const v = cellAt(hdrRow,c); if(!v || v.t!=='s') continue;
+      const t = String(v.v).trim().toLowerCase();
+      if(t==='product name') nameCol=c;
+    }
+    // the row holding the "Rate Change Date" label (above the header, or the header row itself)
+    let dateRow=-1;
+    for(let r=Math.max(rg.s.r,hdrRow-6); r<=hdrRow && dateRow<0; r++){
+      for(let c=rg.s.c; c<=rg.e.c; c++){ const v=cellAt(r,c); if(v && v.t==='s' && /rate\s*change\s*date/i.test(String(v.v))){ dateRow=r; break; } }
+    }
+    if(dateRow<0) return;
+    const dateCols=[];
+    for(let c=codeCol+1; c<=rg.e.c; c++){
+      const v = cellAt(dateRow,c); if(!v) continue;
+      let d=null;
+      if(v.t==='n') d = ixExcelSerialToDate(v.v);
+      else if(v.t==='d' && v.v instanceof Date) d = new Date(v.v.getFullYear(), v.v.getMonth(), v.v.getDate());
+      else if(v.t==='s') d = ixParseDMY(String(v.v).trim());
+      if(d && !isNaN(d)) dateCols.push({c, d});
+    }
+    if(!dateCols.length) return;
+    const pad=n=>String(n).padStart(2,'0');
+    const fmt=d=>`${pad(d.getDate())}-${pad(d.getMonth()+1)}-${d.getFullYear()}`;
+    const rows=[];
+    for(let r=hdrRow+1; r<=rg.e.r; r++){
+      const cc = cellAt(r,codeCol); if(!cc || cc.v==null || cc.v==='') continue;
+      const code = String(cc.v).trim().replace(/\.0$/,''); if(!code) continue;
+      const nm = nameCol>=0 ? cellAt(r,nameCol) : null;
+      dateCols.forEach(({c,d})=>{
+        const v = cellAt(r,c);
+        if(!v || v.t!=='n' || !(v.v>0)) return;          // skip #N/A (t:'e'), blanks and text
+        rows.push({ productCode: code, productName: nm?String(nm.v).trim():'', category:'', sku:'', distRate: Math.round(v.v*100)/100, retailRate:null, effDate:d, effDateStr:fmt(d) });
+      });
+    }
+    if(rows.length) out.push({ location: sn.trim(), rows });
+  });
+  return out;
 }
 
 async function ixHandleRateUpload(files){
@@ -5255,6 +5363,24 @@ async function ixHandleRateUpload(files){
   const newFiles = [];
   for(let fi=0; fi<files.length; fi++){
     const file = files[fi];
+    if(/\.xlsx?$/i.test(file.name)){
+      statusDiv.innerHTML = `<span class="small-muted">Reading ${ixEsc(file.name)} (${fi+1}/${files.length})…</span>`;
+      let sheets;
+      try{ sheets = ixParseRateExcelBuffer(await file.arrayBuffer()); }
+      catch(e){ console.error(e); toast(`Could not read ${file.name} — skipped`, 'err'); continue; }
+      if(!sheets.length){ toast(`No rate sheets found in ${file.name} (need a "PRODUCT CODE" column and a "Rate Change Date" row)`, 'err'); continue; }
+      sheets.forEach(sh=>{
+        const dates = [...new Set(sh.rows.map(r=>r.effDateStr))];
+        IX_STATE.rateRows = IX_STATE.rateRows.filter(r=> !(ixNormLoc(r.location)===ixNormLoc(sh.location) && dates.includes(r.effDateStr)));
+        IX_STATE.rateFiles = IX_STATE.rateFiles.filter(f=> !(f.fileName===file.name && ixNormLoc(f.matchedLocation)===ixNormLoc(sh.location)));
+        sh.rows.forEach(r=> IX_STATE.rateRows.push({...r, location: sh.location, sourceFile: file.name}));
+        const ds = sh.rows.map(r=>r.effDate.getTime()); const mn=new Date(Math.min(...ds)), mx=new Date(Math.max(...ds));
+        const f2=d=>`${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+        IX_STATE.rateFiles.push({ fileName: file.name, matchedLocation: sh.location, effDateStr: dates.length>1 ? `${f2(mn)} → ${f2(mx)}` : f2(mn), rowCount: new Set(sh.rows.map(r=>r.productCode)).size, note: `${new Set(sh.rows.map(r=>r.productCode)).size} products · ${dates.length} rate date${dates.length===1?'':'s'}` });
+      });
+      newFiles.push(file.name);
+      continue;
+    }
     statusDiv.innerHTML = `<span class="small-muted">Opening ${ixEsc(file.name)} (${fi+1}/${files.length})…</span>`;
     let zip;
     try{ zip = await JSZip.loadAsync(file); }
@@ -5348,8 +5474,9 @@ function ixRefreshRunButton(){
   if(!btn) return;
   const ready = IX_STATE.rateRows.length>0 && IX_STATE.pgMap.length>0 && IX_STATE.salesRows.length>0;
   btn.disabled = !ready;
-  const hint = btn.nextElementSibling;
-  if(hint) hint.textContent = ready ? '' : 'Upload Rate Files, Distributor Master and Sales Register to enable the check (UOM Conversion needed only for PC-priced items).';
+  const hint = document.querySelector('#view-intelx .ix-hint');
+  if(hint) hint.textContent = ready ? 'Ready — click Run Check.' : 'Upload steps 1, 2 and 4 to enable the check. Step 3 (UOM) is needed only for PC-priced items.';
+  [['ixRateInput',IX_STATE.rateRows.length>0],['ixPgInput',IX_STATE.pgMap.length>0],['ixUomInput',Object.keys(IX_STATE.uomMap||{}).length>0],['ixSalesInput',IX_STATE.salesRows.length>0]].forEach(([id,ok])=>{const st=document.getElementById(id); if(st&&st.closest('.ix-step')) st.closest('.ix-step').classList.toggle('done',ok);});
 }
 
 function renderIxResults(){
