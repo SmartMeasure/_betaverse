@@ -5180,12 +5180,13 @@ function ixRunCheck(){
       return { ...s, priceGroup: pg.pg, location: pg.location, productName: match.productName, expectedRate: match.distRate, diff:null, baseKg:null, rateDateStr: match.effDateStr, status:'UOM Missing', remark: conv.note };
     }
     const baseKg = Math.round(conv.perKg*100)/100;
-    const diff = Math.round((baseKg - match.distRate)*100)/100;
+    const isCredit = baseKg < 0;                       // credit note / return line: SAP prints a negative price
+    const diff = Math.round(((isCredit ? -baseKg : baseKg) - match.distRate)*100)/100;
     let status = 'Match';
     if(diff > TOL) status = 'Overcharge';
     else if(diff < -TOL) status = 'Undercharge';
     const sameDay = match.effDateStr === s.invoiceDateStr;
-    const remark = [conv.note, sameDay ? '' : `Latest rate change on/before invoice date: ${match.effDateStr}`].filter(Boolean).join(' · ');
+    const remark = [conv.note, isCredit ? 'Negative price (credit note / return) — compared on absolute value' : '', sameDay ? '' : `Latest rate change on/before invoice date: ${match.effDateStr}`].filter(Boolean).join(' · ');
     return { ...s, priceGroup: pg.pg, location: pg.location, productName: match.productName, expectedRate: match.distRate, baseKg, diff, status, rateDateStr: match.effDateStr, remark };
   });
   IX_STATE.results = results;
