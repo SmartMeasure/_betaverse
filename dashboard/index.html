@@ -179,8 +179,11 @@ function photoAppUrl(){
 }
 function photoFileId(url){ const m = String(url||'').match(/[?&]fileId=([^&]+)/) || String(url||'').match(/[?&]id=([^&]+)/); return m ? m[1] : null; }
 // Any stored Drive-photo link (old or new deployment) -> opens through the CURRENT photo script.
+const PHOTO_APP_URL_OLD = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';   // photos uploaded earlier stay on this (old Drive) script
+// A stored link that already points at the OLD photo script keeps using it; every other link opens through the CURRENT script.
+function photoBaseFor(url){ return String(url||'').indexOf(PHOTO_APP_URL_OLD)===0 ? PHOTO_APP_URL_OLD : photoAppUrl(); }
 function photoViewUrl(url){
-  const base = photoAppUrl(), id = photoFileId(url);
+  const base = photoBaseFor(url), id = photoFileId(url);
   return (base && id) ? `${base}?action=viewphoto&fileId=${id}` : url;
 }
 async function driveUploadBillCopy(session, billUid, fileName, mimeType, base64Data){
@@ -1578,7 +1581,7 @@ async function exportBillPhotosZip(rows, btn){
           let blob, ext;
           const fid = photoFileId(r.BillCopyURL);
           if(fid && photoAppUrl()){            // Drive photo -> fetched as JSON (base64) through the photo script
-            const resp = await fetch(`${photoAppUrl()}?action=photojson&fileId=${fid}`);
+            const resp = await fetch(`${photoBaseFor(r.BillCopyURL)}?action=photojson&fileId=${fid}`);
             const j = await resp.json();
             if(!j.ok) throw new Error(j.error||'photo');
             blob = supaB64ToBlob(j.base64, j.mime); ext = /pdf/i.test(j.mime) ? 'pdf' : 'jpg';
