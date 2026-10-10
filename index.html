@@ -629,8 +629,11 @@ function photoAppUrl(){
 }
 function photoFileId(url){ const m = String(url||'').match(/[?&]fileId=([^&]+)/) || String(url||'').match(/[?&]id=([^&]+)/); return m ? m[1] : null; }
 // Any stored Drive-photo link (old or new deployment) -> opens through the CURRENT photo script.
+const PHOTO_APP_URL_OLD = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';   // photos uploaded earlier stay on this (old Drive) script
+// A stored link that already points at the OLD photo script keeps using it; every other link opens through the CURRENT script.
+function photoBaseFor(url){ return String(url||'').indexOf(PHOTO_APP_URL_OLD)===0 ? PHOTO_APP_URL_OLD : photoAppUrl(); }
 function photoViewUrl(url){
-  const base = photoAppUrl(), id = photoFileId(url);
+  const base = photoBaseFor(url), id = photoFileId(url);
   return (base && id) ? `${base}?action=viewphoto&fileId=${id}` : url;
 }
 async function driveUploadBillCopy(session, billUid, fileName, mimeType, base64Data){
@@ -5000,23 +5003,26 @@ async function ixParsePGMappingFile(file){
    enough anchor). Handles the sheet's own double-space "Total  Amount". */
 const IX_SALES_COLS = {
   // the YELLOW-highlighted columns of the SAP register
-  invoiceDate:['Invoice Date'],
-  orderNo:    ['Order Number'],
+  invoiceDate:['Invoice Date','Billing Date','Bill Date'],
+  orderNo:    ['Order Number','Order No','Order No.','Sales Order'],
   orderDate:  ['Order Date'],
-  dbCode:     ['Bill to Party'],
-  dbName:     ['Bill to Party Name'],
-  itemCode:   ['Item Code'],
-  itemDesc:   ['Item Description'],
-  qtyKg:      ['Qty in KGs'],
+  dbCode:     ['Bill to Party','Bill-to Party','Bill To Party Code','Customer Code','Sold to Party'],
+  dbName:     ['Bill to Party Name','Bill-to Party Name','Customer Name'],
+  itemCode:   ['Item Code','Material Code'],
+  itemDesc:   ['Item Description','Material Description'],
+  qtyKg:      ['Qty in KGs','Qty in KG','Quantity in KGs','Quantity in KG'],
   basePrice:  ['Base Price'],
   perUom:     ['per UoM'],
+  specialDisc:['Special Discount'],
+  manualDiscPct:['Manual Discount%','Manual Discount %','Manual Discount'],
+  accountingDoc:['Accounting Document'],
   taxableAmt: ['Taxable Amount'],
   totalAmt:   ['Total Amount','Total  Amount'],
   // helper columns (not yellow) — only used to convert PC / BAG based Base Prices to per-KG when the UOM master has no entry
   qtyPcs:     ['Qty in PCS'],
   bags:       ['Bag'],
 };
-const IX_OPTIONAL_COLS = ['totalAmt','taxableAmt','orderDate','perUom','qtyPcs','bags'];
+const IX_OPTIONAL_COLS = ['specialDisc','manualDiscPct','accountingDoc','totalAmt','taxableAmt','orderDate','perUom','qtyPcs','bags'];
 function ixExcelSerialToDate(v){
   if(v instanceof Date) return v;
   if(typeof v === 'number'){
@@ -5029,45 +5035,64 @@ function ixExcelSerialToDate(v){
 async function ixParseSalesRegisterFile(file, onProgress){
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, {type:'array', cellDates:false});
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
-  if(!rows.length) return [];
-  const header = rows[0];
-  const idx = {};
-  for(const key in IX_SALES_COLS){
-    idx[key] = ixHeaderIndex(header, IX_SALES_COLS[key]);
-  }
-  // 'per UoM' appears 3 times in the SAP export (Base Price / Surcharge 1 / Surcharge 2) — the FIRST one belongs to Base Price.
-  const missing = Object.keys(idx).filter(k=>idx[k]===-1 && !IX_OPTIONAL_COLS.includes(k));
-  if(missing.length) throw new Error('Could not find these expected columns in the Sales Register: ' + missing.join(', '));
+  const REQUIRED = Object.keys(IX_SALES_COLS).filter(k=>!IX_OPTIONAL_COLS.includes(k));
   const out = [];
-  const total = rows.length;
+  let seq = 0;                                   // running SAP row number across every sheet, so the export keeps the file's order
+  const notes = [];                              // what was found in sheets that were skipped (shown if nothing at all is readable)
   const cell = (row,i)=> i===-1 ? '' : row[i];
-  for(let r=1;r<rows.length;r++){
-    const row = rows[r];
-    if(row==null || row.length===0) continue;
-    const itemCode = String(row[idx.itemCode]||'').trim();
-    if(!itemCode) continue;
-    const invoiceDate = ixExcelSerialToDate(row[idx.invoiceDate]);
-    const orderDate = idx.orderDate!==-1 ? ixExcelSerialToDate(row[idx.orderDate]) : null;
-    out.push({
-      seq: r,   // original row number in the SAP file — export keeps this exact order
-      invoiceDate, invoiceDateStr: ixFmtDMY(invoiceDate),
-      orderNo: String(cell(row,idx.orderNo)||'').trim(),
-      orderDateStr: orderDate ? ixFmtDMY(orderDate) : '',
-      dbCode: String(row[idx.dbCode]||'').trim(),
-      dbName: String(row[idx.dbName]||'').trim(),
-      itemCode, itemDesc: String(row[idx.itemDesc]||'').trim(),
-      qtyKg: Number(row[idx.qtyKg])||0,
-      basePrice: Number(row[idx.basePrice])||0,
-      perUom: String(cell(row,idx.perUom)||'').trim(),
-      qtyPcs: Number(cell(row,idx.qtyPcs))||0,
-      bags: Number(cell(row,idx.bags))||0,
-      taxableAmt: Number(cell(row,idx.taxableAmt))||0,
-      totalAmt: Number(cell(row,idx.totalAmt))||0,
-    });
-    if(onProgress && r%2000===0) onProgress(r, total);
+  for(const sn of wb.SheetNames){
+    const ws = wb.Sheets[sn];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+    if(!rows.length) continue;
+    // The header row is not always row 1 (title lines, blank lines) — take the row among the first 40 that matches most columns.
+    let best = {hi:-1, idx:null, hit:-1};
+    for(let hi=0; hi<Math.min(rows.length,40); hi++){
+      const header = rows[hi];
+      if(!header || !header.some(c=>String(c).trim()!=='')) continue;
+      const idx = {};
+      for(const key in IX_SALES_COLS) idx[key] = ixHeaderIndex(header, IX_SALES_COLS[key]);
+      const hit = REQUIRED.filter(k=>idx[k]!==-1).length;
+      if(hit>best.hit) best = {hi, idx, hit};
+    }
+    if(best.hi<0 || best.hit<REQUIRED.length){
+      const first = best.hi>=0 ? rows[best.hi].map(c=>String(c).trim()).filter(Boolean).slice(0,10).join(' | ') : '(empty)';
+      const miss = best.idx ? REQUIRED.filter(k=>best.idx[k]===-1).join(', ') : REQUIRED.join(', ');
+      notes.push(`Sheet "${sn}": missing ${miss}. Its header row reads: ${first}`);
+      continue;
+    }
+    const idx = best.idx;
+    const total = rows.length;
+    for(let r=best.hi+1; r<rows.length; r++){
+      const row = rows[r];
+      if(row==null || row.length===0) continue;
+      const itemCode = String(row[idx.itemCode]||'').trim();
+      if(!itemCode) continue;
+      const invoiceDate = ixExcelSerialToDate(row[idx.invoiceDate]);
+      const orderDate = idx.orderDate!==-1 ? ixExcelSerialToDate(row[idx.orderDate]) : null;
+      seq++;
+      out.push({
+        seq,   // running row number in the SAP file(s) — export keeps this exact order
+        invoiceDate, invoiceDateStr: ixFmtDMY(invoiceDate),
+        orderNo: String(cell(row,idx.orderNo)||'').trim(),
+        orderDateStr: orderDate ? ixFmtDMY(orderDate) : '',
+        dbCode: String(row[idx.dbCode]||'').trim(),
+        dbName: String(row[idx.dbName]||'').trim(),
+        itemCode, itemDesc: String(row[idx.itemDesc]||'').trim(),
+        qtyKg: Number(row[idx.qtyKg])||0,
+        basePrice: Number(row[idx.basePrice])||0,
+        perUom: String(cell(row,idx.perUom)||'').trim(),
+        accountingDoc: String(cell(row,idx.accountingDoc)||'').trim(),
+        specialDisc: (v=>v===''||v==null||isNaN(Number(v))?'':Number(v))(cell(row,idx.specialDisc)),
+        manualDiscPct: (v=>v===''||v==null||isNaN(Number(v))?'':Number(v))(cell(row,idx.manualDiscPct)),
+        qtyPcs: Number(cell(row,idx.qtyPcs))||0,
+        bags: Number(cell(row,idx.bags))||0,
+        taxableAmt: Number(cell(row,idx.taxableAmt))||0,
+        totalAmt: Number(cell(row,idx.totalAmt))||0,
+      });
+      if(onProgress && r%2000===0) onProgress(r, total);
+    }
   }
+  if(!out.length) throw new Error('No Sales Register rows could be read. ' + (notes.length ? notes.join(' ‖ ') : 'The file looks empty.'));
   return out;
 }
 
@@ -5258,7 +5283,7 @@ async function renderIntelX(){
       </div>
       <div class="ix-step${hasSales?' done':''}">
         <div class="ix-step-h"><span class="ix-num">4</span><span class="ix-step-t">SAP Sales Register</span></div>
-        <div class="ix-step-d">The SAP export as-is. Imports the yellow columns: Order No/Date, Invoice Date, Bill to Party, Item, Qty, Base Price, per UoM, Amounts. Row order is preserved in the export.</div>
+        <div class="ix-step-d">The SAP export as-is. Imports the yellow columns: Order No/Date, Invoice Date, Accounting Doc, Bill to Party, Item, Qty, Base Price, per UoM, Amounts. Special Discount and Manual Discount % are included. Row order is preserved in the export.</div>
         <label class="ix-drop"><input type="file" id="ixSalesInput" accept=".xlsx,.xls"><span class="ix-drop-ic">📂</span><span class="ix-drop-t">Choose file</span><span class="ix-drop-n" data-for="ixSalesInput">No file chosen</span></label>
         <div class="ix-status" id="ixSalesStatus">${hasSales ? `<span class="status-chip ready"><span class="status-dot"></span>${ixFmtInt(IX_STATE.salesRows.length)} sales lines loaded</span>` : '<span class="small-muted">No sales register loaded yet.</span>'}</div>
       </div>
@@ -5519,11 +5544,11 @@ function renderIxResults(){
     </div>
     <div class="small-muted" style="margin-bottom:8px;">${ixFmtInt(rows.length)} line(s) match this filter · showing page ${IX_FILTERS.page} of ${totalPages}</div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Order No</th><th>Order Date</th><th>Invoice Date</th><th>DB Code</th><th>Distributor</th><th>Price Group</th><th>Price Group Name</th><th>Item Code</th><th>Product</th><th class="num">Qty (kg)</th><th class="num">Base Price</th><th>per UoM</th><th class="num">Base/kg</th><th class="num">Rate File (Exc-GST)</th><th class="num">Diff/kg</th><th>Status</th><th>Rate File Date</th></tr></thead>
+      <thead><tr><th>Order No</th><th>Order Date</th><th>Invoice Date</th><th>Accounting Doc</th><th>DB Code</th><th>Distributor</th><th>Price Group</th><th>Price Group Name</th><th>Item Code</th><th>Product</th><th class="num">Qty (kg)</th><th class="num">Base Price</th><th>per UoM</th><th class="num">Special Disc</th><th class="num">Manual Disc %</th><th class="num">Base/kg</th><th class="num">Rate File (Exc-GST)</th><th class="num">Diff/kg</th><th>Status</th><th>Rate File Date</th></tr></thead>
       <tbody>${pageRows.map(r=>`<tr title="${ixEsc(r.remark||'')}">
-        <td>${ixEsc(r.orderNo)}</td><td>${ixEsc(r.orderDateStr)}</td><td>${ixEsc(r.invoiceDateStr)}</td><td>${ixEsc(r.dbCode)}</td><td class="wrap">${ixEsc(r.dbName)}</td><td>${ixEsc(r.priceGroup)}</td><td>${ixEsc(r.location)}</td>
+        <td>${ixEsc(r.orderNo)}</td><td>${ixEsc(r.orderDateStr)}</td><td>${ixEsc(r.invoiceDateStr)}</td><td>${ixEsc(r.accountingDoc)}</td><td>${ixEsc(r.dbCode)}</td><td class="wrap">${ixEsc(r.dbName)}</td><td>${ixEsc(r.priceGroup)}</td><td>${ixEsc(r.location)}</td>
         <td>${ixEsc(r.itemCode)}</td><td class="wrap">${ixEsc(r.itemDesc)}</td><td class="num">${ixFmtInt(r.qtyKg)}</td>
-        <td class="num">${ixFmtMoney(r.basePrice)}</td><td>${ixEsc(r.perUom)}</td><td class="num">${r.baseKg!=null?ixFmtMoney(r.baseKg):'—'}</td><td class="num">${r.expectedRate!=null?ixFmtMoney(r.expectedRate):'—'}</td>
+        <td class="num">${ixFmtMoney(r.basePrice)}</td><td>${ixEsc(r.perUom)}</td><td class="num">${r.specialDisc===''||r.specialDisc==null?'—':ixFmtMoney(r.specialDisc)}</td><td class="num">${r.manualDiscPct===''||r.manualDiscPct==null?'—':r.manualDiscPct}</td><td class="num">${r.baseKg!=null?ixFmtMoney(r.baseKg):'—'}</td><td class="num">${r.expectedRate!=null?ixFmtMoney(r.expectedRate):'—'}</td>
         <td class="num" style="color:${statusColor(r.status)};font-weight:700;">${r.diff!=null?(r.diff>0?'+':'')+ixFmtMoney(r.diff):'—'}</td>
         <td><span style="color:${statusColor(r.status)};font-weight:700;">${ixEsc(r.status)}</span></td><td>${ixEsc(r.rateDateStr||'—')}</td>
       </tr>`).join('')}</tbody>
@@ -5571,12 +5596,13 @@ async function ixExportDetailedExcel(rows){
     const cols = [
       {header:'SAP Row #', key:'seq', width:10},
       {header:'Order Number', key:'orderNo', width:14}, {header:'Order Date', key:'orderDateStr', width:13},
-      {header:'Invoice Date', key:'invoiceDateStr', width:13},
+      {header:'Invoice Date', key:'invoiceDateStr', width:13}, {header:'Accounting Document', key:'accountingDoc', width:16},
       {header:'Bill to Party', key:'dbCode', width:12}, {header:'Bill to Party Name', key:'dbName', width:28},
       {header:'Price Group', key:'priceGroup', width:12}, {header:'Price Group Name', key:'location', width:16},
       {header:'Item Code', key:'itemCode', width:11}, {header:'Item Description', key:'itemDesc', width:32},
       {header:'Qty in KGs', key:'qtyKg', width:11},
       {header:'Base Price (SAP)', key:'basePrice', width:14}, {header:'per UoM', key:'perUom', width:9},
+      {header:'Special Discount', key:'specialDisc', width:14}, {header:'Manual Discount %', key:'manualDiscPct', width:16},
       {header:'Base Price per KG', key:'baseKg', width:15},
       {header:'Distributor Rate (Rate File, Exc-GST)', key:'expectedRate', width:20},
       {header:'Diff/kg', key:'diff', width:11}, {header:'₹ Impact', key:'impact', width:13},
@@ -5596,9 +5622,9 @@ async function ixExportDetailedExcel(rows){
       const row = ws.getRow(r);
       cols.forEach((c,i)=>{
         let v = c.key==='impact' ? impact : rr[c.key];
-        row.getCell(i+1).value = (v==null || v==='') ? (['remark','orderNo','orderDateStr','perUom'].includes(c.key) ? '' : '—') : v;
+        row.getCell(i+1).value = (v==null || v==='') ? (['remark','orderNo','orderDateStr','perUom','accountingDoc'].includes(c.key) ? '' : '—') : v;
       });
-      ['basePrice','baseKg','expectedRate','diff','impact','taxableAmt','totalAmt'].forEach(k=>{ const ci=cols.findIndex(c=>c.key===k)+1; if(typeof row.getCell(ci).value==='number') row.getCell(ci).numFmt='#,##0.00'; });
+      ['basePrice','specialDisc','baseKg','expectedRate','diff','impact','taxableAmt','totalAmt'].forEach(k=>{ const ci=cols.findIndex(c=>c.key===k)+1; if(typeof row.getCell(ci).value==='number') row.getCell(ci).numFmt='#,##0.00'; });
       let fill=null, font=null;
       if(rr.status==='Overcharge'){ fill=IX_COLORS.DANGERSOFT; font=IX_COLORS.DANGER; }
       else if(rr.status==='Undercharge'){ fill=IX_COLORS.WARNSOFT; font=IX_COLORS.WARN; }
