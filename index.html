@@ -4951,6 +4951,33 @@ async function ixParseRatePdf(arrayBuffer){
    Flexible header matching (own copy, own column names) — expects a sheet with
    a distributor code column, a Location column (direct), and optionally a
    Price Group column (kept only for display, not required for matching). */
+
+// Reads an .xlsx/.xls. Some tools (or an interrupted download/sync) write zip entries with wrong size fields, which makes
+// SheetJS stop with "Bad compressed size". In that case every entry is re-read one by one through JSZip, unreadable
+// non-essential ones (document properties etc.) are dropped, and the workbook is re-packed and read again.
+async function ixReadWorkbook(buf){
+  try{ return XLSX.read(buf, {type:'array', cellDates:false}); }
+  catch(e1){
+    if(typeof JSZip==='undefined') throw e1;
+    let zip;
+    try{ zip = await JSZip.loadAsync(buf); }
+    catch(e2){ throw new Error('This file looks damaged or incomplete (' + e1.message + '). Open it in Excel, click Save As → Excel Workbook (.xlsx), and upload that copy.'); }
+    const fixed = new JSZip(); let dropped = [];
+    for(const name of Object.keys(zip.files)){
+      const f = zip.files[name]; if(f.dir) continue;
+      try{ fixed.file(name, await f.async('uint8array')); }
+      catch(e3){ dropped.push(name); }
+    }
+    try{
+      const out = await fixed.generateAsync({type:'uint8array', compression:'DEFLATE'});
+      const wb = XLSX.read(out, {type:'array', cellDates:false});
+      if(dropped.length) console.warn('INTELX: skipped unreadable parts of the workbook:', dropped);
+      return wb;
+    }catch(e4){
+      throw new Error('This file looks damaged or incomplete (' + e1.message + (dropped.length?'; unreadable: '+dropped.slice(0,3).join(', '):'') + '). Open it in Excel, click Save As → Excel Workbook (.xlsx), and upload that copy.');
+    }
+  }
+}
 function ixHeaderIndex(headerRow, candidates){
   const norm = s => String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
   const normHeaders = headerRow.map(norm);
@@ -4968,7 +4995,7 @@ function ixHeaderIndex(headerRow, candidates){
 }
 async function ixParsePGMappingFile(file){
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, {type:'array', cellDates:false});
+  const wb = await ixReadWorkbook(buf);
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
   if(!rows.length) return [];
@@ -5034,7 +5061,7 @@ function ixExcelSerialToDate(v){
 }
 async function ixParseSalesRegisterFile(file, onProgress){
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, {type:'array', cellDates:false});
+  const wb = await ixReadWorkbook(buf);
   const REQUIRED = Object.keys(IX_SALES_COLS).filter(k=>!IX_OPTIONAL_COLS.includes(k));
   const out = [];
   let seq = 0;                                   // running SAP row number across every sheet, so the export keeps the file's order
@@ -5099,7 +5126,7 @@ async function ixParseSalesRegisterFile(file, onProgress){
 /* ---------------- UOM Conversion master (INTELX's own upload — separate from the main app's) ---------------- */
 async function ixParseUomFile(file){
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, {type:'array', cellDates:false});
+  const wb = await ixReadWorkbook(buf);
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
   let hi = -1;
@@ -5326,8 +5353,8 @@ function ixRateFilesSummaryHtml(){
 
 // Month-wise Excel rate file: one sheet per Price Group Name, a "Rate Change Date" row, product codes down the side.
 // Only real numbers are read — #N/A, blanks and text are ignored, so they never show up anywhere.
-function ixParseRateExcelBuffer(buf){
-  const wb = XLSX.read(buf, { type:'array', cellDates:false });
+async function ixParseRateExcelBuffer(buf){
+  const wb = await ixReadWorkbook(buf);
   const out = []; // {location, rows:[{productCode,productName,distRate,effDate,effDateStr}]}
   wb.SheetNames.forEach(sn=>{
     const ws = wb.Sheets[sn];
@@ -5390,7 +5417,7 @@ async function ixHandleRateUpload(files){
     if(/\.xlsx?$/i.test(file.name)){
       statusDiv.innerHTML = `<span class="small-muted">Reading ${ixEsc(file.name)} (${fi+1}/${files.length})…</span>`;
       let sheets;
-      try{ sheets = ixParseRateExcelBuffer(await file.arrayBuffer()); }
+      try{ sheets = await ixParseRateExcelBuffer(await file.arrayBuffer()); }
       catch(e){ console.error(e); toast(`Could not read ${file.name} — skipped`, 'err'); continue; }
       if(!sheets.length){ toast(`No rate sheets found in ${file.name} (need a "PRODUCT CODE" column and a "Rate Change Date" row)`, 'err'); continue; }
       sheets.forEach(sh=>{
