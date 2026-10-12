@@ -172,7 +172,7 @@ function supaSaveCfg(url, key, photoUrl){ try{ const o = JSON.parse(localStorage
 
 /* Bill photos live in GOOGLE DRIVE (served by the small photo Apps Script); Supabase only stores the link.
    PHOTO_APP_URL = that script's /exec URL. If it is not set, photos fall back to Supabase Storage. */
-const PHOTO_APP_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
+const PHOTO_APP_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbwBVkuujpth71CfbEVF_vYTRwVzyzo2gBHqkrh4fTEX2XycjTMzoa5y87Z6rlKLhRlYkg/exec';
 function photoAppUrl(){
   if(!PHOTO_APP_URL_DEFAULT.startsWith('PASTE')) return PHOTO_APP_URL_DEFAULT;
   try{ return (JSON.parse(localStorage.getItem(SUPA_CFG_KEY)||'{}').photoUrl || '').trim(); }catch(e){ return ''; }
