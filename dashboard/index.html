@@ -150,7 +150,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v19-superadmin';
+const APP_VERSION = 'v20-search-delete';
 /* ==================== SUPABASE BACKEND ====================
    Same action names the app has always used (login / submit / mydata / syncdata …) — each one is
    now a single fast call to a Postgres function (rl_*) on Supabase. Photos go straight to Supabase
@@ -270,6 +270,7 @@ async function supaDispatch(a){
     case 'alldata':        return supaRpc('rl_all_data', { p_code:a.code, p_pin:a.pin, p_from:nz(a.fromDate), p_to:nz(a.toDate), p_auditor:nz(a.auditorCode), p_basis:a.dateBasis||'bill' }, 1);
     case 'syncdata':       return supaRpc('rl_sync', { p_code:a.code, p_pin:a.pin, p_since:nz(a.sinceISO), p_offset:Number(a.offset)||0 }, 2);
     case 'deletebill':     return supaRpc('rl_delete_bill', { p_code:a.code, p_pin:a.pin, p_bill_uid:a.billUid, p_product_codes:a.productCodes||null, p_reason:a.reason||'' }, 0);
+    case 'deletemany':     return supaRpc('rl_delete_many', { p_code:a.code, p_pin:a.pin, p_items:a.items||[], p_reason:a.reason||'' }, 0);
     case 'deletedlist':    return supaRpc('rl_deleted_list', { p_code:a.code, p_pin:a.pin }, 1);
     case 'usage':          return supaRpc('rl_usage', { p_code:a.code, p_pin:a.pin }, 1);
     case 'users':          return supaRpc('rl_users_list', { p_code:a.code, p_pin:a.pin }, 1);
@@ -1338,6 +1339,7 @@ async function renderSubmissions(){
         <option value="negligible" ${window.__subStatus==='negligible'?'selected':''}>Negligible</option>
         <option value="match" ${window.__subStatus==='match'?'selected':''}>Match</option>
       </select></div>
+      <div class="field"><label>🔎 Search bills</label><input type="search" id="subSearch" value="${esc(window.__subQ||'')}" placeholder="retailer, DB, bill no, product, auditor, date…" style="min-width:260px;"></div>
       <button class="btn accent" id="subExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
       <button class="btn secondary" id="subExportPhotos" disabled>📷 Download All Photos (ZIP)</button>
     </div>
@@ -1345,6 +1347,7 @@ async function renderSubmissions(){
     <div id="subAnalyticsStrip"></div>
     <div id="subContent">${ultimateLoaderHtml('subLoader')}</div>
   `;
+  { let t=null; $('#subSearch').addEventListener('input', e=>{ clearTimeout(t); const v=e.target.value; t=setTimeout(()=>{ window.__subQ = v; applySubmissionFilters(); }, 250); }); }
   wireDateRangeBar('sub', ()=>{
     window.__subFrom = $('#subFrom').value; window.__subTo = $('#subTo').value;
     window.__subDateBasis = $('#subDateBasis').value;
@@ -1390,15 +1393,28 @@ function paintSubmissions(rows, isStale){
   $('#subStatusFilter').addEventListener('change', e=>{ window.__subStatus = e.target.value; applySubmissionFilters(); });
   applySubmissionFilters();
 }
+const __subHay = new WeakMap();
+// Everything a person could search a bill by: every field of the line + readable status + copy attached / missing.
+function subHaystack(r){
+  let h = __subHay.get(r);
+  if(h===undefined){
+    const vals = []; for(const k in r){ if(k==='_k' || k==='Timestamp') continue; const v = r[k]; if(v!==undefined && v!==null && v!=='') vals.push(String(v)); }
+    h = (vals.join(' ') + ' ' + statusLabelFor(r.Status) + ' ' + (r.BillCopyURL ? 'copy attached has photo' : 'copy missing no photo nocopy') + ' ' + String(r.BillUID||'').replace('bill_','')).toLowerCase();
+    __subHay.set(r, h);
+  }
+  return h;
+}
 function applySubmissionFilters(){
   let rows = window.__subRows||[];
-  const sig = [window.__subAuditor,window.__subVerifier,window.__subStatus,window.__subCategory,window.__subDBName,window.__subUniqueBillsOnly,window.__subFrom,window.__subTo,window.__subDateBasis].join('|');
+  const sig = [window.__subAuditor,window.__subVerifier,window.__subStatus,window.__subCategory,window.__subDBName,window.__subUniqueBillsOnly,window.__subFrom,window.__subTo,window.__subDateBasis,window.__subQ].join('|');
   if(sig!==window.__subSig){ window.__subSig = sig; window.__subPage = 1; } // a background sync adding rows keeps your page; changing a filter starts from page 1
   if(window.__subAuditor) rows = rows.filter(r=>r.AuditorName===window.__subAuditor);
   if(window.__subVerifier) rows = rows.filter(r=>r.VerifiedBy===window.__subVerifier);
   if(window.__subStatus) rows = rows.filter(r=>r.Status===window.__subStatus);
   if(window.__subCategory) rows = rows.filter(r=>r.Category===window.__subCategory);
   if(window.__subDBName) rows = rows.filter(r=>r.DBName===window.__subDBName);
+  { const terms = String(window.__subQ||'').toLowerCase().split(/\s+/).filter(Boolean);       // every word must match somewhere in the row
+    if(terms.length) rows = rows.filter(r=>{ const h = subHaystack(r); return terms.every(t=>h.includes(t)); }); }
   // Analytics strip above the table reflects every filter EXCEPT the
   // unique-bills-only display toggle — so "unique bills" there always means
   // the real count for whatever's filtered, whether or not the table itself
@@ -1493,6 +1509,7 @@ function billCopyLinkCell(r){
 function renderSubmissionsTable(rows){
   const content = $('#subInner');
   const SUPER = !!(getSession()||{}).superAdmin;
+  window.__subSel = window.__subSel || new Set();
   if(!rows.length){ content.innerHTML = '<div class="empty-state">No submissions match these filters.</div>'; return; }
   const cols = ['Timestamp','BillUID','AuditorCode','AuditorName','VerifiedBy','DBCode','DBName','Location','Retailer','BillDate','SOSubmitDate','ProductName','ProductCode','CompanyRate','InvoiceRate','VariancePct','Status','OverchargeAmt','UnderchargeAmt','BillCopy'];
   let lastAuditor = null;
@@ -1507,12 +1524,12 @@ function renderSubmissionsTable(rows){
       <button class="btn small" id="subPrev" ${window.__subPage<=1?'disabled':''}>← Prev</button>
       <span class="small-muted">Rows ${fmtInt((window.__subPage-1)*PAGE+1)}–${fmtInt(Math.min(window.__subPage*PAGE, rows.length))} of ${fmtInt(rows.length)} · page ${window.__subPage}/${totalPages}</span>
       <button class="btn small" id="subNext" ${window.__subPage>=totalPages?'disabled':''}>Next →</button></div>` : '';
-  content.innerHTML = `${pager}<div class="table-wrap"><table>
-    <thead><tr>${cols.map(c=>`<th>${c==='BillCopy'?'Bill Copy':c}</th>`).join('')}${SUPER?'<th>Delete</th>':''}</tr></thead>
+  content.innerHTML = `${SUPER?`<div id="subSelBar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0;padding:8px 12px;border:1px solid var(--edge);border-radius:10px;background:var(--panel-3);"></div>`:''}${pager}<div class="table-wrap"><table>
+    <thead><tr>${SUPER?`<th><input type="checkbox" id="subSelPage" title="Select this page"></th>`:''}${cols.map(c=>`<th>${c==='BillCopy'?'Bill Copy':c}</th>`).join('')}${SUPER?'<th>Delete</th>':''}</tr></thead>
     <tbody>${pageRows.map(r=>{
       const newGroup = r.AuditorName!==lastAuditor;
       lastAuditor = r.AuditorName;
-      return `<tr class="${newGroup?'auditor-group-start':''}">${cols.map(c=>{
+      return `<tr class="${newGroup?'auditor-group-start':''}">${SUPER?`<td><input type="checkbox" data-sel="${esc(r._k||'')}" ${window.__subSel.has(r._k)?'checked':''}></td>`:''}${cols.map(c=>{
       if(c==='BillCopy') return `<td>${billCopyLinkCell(r)}</td>`;
       if(c==='Status') return `<td>${statusBadge(r[c])}</td>`;
       if(['CompanyRate','InvoiceRate','OverchargeAmt','UnderchargeAmt'].includes(c)) return `<td class="num">${fmtMoney(r[c])}</td>`;
@@ -1522,8 +1539,25 @@ function renderSubmissionsTable(rows){
       return `<td>${esc(r[c])}</td>`;
     }).join('')}${SUPER?`<td style="white-space:nowrap;"><button class="btn small danger" data-del-line="${esc(r._k||'')}">🗑 Line</button> <button class="btn small danger" data-del-bill="${esc(r.BillUID||'')}">🗑 Bill</button></td>`:''}</tr>`; }).join('')}</tbody>
   </table></div>${pager}`;
-  $all('[data-del-line]').forEach(b=>b.addEventListener('click', ()=>{ const r = AdminStore.byKey.get(b.dataset.delLine); if(r) sdOpenDelete(r, false); }));
-  $all('[data-del-bill]').forEach(b=>b.addEventListener('click', ()=>{ const r = AdminStore.rows.find(x=>x.BillUID===b.dataset.delBill); if(r) sdOpenDelete(r, true); }));
+  $all('[data-del-line]').forEach(b=>b.addEventListener('click', ()=>{ const r = AdminStore.byKey.get(b.dataset.delLine); if(r) sdOpenDelete([r]); }));
+  $all('[data-del-bill]').forEach(b=>b.addEventListener('click', ()=>{ const ls = AdminStore.rows.filter(x=>x.BillUID===b.dataset.delBill); if(ls.length) sdOpenDelete(ls); }));
+  if(SUPER){
+    const paintBar = ()=>{
+      const n = window.__subSel.size, bar = $('#subSelBar'); if(!bar) return;
+      bar.innerHTML = `<b>${fmtInt(n)}</b> selected
+        <button class="btn small" id="subSelAll">Select all ${fmtInt(rows.length)} shown (every page)</button>
+        <button class="btn small" id="subSelClear" ${n?'':'disabled'}>Clear</button>
+        <button class="btn small danger" id="subSelDelete" ${n?'':'disabled'}>🗑 Delete selected${n?' ('+fmtInt(n)+')':''}</button>
+        <span class="small-muted">Tick lines (or "select all"), then delete them together.${window.__subUniqueBillsOnly?' (Unique-bills view: each ticked row deletes its WHOLE bill.)':''}</span>`;
+      $('#subSelAll').onclick = ()=>{ rows.forEach(r=>window.__subSel.add(r._k)); syncChecks(); paintBar(); };
+      $('#subSelClear').onclick = ()=>{ window.__subSel.clear(); syncChecks(); paintBar(); };
+      $('#subSelDelete').onclick = ()=>{ sdOpenDeleteSelected(rows); };
+    };
+    const syncChecks = ()=>{ $all('[data-sel]').forEach(c=>{ c.checked = window.__subSel.has(c.dataset.sel); }); const pg = $('#subSelPage'); if(pg) pg.checked = pageRows.length>0 && pageRows.every(r=>window.__subSel.has(r._k)); };
+    $all('[data-sel]').forEach(c=>c.addEventListener('change', ()=>{ if(c.checked) window.__subSel.add(c.dataset.sel); else window.__subSel.delete(c.dataset.sel); syncChecks(); paintBar(); }));
+    const pg = $('#subSelPage'); if(pg) pg.addEventListener('change', ()=>{ pageRows.forEach(r=>{ if(pg.checked) window.__subSel.add(r._k); else window.__subSel.delete(r._k); }); syncChecks(); paintBar(); });
+    syncChecks(); paintBar();
+  }
   $all('#subPrev').forEach(b=>b.addEventListener('click', ()=>{ window.__subPage--; renderSubmissionsTable(rows); }));
   $all('#subNext').forEach(b=>b.addEventListener('click', ()=>{ window.__subPage++; renderSubmissionsTable(rows); }));
 }
@@ -2322,18 +2356,39 @@ function msAnalyticsCardHtml(rows){
 /* ==================== SUPER ADMIN: delete wrong entries + Deleted Log ====================
    Only a Super Admin sees these controls (and the server refuses everyone else). Each deletion is copied to a
    log first (who / when / why / full row), and a deleted line can never come back through a queued retry. */
-function sdOpenDelete(row, wholeBill){
+function sdOpenDeleteSelected(shownRows){
+  const keys = window.__subSel || new Set();
+  let lines = [];
+  keys.forEach(k=>{ const r = AdminStore.byKey.get(k); if(r) lines.push(r); });
+  if(window.__subUniqueBillsOnly){                    // unique-bills view: a ticked row stands for its whole bill
+    const uids = new Set(lines.map(r=>r.BillUID)); lines = AdminStore.rows.filter(r=>uids.has(r.BillUID));
+  }
+  if(!lines.length){ toast('Nothing selected', 'err'); return; }
+  sdOpenDelete(lines);
+}
+// lines = the exact lines to delete (rows from the local store). A bill whose lines are ALL included is removed completely
+// (its bill copy is deleted from Drive + Supabase + the Sheet archive too).
+function sdOpenDelete(lines){
   const s = getSession();
-  const lines = AdminStore.rows.filter(x=>x.BillUID===row.BillUID);
-  const target = wholeBill ? lines : [row];
+  const byBill = new Map();
+  lines.forEach(r=>{ if(!byBill.has(r.BillUID)) byBill.set(r.BillUID, []); byBill.get(r.BillUID).push(r); });
+  const items = []; let fullBills = 0, withPhoto = 0;
+  byBill.forEach((ls, uid)=>{
+    const all = AdminStore.rows.filter(x=>x.BillUID===uid);
+    const full = all.every(x=>ls.includes(x));
+    if(full){ fullBills++; if(all.some(x=>x.BillCopyURL)) withPhoto++; }
+    items.push({ billUid: uid, productCodes: full ? null : ls.map(x=>x.ProductCode||'') });
+  });
+  const first = lines[0];
   const ov = document.createElement('div');
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,15,.6);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;';
-  ov.innerHTML = `<div class="card" style="background:var(--panel);border-radius:12px;max-width:520px;width:100%;max-height:92vh;overflow:auto;padding:18px;">
-    <h3 style="margin-bottom:8px;color:var(--danger);">Delete ${wholeBill ? 'the WHOLE bill' : 'this line'}?</h3>
-    <div style="font-size:13px;margin-bottom:8px;">${esc(row.DBName||'')} — ${esc(row.Retailer||'')} | Bill ${esc(row.BillNo||'')} | ${esc(row.BillDate||'')}<br>Auditor: <b>${esc(row.AuditorName||'')}</b> | Verifier: <b>${esc(row.VerifiedBy||'')}</b></div>
-    <div style="font-size:12px;max-height:150px;overflow:auto;border:1px solid var(--edge);border-radius:8px;padding:8px;margin-bottom:10px;">${target.map(x=>`• ${esc(x.ProductName||x.ProductCode||'')} — ${esc(statusLabelFor(x.Status))}`).join('<br>')}</div>
-    <div class="field"><label>Reason for deletion (required)</label><input type="text" id="sdReason" placeholder="e.g. wrong entry by auditor"></div>
-    <div style="font-size:12px;background:#fdecea;border:1px solid #e6a39b;border-radius:8px;padding:8px 10px;margin:10px 0;">⚠ ${target.length} line(s) will be removed from all reports${wholeBill?' together with the bill-copy link':''}. A copy is kept in the Deleted Log.</div>
+  const people = [...new Set(lines.map(r=>r.AuditorName).filter(Boolean))];
+  ov.innerHTML = `<div class="card" style="background:var(--panel);border-radius:12px;max-width:560px;width:100%;max-height:92vh;overflow:auto;padding:18px;">
+    <h3 style="margin-bottom:8px;color:var(--danger);">Delete ${fmtInt(lines.length)} line(s) from ${fmtInt(byBill.size)} bill(s)?</h3>
+    <div style="font-size:13px;margin-bottom:8px;">${byBill.size===1 ? `${esc(first.DBName||'')} — ${esc(first.Retailer||'')} | Bill ${esc(first.BillNo||'')} | ${esc(first.BillDate||'')}<br>` : ''}Auditor(s): <b>${esc(people.slice(0,4).join(', '))}${people.length>4?' …':''}</b></div>
+    <div style="font-size:12px;max-height:150px;overflow:auto;border:1px solid var(--edge);border-radius:8px;padding:8px;margin-bottom:10px;">${lines.slice(0,60).map(x=>`• ${esc(x.RetailerName||x.Retailer||'')} · Bill ${esc(x.BillNo||'')} · ${esc(x.ProductName||x.ProductCode||'')} — ${esc(statusLabelFor(x.Status))}`).join('<br>')}${lines.length>60?`<br>… and ${fmtInt(lines.length-60)} more`:''}</div>
+    <div class="field"><label>Reason for deletion (required)</label><input type="text" id="sdReason" placeholder="e.g. wrong entries by auditor"></div>
+    <div style="font-size:12px;background:#fdecea;border:1px solid #e6a39b;border-radius:8px;padding:8px 10px;margin:10px 0;">⚠ These lines disappear from every report. ${fullBills ? `<b>${fmtInt(fullBills)} bill(s) are removed completely${withPhoto?` — ${fmtInt(withPhoto)} bill copy photo(s) will be deleted from Google Drive, Supabase Storage and the Sheet archive too`:''}.</b>` : ''} A record of the deletion is kept in the Deleted Log.</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;"><button class="btn" id="sdCancel">Cancel</button><button class="btn danger" id="sdConfirm">🗑 Delete</button></div></div>`;
   document.body.appendChild(ov);
   $('#sdCancel').onclick = ()=>ov.remove();
@@ -2342,14 +2397,30 @@ function sdOpenDelete(row, wholeBill){
     if(reason.length<3){ toast('Please enter a reason', 'err'); return; }
     const btn = $('#sdConfirm'); btn.disabled = true; btn.textContent = 'Deleting…';
     let res;
-    try{ res = await backendPost({ action:'deletebill', code:s.code, pin:s.pin, billUid:row.BillUID, productCodes: wholeBill ? null : [row.ProductCode||''], reason }); }
+    try{ res = await backendPost({ action:'deletemany', code:s.code, pin:s.pin, items, reason }); }
     catch(e){ res = { ok:false, error:String(e.message||e) }; }
     if(!res.ok){ toast('Not deleted: '+(res.error||'error'), 'err'); btn.disabled=false; btn.textContent='🗑 Delete'; return; }
-    await asRemoveKeys(target.map(x=>x._k));
-    { const gone = new Set(target.map(x=>x._k)); if(Array.isArray(window.__subRows)) window.__subRows = window.__subRows.filter(x=>!gone.has(x._k)); }
-    ov.remove(); toast(`Deleted ${res.deleted} line(s)`, 'ok');
-    if(ACTIVE_TAB==='submissions' && typeof applySubmissionFilters==='function'){ window.__subSig=null; applySubmissionFilters(); } else renderShell();
+    const keys = lines.map(x=>x._k);
+    await asRemoveKeys(keys);
+    { const gone = new Set(keys); if(Array.isArray(window.__subRows)) window.__subRows = window.__subRows.filter(x=>!gone.has(x._k)); keys.forEach(k=>window.__subSel && window.__subSel.delete(k)); }
+    ov.remove(); toast(`Deleted ${fmtInt(res.deleted)} line(s)`, 'ok');
+    msClearCaches();
+    if(ACTIVE_TAB==='submissions' && typeof applySubmissionFilters==='function'){ applySubmissionFilters(); } else renderShell();
+    sdPurgeNow(true);
   };
+}
+/* Asks the Google script to remove the photos (Drive + Supabase Storage) and archive-sheet rows of deleted bills. */
+async function sdPurgeNow(quiet){
+  const s = getSession(); const url = photoAppUrl();
+  if(!url){ return { ok:false, error:'Google script URL not set' }; }
+  if(!quiet) toast('Removing photos and archive rows…');
+  try{
+    const res = await fetch(url, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify({ action:'purgeDeleted', code:s.code, pin:s.pin }) });
+    const j = await res.json();
+    if(!j.ok){ toast('Photo clean-up will finish tonight automatically ('+(j.error||'script not updated')+')', 'err'); return j; }
+    toast(`Clean-up done — photos removed: ${j.photosRemoved}, archive rows removed: ${j.archiveRowsRemoved}${j.pending?` · ${j.pending} still pending (runs tonight)`:''}`, 'ok');
+    return j;
+  }catch(e){ toast('Photo clean-up will finish tonight automatically (could not reach the Google script)', 'err'); return { ok:false, error:String(e.message||e) }; }
 }
 async function renderDeletedLog(){
   const body = $('#tabBody'); const s = getSession();
@@ -2360,10 +2431,11 @@ async function renderDeletedLog(){
   if(ACTIVE_TAB!=='deleted') return;
   if(!res.ok){ $('#dlBody').innerHTML = `<div class="empty-state">${esc(res.error||'Could not load.')}</div>`; return; }
   const rows = res.rows||[];
-  $('#dlBody').innerHTML = rows.length ? `<div style="font-size:13px;margin-bottom:10px;">Last ${fmtInt(rows.length)} deleted line(s) — newest first. Deleted data is kept here for the record.</div>
-    <div class="table-wrap"><table><thead><tr>${['Deleted at','Deleted by','Reason','Auditor','Verifier','Distributor','Retailer','Bill No','Bill Date','Product','Status'].map(h=>`<th>${h}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map(r=>{ const d=r.data||{}; return `<tr><td>${esc(formatISTDateTime(r.deletedAt))}</td><td>${esc(r.deletedBy)}</td><td>${esc(r.reason)}</td><td>${esc(d.AuditorName||r.auditorCode||'')}</td><td>${esc(r.verifiedBy||'')}</td><td>${esc(d.DBName||'')}</td><td>${esc(d.Retailer||'')}</td><td>${esc(d.BillNo||'')}</td><td>${esc(d.BillDate||'')}</td><td>${esc(d.ProductName||r.productCode||'')}</td><td>${statusBadge(d.Status)}</td></tr>`; }).join('')}</tbody></table></div>`
+  $('#dlBody').innerHTML = rows.length ? `<div style="display:flex;gap:12px;align-items:center;margin-bottom:10px;font-size:13px;">Last ${fmtInt(rows.length)} deleted line(s) — newest first. Deleted data is kept here for the record.${res.pending?` <button class="btn small accent" id="dlPurge" style="margin-left:auto;">Run photo / archive clean-up now (${fmtInt(res.pending)} pending)</button>`:''}</div>
+    <div class="table-wrap"><table><thead><tr>${['Deleted at','Deleted by','Reason','Auditor','Verifier','Distributor','Retailer','Bill No','Bill Date','Product','Status','Photo','Archive row'].map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r=>{ const d=r.data||{}; return `<tr><td>${esc(formatISTDateTime(r.deletedAt))}</td><td>${esc(r.deletedBy)}</td><td>${esc(r.reason)}</td><td>${esc(d.AuditorName||r.auditorCode||'')}</td><td>${esc(r.verifiedBy||'')}</td><td>${esc(d.DBName||'')}</td><td>${esc(d.Retailer||'')}</td><td>${esc(d.BillNo||'')}</td><td>${esc(d.BillDate||'')}</td><td>${esc(d.ProductName||r.productCode||'')}</td><td>${statusBadge(d.Status)}</td><td>${r.hadPhoto ? (r.photoPending ? '<span class="small-muted">⏳ pending</span>' : '✔ removed') : '—'}</td><td>${r.archivePending ? '<span class="small-muted">⏳ pending</span>' : '✔'}</td></tr>`; }).join('')}</tbody></table></div>`
     : '<div class="empty-state">Nothing has been deleted yet.</div>';
+  const pb = $('#dlPurge'); if(pb) pb.onclick = async ()=>{ pb.disabled = true; await sdPurgeNow(); renderDeletedLog(); };
 }
 
 /* ==================== BOOT ==================== */
@@ -2371,6 +2443,18 @@ function boot(){
   const s = getSession();
   if(!s){ renderLogin(); return; }
   renderShell();
+  refreshSessionRole(s);
+}
+// A login saved earlier (before a role change / new feature) is re-checked with the server once per page load,
+// so e.g. a user promoted to Super Admin gets the new tabs without having to log out and in again.
+async function refreshSessionRole(s){
+  try{
+    const res = await backendPost({ action:'login', code:s.code, pin:s.pin });
+    if(!res || !res.ok) return;
+    const cur = getSession(); if(!cur || cur.code!==s.code) return;
+    const changed = (!!res.superAdmin !== !!cur.superAdmin) || res.role!==cur.role || res.name!==cur.name;
+    if(changed){ setSession(Object.assign({}, cur, { role:res.role, name:res.name, designation:res.designation, superAdmin:!!res.superAdmin })); renderShell(); }
+  }catch(e){}
 }
 document.addEventListener('DOMContentLoaded', boot);
 </script>
