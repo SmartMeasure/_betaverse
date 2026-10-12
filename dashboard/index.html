@@ -269,6 +269,8 @@ async function supaDispatch(a){
     case 'myverifieddata': return supaRpc('rl_my_verified_data', { p_code:a.code, p_pin:a.pin, p_from:nz(a.fromDate), p_to:nz(a.toDate), p_basis:a.dateBasis||'bill' }, 1);
     case 'alldata':        return supaRpc('rl_all_data', { p_code:a.code, p_pin:a.pin, p_from:nz(a.fromDate), p_to:nz(a.toDate), p_auditor:nz(a.auditorCode), p_basis:a.dateBasis||'bill' }, 1);
     case 'syncdata':       return supaRpc('rl_sync', { p_code:a.code, p_pin:a.pin, p_since:nz(a.sinceISO), p_offset:Number(a.offset)||0 }, 2);
+    case 'deletebill':     return supaRpc('rl_delete_bill', { p_code:a.code, p_pin:a.pin, p_bill_uid:a.billUid, p_product_codes:a.productCodes||null, p_reason:a.reason||'' }, 0);
+    case 'deletedlist':    return supaRpc('rl_deleted_list', { p_code:a.code, p_pin:a.pin }, 1);
     case 'usage':          return supaRpc('rl_usage', { p_code:a.code, p_pin:a.pin }, 1);
     case 'users':          return supaRpc('rl_users_list', { p_code:a.code, p_pin:a.pin }, 1);
     case 'adduser':        return supaRpc('rl_add_user', { p_code:a.code, p_pin:a.pin, p_new:a.newUser }, 0);
@@ -565,7 +567,7 @@ function renderLogin(errorMsg){
     const btn = $('#loginBtn'); btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Signing in…';
     try{
       const res = await backendPost({ action:'login', code, pin });
-      if(res.ok){ setSession({code:res.code, pin, name:res.name, role:res.role, designation:res.designation}); boot(); }
+      if(res.ok){ setSession({code:res.code, pin, name:res.name, role:res.role, designation:res.designation, superAdmin:!!res.superAdmin}); boot(); }
       else renderLogin(res.error || 'Login failed.');
     }catch(e){ renderLogin(e.message || 'Could not reach the server — check your connection.'); }
   };
@@ -656,6 +658,14 @@ async function asPersist(putRows){
     });
   } catch(e){}
 }
+// Removes deleted lines (by BillUID|ProductCode) from memory and from the browser's local copy.
+async function asRemoveKeys(keys){
+  let n = 0;
+  keys.forEach(k=>{ if(AdminStore.byKey.has(k)){ AdminStore.byKey.delete(k); n++; } });
+  if(n){ const set = new Set(keys); AdminStore.rows = AdminStore.rows.filter(r=>!set.has(r._k)); }
+  try{ await asTx(['rows'],'readwrite', tx=>{ const rs = tx.objectStore('rows'); keys.forEach(k=>rs.delete(k)); }); }catch(e){}
+  return n;
+}
 function asCompact(raw){ const r={}; for(const k in raw){ const v=raw[k]; if(v!=='' && v!=null) r[k]=v; } r._k=asKey(r); return r; }
 // Pulls whatever the Sheet has that this browser doesn't (everything, the
 // first time) and merges it in. Safe to call any time; concurrent calls are
@@ -680,7 +690,7 @@ async function adminSyncRun(opts){
     if(opts.full){ await asWipeDb(); asResetMemory(); AdminStore.loaded=true; }
     const firstEver = AdminStore.rows.length===0;
     let offset = 0, total = null, photoLinks = {};
-    const putRows = [];
+    const putRows = []; const delKeys = [];
     // Captured ONCE: the server pages through "rows newer than this", so if
     // this moved with each page (lastTs advances as rows are merged) page 2
     // would be an offset into a DIFFERENT, shorter list and rows would be skipped.
@@ -697,7 +707,7 @@ async function adminSyncRun(opts){
       AdminStore.progress = { done: Math.min(offset + res.rows.length, total), total };
       if(firstEver) updateAdminLoadingProgress();
       updateAdminSyncChip();
-      if(res.nextOffset==null){ photoLinks = res.photoLinks||{}; break; }
+      if(res.nextOffset==null){ photoLinks = res.photoLinks||{}; (res.deleted||[]).forEach(k=>delKeys.push(k)); break; }
       offset = res.nextOffset;
     }
     // Photos get linked to a bill's rows AFTER those rows were first written,
@@ -707,6 +717,7 @@ async function adminSyncRun(opts){
       const l = photoLinks[r.BillUID];
       if(l && (r.BillCopyURL!==l.url || (l.dl && r.BillCopyDownloadURL!==l.dl))){ r.BillCopyURL=l.url; if(l.dl) r.BillCopyDownloadURL=l.dl; putRows.push(r); changed++; }
     });
+    if(delKeys.length){ const n = await asRemoveKeys(delKeys); changed += n; }
     AdminStore.lastSyncedAt = Date.now();
     AdminStore.progress = null;
     await asPersist(putRows);
@@ -861,7 +872,7 @@ function adminRowsFor(from, to, basis){ adminMaybeLoadArchive(from, basis); retu
 function renderShell(){
   const s = getSession();
   const tabs = s.role==='Admin'
-    ? [{id:'analytics',label:'Analytics'},{id:'performance',label:'Performance'},{id:'submissions',label:'All Submissions'},{id:'missing',label:'Missing Bill Copies'},{id:'users',label:'Manage Users'}]
+    ? [{id:'analytics',label:'Analytics'},{id:'performance',label:'Performance'},{id:'submissions',label:'All Submissions'},{id:'missing',label:'Missing Bill Copies'},{id:'users',label:'Manage Users'}].concat(s.superAdmin ? [{id:'deleted',label:'Deleted Log'}] : [])
     : s.role==='Verifier'
     ? [{id:'myverified',label:'Bills I Verified'},{id:'missing',label:'Missing Bill Copies'}]
     : [{id:'mydata',label:'My Data'},{id:'missing',label:'Missing Bill Copies'}];
@@ -874,7 +885,7 @@ function renderShell(){
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
         ${s.role==='Admin' ? '<div class="status-chip" id="adminSyncChip" style="gap:8px;font-size:12px;"></div><div class="status-chip" id="usageChip" style="gap:8px;font-size:12px;display:none;"></div>' : ''}
-        <div class="status-chip"><span class="status-dot"></span>${esc(s.name)} (${esc(s.role)})</div>
+        <div class="status-chip"><span class="status-dot"></span>${esc(s.name)} (${esc(s.superAdmin ? 'Super Admin' : s.role)})</div>
         <button class="btn small" id="logoutBtn">Log Out</button>
       </div>
     </header>
@@ -885,7 +896,7 @@ function renderShell(){
   window.__adminRepaint = null; // each admin tab registers its own below
   if(s.role==='Admin'){ updateAdminSyncChip(); adminStartAutoSync(); loadUsageChip(); }
   $all('.tab-btn').forEach(b=>b.addEventListener('click', ()=>{ ACTIVE_TAB=b.dataset.tab; if(ACTIVE_TAB==='missing' && !window.__msKeep) MS.person=null; window.__msKeep=false; renderShell(); }));
-  const renderers = { analytics:renderAnalytics, performance:renderPerformance, submissions:renderSubmissions, users:renderUsers, mydata:renderMyData, myverified:renderMyVerified, missing:()=>renderMissing(true) };
+  const renderers = { analytics:renderAnalytics, performance:renderPerformance, submissions:renderSubmissions, users:renderUsers, mydata:renderMyData, myverified:renderMyVerified, missing:()=>renderMissing(true), deleted:renderDeletedLog };
   (renderers[ACTIVE_TAB]||(()=>{}))();
 }
 
@@ -1481,6 +1492,7 @@ function billCopyLinkCell(r){
 }
 function renderSubmissionsTable(rows){
   const content = $('#subInner');
+  const SUPER = !!(getSession()||{}).superAdmin;
   if(!rows.length){ content.innerHTML = '<div class="empty-state">No submissions match these filters.</div>'; return; }
   const cols = ['Timestamp','BillUID','AuditorCode','AuditorName','VerifiedBy','DBCode','DBName','Location','Retailer','BillDate','SOSubmitDate','ProductName','ProductCode','CompanyRate','InvoiceRate','VariancePct','Status','OverchargeAmt','UnderchargeAmt','BillCopy'];
   let lastAuditor = null;
@@ -1496,7 +1508,7 @@ function renderSubmissionsTable(rows){
       <span class="small-muted">Rows ${fmtInt((window.__subPage-1)*PAGE+1)}–${fmtInt(Math.min(window.__subPage*PAGE, rows.length))} of ${fmtInt(rows.length)} · page ${window.__subPage}/${totalPages}</span>
       <button class="btn small" id="subNext" ${window.__subPage>=totalPages?'disabled':''}>Next →</button></div>` : '';
   content.innerHTML = `${pager}<div class="table-wrap"><table>
-    <thead><tr>${cols.map(c=>`<th>${c==='BillCopy'?'Bill Copy':c}</th>`).join('')}</tr></thead>
+    <thead><tr>${cols.map(c=>`<th>${c==='BillCopy'?'Bill Copy':c}</th>`).join('')}${SUPER?'<th>Delete</th>':''}</tr></thead>
     <tbody>${pageRows.map(r=>{
       const newGroup = r.AuditorName!==lastAuditor;
       lastAuditor = r.AuditorName;
@@ -1508,8 +1520,10 @@ function renderSubmissionsTable(rows){
       if(c==='Timestamp') return `<td>${esc(formatISTDateTime(r[c]))}</td>`;
       if(DATE_DISPLAY_FIELDS.includes(c)) return `<td>${esc(normalizeDMYDisplay(r[c]))}</td>`;
       return `<td>${esc(r[c])}</td>`;
-    }).join('')}</tr>`; }).join('')}</tbody>
+    }).join('')}${SUPER?`<td style="white-space:nowrap;"><button class="btn small danger" data-del-line="${esc(r._k||'')}">🗑 Line</button> <button class="btn small danger" data-del-bill="${esc(r.BillUID||'')}">🗑 Bill</button></td>`:''}</tr>`; }).join('')}</tbody>
   </table></div>${pager}`;
+  $all('[data-del-line]').forEach(b=>b.addEventListener('click', ()=>{ const r = AdminStore.byKey.get(b.dataset.delLine); if(r) sdOpenDelete(r, false); }));
+  $all('[data-del-bill]').forEach(b=>b.addEventListener('click', ()=>{ const r = AdminStore.rows.find(x=>x.BillUID===b.dataset.delBill); if(r) sdOpenDelete(r, true); }));
   $all('#subPrev').forEach(b=>b.addEventListener('click', ()=>{ window.__subPage--; renderSubmissionsTable(rows); }));
   $all('#subNext').forEach(b=>b.addEventListener('click', ()=>{ window.__subPage++; renderSubmissionsTable(rows); }));
 }
@@ -1756,7 +1770,7 @@ async function renderUsers(){
         <div class="field"><label>User Code</label><input type="text" id="nuCode" style="text-transform:uppercase;"></div>
         <div class="field"><label>Name</label><input type="text" id="nuName" style="text-transform:uppercase;"></div>
         <div class="field"><label>PIN</label><input type="text" id="nuPin"></div>
-        <div class="field"><label>Role</label><select id="nuRole"><option value="Auditor">Auditor</option><option value="Verifier">Verifier</option><option value="Admin">Admin</option></select></div>
+        <div class="field"><label>Role</label><select id="nuRole"><option value="Auditor">Auditor</option><option value="Verifier">Verifier</option><option value="Admin">Admin</option>${(getSession()||{}).superAdmin?'<option value="SuperAdmin">Super Admin (can delete entries)</option>':''}</select></div>
         <div class="field"><label>Designation</label><select id="nuDesignation">
           <option value="">— None —</option>
           ${['Sales Officer','Merchandiser','ASM','ASE','RSM'].map(d=>`<option value="${d}">${d}</option>`).join('')}
@@ -1782,7 +1796,7 @@ async function loadUsersList(){
   el.innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th>Code</th><th>Name</th><th>Role</th><th>Designation</th><th>Status</th><th></th></tr></thead>
     <tbody>${res.users.map(u=>`<tr>
-      <td style="font-family:var(--font-mono);">${esc(u.code)}</td><td>${esc(u.name)}</td><td>${esc(u.role)}</td><td>${esc(u.designation||'—')}</td>
+      <td style="font-family:var(--font-mono);">${esc(u.code)}</td><td>${esc(u.name)}</td><td>${esc(u.superAdmin ? 'Super Admin' : u.role)}</td><td>${esc(u.designation||'—')}</td>
       <td><span class="badge ${u.active?'active':'inactive'}">${u.active?'Active':'Inactive'}</span></td>
       <td style="display:flex;gap:6px;">
         <button class="btn small" data-toggle="${esc(u.code)}" data-active="${u.active}">${u.active?'Deactivate':'Activate'}</button>
@@ -2302,6 +2316,54 @@ function msAnalyticsCardHtml(rows){
     <div style="font-size:13px;margin-bottom:10px;"><b>${fmtInt(miss.length)}</b> of ${fmtInt(bills.length)} bills have no copy yet.</div>
     ${sm.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;">${sm.map(g=>`<button class="btn small" data-ms-go="${esc(g.name)}">${esc(g.name)} <b style="color:var(--danger);">${fmtInt(g.missing)}</b></button>`).join('')}</div>` : '<div style="color:var(--ink-faint);">Every bill has a copy attached ✔</div>'}
     <div style="margin-top:10px;"><button class="btn small accent" data-ms-go="">Auditor / Verifier-wise full report →</button></div></div>`;
+}
+
+
+/* ==================== SUPER ADMIN: delete wrong entries + Deleted Log ====================
+   Only a Super Admin sees these controls (and the server refuses everyone else). Each deletion is copied to a
+   log first (who / when / why / full row), and a deleted line can never come back through a queued retry. */
+function sdOpenDelete(row, wholeBill){
+  const s = getSession();
+  const lines = AdminStore.rows.filter(x=>x.BillUID===row.BillUID);
+  const target = wholeBill ? lines : [row];
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,15,.6);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.innerHTML = `<div class="card" style="background:var(--panel);border-radius:12px;max-width:520px;width:100%;max-height:92vh;overflow:auto;padding:18px;">
+    <h3 style="margin-bottom:8px;color:var(--danger);">Delete ${wholeBill ? 'the WHOLE bill' : 'this line'}?</h3>
+    <div style="font-size:13px;margin-bottom:8px;">${esc(row.DBName||'')} — ${esc(row.Retailer||'')} | Bill ${esc(row.BillNo||'')} | ${esc(row.BillDate||'')}<br>Auditor: <b>${esc(row.AuditorName||'')}</b> | Verifier: <b>${esc(row.VerifiedBy||'')}</b></div>
+    <div style="font-size:12px;max-height:150px;overflow:auto;border:1px solid var(--edge);border-radius:8px;padding:8px;margin-bottom:10px;">${target.map(x=>`• ${esc(x.ProductName||x.ProductCode||'')} — ${esc(statusLabelFor(x.Status))}`).join('<br>')}</div>
+    <div class="field"><label>Reason for deletion (required)</label><input type="text" id="sdReason" placeholder="e.g. wrong entry by auditor"></div>
+    <div style="font-size:12px;background:#fdecea;border:1px solid #e6a39b;border-radius:8px;padding:8px 10px;margin:10px 0;">⚠ ${target.length} line(s) will be removed from all reports${wholeBill?' together with the bill-copy link':''}. A copy is kept in the Deleted Log.</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;"><button class="btn" id="sdCancel">Cancel</button><button class="btn danger" id="sdConfirm">🗑 Delete</button></div></div>`;
+  document.body.appendChild(ov);
+  $('#sdCancel').onclick = ()=>ov.remove();
+  $('#sdConfirm').onclick = async ()=>{
+    const reason = $('#sdReason').value.trim();
+    if(reason.length<3){ toast('Please enter a reason', 'err'); return; }
+    const btn = $('#sdConfirm'); btn.disabled = true; btn.textContent = 'Deleting…';
+    let res;
+    try{ res = await backendPost({ action:'deletebill', code:s.code, pin:s.pin, billUid:row.BillUID, productCodes: wholeBill ? null : [row.ProductCode||''], reason }); }
+    catch(e){ res = { ok:false, error:String(e.message||e) }; }
+    if(!res.ok){ toast('Not deleted: '+(res.error||'error'), 'err'); btn.disabled=false; btn.textContent='🗑 Delete'; return; }
+    await asRemoveKeys(target.map(x=>x._k));
+    { const gone = new Set(target.map(x=>x._k)); if(Array.isArray(window.__subRows)) window.__subRows = window.__subRows.filter(x=>!gone.has(x._k)); }
+    ov.remove(); toast(`Deleted ${res.deleted} line(s)`, 'ok');
+    if(ACTIVE_TAB==='submissions' && typeof applySubmissionFilters==='function'){ window.__subSig=null; applySubmissionFilters(); } else renderShell();
+  };
+}
+async function renderDeletedLog(){
+  const body = $('#tabBody'); const s = getSession();
+  body.innerHTML = `<div id="dlBody">${ultimateLoaderHtml('dlLoader')}</div>`;
+  const stop = startUltimateLoader('dlLoader');
+  const res = await backendGet({ action:'deletedlist', code:s.code, pin:s.pin });
+  stop();
+  if(ACTIVE_TAB!=='deleted') return;
+  if(!res.ok){ $('#dlBody').innerHTML = `<div class="empty-state">${esc(res.error||'Could not load.')}</div>`; return; }
+  const rows = res.rows||[];
+  $('#dlBody').innerHTML = rows.length ? `<div style="font-size:13px;margin-bottom:10px;">Last ${fmtInt(rows.length)} deleted line(s) — newest first. Deleted data is kept here for the record.</div>
+    <div class="table-wrap"><table><thead><tr>${['Deleted at','Deleted by','Reason','Auditor','Verifier','Distributor','Retailer','Bill No','Bill Date','Product','Status'].map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r=>{ const d=r.data||{}; return `<tr><td>${esc(formatISTDateTime(r.deletedAt))}</td><td>${esc(r.deletedBy)}</td><td>${esc(r.reason)}</td><td>${esc(d.AuditorName||r.auditorCode||'')}</td><td>${esc(r.verifiedBy||'')}</td><td>${esc(d.DBName||'')}</td><td>${esc(d.Retailer||'')}</td><td>${esc(d.BillNo||'')}</td><td>${esc(d.BillDate||'')}</td><td>${esc(d.ProductName||r.productCode||'')}</td><td>${statusBadge(d.Status)}</td></tr>`; }).join('')}</tbody></table></div>`
+    : '<div class="empty-state">Nothing has been deleted yet.</div>';
 }
 
 /* ==================== BOOT ==================== */
