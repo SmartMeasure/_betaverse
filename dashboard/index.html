@@ -1471,7 +1471,7 @@ function renderActiveFilterChips(){
 }
 function statusLabelFor(s){ return s==='over'?'Overcharge':(s==='under'?'Undercharge':(s==='negligible'?'Overcharge – Negligible':'Match')); }
 function billCopyLinkCell(r){
-  if(!r.BillCopyURL) return '<span class="small-muted">—</span>';
+  if(!r.BillCopyURL) return r.BillUID ? `<button class="btn small accent" data-attach-uid="${esc(r.BillUID)}" title="Bill copy attach karein (ek baar attach hone ke baad change nahi hoga)">📎 Attach</button>` : '<span class="small-muted">—</span>';
   // The viewer page (opened in a new tab) has its own visible download link
   // for the actual file — a plain <a download> here would just save the
   // HTML wrapper page itself, since Apps Script can only ever hand back
@@ -2267,9 +2267,33 @@ async function msAttachFlow(bill, file){
     bill.lines.forEach(r=>{ if(!res.alreadyAttached){ r.BillCopyURL = res.url; r.BillCopyDownloadURL = res.dl || res.url; } });
     if(s.role==='Admin' && !res.alreadyAttached){ try{ await asPersist(bill.lines.filter(r=>r._k)); }catch(e){} }
     msClearCaches();
-    if(res.alreadyAttached){ MS.rows = null; renderMissing(true); } else paintMissing();
+    if(res.alreadyAttached){ MS.rows = null; if(ACTIVE_TAB==='missing') renderMissing(true); else renderShell(); }
+    else msRepaintCurrent();
   };
 }
+
+function msRepaintCurrent(){
+  try{
+    if(ACTIVE_TAB==='missing') paintMissing();
+    else if(ACTIVE_TAB==='myverified') paintMyVerified(window.__mvAllRows||[], false);
+    else if(ACTIVE_TAB==='mydata') paintMyData(window.__myAllRows||[], false);
+    else if(ACTIVE_TAB==='submissions') applySubmissionFilters();
+    else renderShell();
+  }catch(e){ renderShell(); }
+}
+/* "📎 Attach" button shown in the Bill Copy column of every table where a bill has no copy yet. */
+document.addEventListener('click', ev=>{
+  const btn = ev.target.closest && ev.target.closest('[data-attach-uid]'); if(!btn) return;
+  const uid = btn.dataset.attachUid;
+  const src = [window.__mvAllRows, window.__myAllRows, MS.rows, (getSession()||{}).role==='Admin' ? AdminStore.rows : null].filter(Boolean);
+  let bill = null;
+  for(const arr of src){ const b = msBills(arr.filter(r=>r.BillUID===uid))[0]; if(b){ bill = b; break; } }
+  if(!bill){ toast('Ye bill list me nahi mila — Sync karke dobara try kijiye', 'err'); return; }
+  if(bill.hasCopy){ toast('Is bill ki copy pehle se attached hai', 'err'); return; }
+  const inp = document.createElement('input'); inp.type='file'; inp.accept='image/*,application/pdf'; inp.style.display='none';
+  inp.addEventListener('change', ()=>{ const f = inp.files && inp.files[0]; inp.remove(); if(f) msAttachFlow(bill, f); });
+  document.body.appendChild(inp); inp.click();
+});
 /* Admin Analytics card: Auditor/Verifier-wise missing-copy totals, click -> Missing tab with that person's list. */
 function msAnalyticsCardHtml(rows){
   const bills = msBills(rows); const miss = bills.filter(b=>!b.hasCopy);
