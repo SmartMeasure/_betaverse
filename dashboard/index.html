@@ -186,6 +186,12 @@ function photoViewUrl(url){
   const base = photoBaseFor(url), id = photoFileId(url);
   return (base && id) ? `${base}?action=viewphoto&fileId=${id}` : url;
 }
+/* Which link to open: the LATEST photos have a safety copy in Supabase Storage (fast, independent of Google);
+   everything else (and any photo whose Supabase copy was trimmed) opens from Google Drive. */
+function photoBestUrl(url, dlUrl){
+  if(dlUrl && /\/storage\/v1\/object\/public\//.test(dlUrl)) return dlUrl;
+  return photoViewUrl(url);
+}
 async function driveUploadBillCopy(session, billUid, fileName, mimeType, base64Data){
   const res = await fetch(photoAppUrl(), { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
     body: JSON.stringify({ action:'uploadBillCopy', code:session.code, pin:session.pin, billUid, fileName, mimeType, base64Data }) });
@@ -264,6 +270,7 @@ async function supaDispatch(a){
     case 'myverifieddata': return supaRpc('rl_my_verified_data', { p_code:a.code, p_pin:a.pin, p_from:nz(a.fromDate), p_to:nz(a.toDate), p_basis:a.dateBasis||'bill' }, 1);
     case 'alldata':        return supaRpc('rl_all_data', { p_code:a.code, p_pin:a.pin, p_from:nz(a.fromDate), p_to:nz(a.toDate), p_auditor:nz(a.auditorCode), p_basis:a.dateBasis||'bill' }, 1);
     case 'syncdata':       return supaRpc('rl_sync', { p_code:a.code, p_pin:a.pin, p_since:nz(a.sinceISO), p_offset:Number(a.offset)||0 }, 2);
+    case 'usage':          return supaRpc('rl_usage', { p_code:a.code, p_pin:a.pin }, 1);
     case 'users':          return supaRpc('rl_users_list', { p_code:a.code, p_pin:a.pin }, 1);
     case 'adduser':        return supaRpc('rl_add_user', { p_code:a.code, p_pin:a.pin, p_new:a.newUser }, 0);
     case 'toggleuser':     return supaRpc('rl_toggle_user', { p_code:a.code, p_pin:a.pin, p_target:a.targetCode, p_active:!!a.active }, 0);
@@ -573,7 +580,7 @@ let ACTIVE_TAB = null;
    keep their existing per-query behaviour — caching "everything" locally
    would be wrong for a role that's only ever allowed to see a slice. */
 const AS_DB = 'DashboardAdminCacheDB';
-const AdminStore = { rows:[], byKey:new Map(), lastTs:'', lastSyncedAt:0, syncing:false, loaded:false, error:'', progress:null };
+const AdminStore = { rows:[], byKey:new Map(), lastTs:'', lastSyncedAt:0, syncing:false, loaded:false, error:'', progress:null, archiveBusy:false, archiveFailAt:0 };
 let __asDbPromise = null;
 function asOpen(){
   if(__asDbPromise) return __asDbPromise;
@@ -605,7 +612,7 @@ function asKey(r){
   if(r.BillUID) return r.BillUID+'|'+(r.ProductCode||'');
   return 'legacy|'+[r.Timestamp,r.ProductCode,r.DBCode,r.BillNo,r.InvoiceRate].join('|');
 }
-function asResetMemory(){ AdminStore.rows=[]; AdminStore.byKey=new Map(); AdminStore.lastTs=''; AdminStore.lastSyncedAt=0; AdminStore.loaded=false; AdminStore.error=''; }
+function asResetMemory(){ try{ localStorage.removeItem(archiveFromKey()); }catch(e){} AdminStore.rows=[]; AdminStore.byKey=new Map(); AdminStore.lastTs=''; AdminStore.lastSyncedAt=0; AdminStore.loaded=false; AdminStore.error=''; }
 async function asLoad(){
   if(AdminStore.loaded) return;
   try{
@@ -680,7 +687,7 @@ async function adminSyncRun(opts){
     // already-stored rows pick them up.
     AdminStore.rows.forEach(r=>{
       const l = photoLinks[r.BillUID];
-      if(l && r.BillCopyURL!==l.url){ r.BillCopyURL=l.url; if(l.dl) r.BillCopyDownloadURL=l.dl; putRows.push(r); changed++; }
+      if(l && (r.BillCopyURL!==l.url || (l.dl && r.BillCopyDownloadURL!==l.dl))){ r.BillCopyURL=l.url; if(l.dl) r.BillCopyDownloadURL=l.dl; putRows.push(r); changed++; }
     });
     AdminStore.lastSyncedAt = Date.now();
     AdminStore.progress = null;
@@ -734,6 +741,28 @@ function adminAgoText(){
   if(sec<10) return 'just now'; if(sec<60) return sec+'s ago';
   const m=Math.round(sec/60); if(m<60) return m+' min ago'; return Math.round(m/60)+' hr ago';
 }
+/* Supabase headroom monitor (Admin). Free plan = 500 MB database + 1 GB photo storage; on a paid plan raise these two numbers.
+   Amber from 70 %, red from 85 % — the point is to clean up / move photos long before anything fills. */
+const SUPA_DB_LIMIT_MB = 500, SUPA_STORAGE_LIMIT_MB = 1024;
+let __usageAt = 0;
+async function loadUsageChip(force){
+  const el = $('#usageChip'); const s = getSession(); if(!el || !s) return;
+  if(!force && Date.now() - __usageAt < 10*60*1000 && el.innerHTML) { el.style.display='flex'; return; }
+  try{
+    const r = await backendGet({ action:'usage', code:s.code, pin:s.pin });
+    if(!r || !r.ok){ el.style.display='none'; return; }
+    __usageAt = Date.now();
+    const MB = 1048576, dbMb = r.dbBytes/MB, stMb = r.storageBytes/MB;
+    const dbPct = dbMb/SUPA_DB_LIMIT_MB*100, stPct = stMb/SUPA_STORAGE_LIMIT_MB*100;
+    const col = p => p>=85 ? 'var(--danger)' : (p>=70 ? 'var(--warn)' : 'var(--success)');
+    const worst = Math.max(dbPct, stPct);
+    el.style.display = 'flex';
+    el.title = `Database ${dbMb.toFixed(1)} MB of ${SUPA_DB_LIMIT_MB} MB · Photo storage ${stMb.toFixed(1)} MB of ${SUPA_STORAGE_LIMIT_MB} MB (${fmtInt(r.storageFiles)} files). Keep both under 70% — move photos to Drive / back up and clear old data before they fill.`;
+    el.innerHTML = `<span class="status-dot" style="background:${col(worst)};"></span>
+      <span>DB <b style="color:${col(dbPct)}">${dbPct.toFixed(0)}%</b> · Photos <b style="color:${col(stPct)}">${stPct.toFixed(0)}%</b></span>`;
+    if(worst>=85 && !window.__usageWarned){ window.__usageWarned = true; toast(`Supabase is ${worst.toFixed(0)}% full — free up space now (see the chip in the header).`, 'err'); }
+  }catch(e){ el.style.display='none'; }
+}
 function updateAdminSyncChip(){
   const el = $('#adminSyncChip'); if(!el) return;
   const st = AdminStore;
@@ -761,7 +790,55 @@ function adminStartAutoSync(){
 }
 async function adminStoreWipe(){ asResetMemory(); await asWipeDb(); }
 // Filtered view of the store for one tab's own date range/basis.
-function adminRowsFor(from, to, basis){ return filterRowsByDateClient(AdminStore.rows, from||'', to||'', basis); }
+/* ---- Bills older than the 6-month Supabase window live in the Google Sheet archive ----
+   When the selected date range reaches back further than that, the missing months are fetched ONCE
+   from the Google script (one monthly tab per call), merged into this device's store and remembered. */
+const ARCHIVE_DAYS = 183;
+function archiveFromKey(){ return 'rlArchiveFrom|' + asOwner(); }
+function archiveFromGet(b){ try{ return (JSON.parse(localStorage.getItem(archiveFromKey())||'{}'))[b] || ''; }catch(e){ return ''; } }
+function archiveFromSet(b, v){ try{ const o = JSON.parse(localStorage.getItem(archiveFromKey())||'{}'); o[b] = v; localStorage.setItem(archiveFromKey(), JSON.stringify(o)); }catch(e){} }
+function adminMaybeLoadArchive(from, basis){
+  from = from || '2000-01-01';                                  // "All time" = from the very beginning
+  if(!photoAppUrl() || AdminStore.archiveBusy) return;
+  const cutoff = istDateISO(new Date(Date.now() - ARCHIVE_DAYS*86400000));
+  if(from >= cutoff) return;                                    // inside the Supabase window — nothing to fetch
+  const b = 'all';          // one fetch serves both date bases: a bill is submitted on/after its bill date, so 'submission date >= from' is a superset
+  const have = archiveFromGet(b);
+  if(have && have <= from) return;                              // this far back was already loaded
+  if(Date.now() - AdminStore.archiveFailAt < 120000) return;    // don't hammer after a failure
+  const s = getSession(); if(!s || s.role!=='Admin') return;
+  AdminStore.archiveBusy = true;
+  toast('Loading older bills from the Google Sheet archive…', 'ok');
+  (async ()=>{
+    let added = 0;
+    try{
+      await asLoad();
+      let cursor = 0; const putRows = [];
+      for(;;){
+        const res = await fetch(photoAppUrl(), { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+          body: JSON.stringify({ action:'archiveRows', code:s.code, pin:s.pin, from, basis:'submission', cursor }) });
+        const j = await res.json();
+        if(!j.ok) throw new Error(j.error || 'archive error');
+        (j.rows||[]).forEach(raw=>{
+          const r = asCompact(raw);
+          if(!AdminStore.byKey.has(r._k)){ AdminStore.byKey.set(r._k, r); AdminStore.rows.push(r); putRows.push(r); added++; }
+        });
+        if(j.nextCursor==null) break;
+        cursor = j.nextCursor;
+      }
+      await asPersist(putRows);
+      archiveFromSet(b, from);
+      toast(added ? `Loaded ${fmtInt(added)} older bill lines from the archive` : 'Archive checked — no extra older bills in this range', 'ok');
+    }catch(e){
+      AdminStore.archiveFailAt = Date.now();
+      toast('Could not load older bills from the Google archive (' + (e.message||e) + '). Showing what is already stored.', 'err');
+    }finally{
+      AdminStore.archiveBusy = false;
+    }
+    if(added && typeof window.__adminRepaint==='function') window.__adminRepaint();
+  })();
+}
+function adminRowsFor(from, to, basis){ adminMaybeLoadArchive(from, basis); return filterRowsByDateClient(AdminStore.rows, from||'', to||'', basis); }
 
 function renderShell(){
   const s = getSession();
@@ -778,7 +855,7 @@ function renderShell(){
         <div class="brand-text"><h1>Rate Ledger <span class="version-badge" title="Build version — check this matches what support/chat referenced">${APP_VERSION}</span></h1><p>Dashboard</p></div>
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
-        ${s.role==='Admin' ? '<div class="status-chip" id="adminSyncChip" style="gap:8px;font-size:12px;"></div>' : ''}
+        ${s.role==='Admin' ? '<div class="status-chip" id="adminSyncChip" style="gap:8px;font-size:12px;"></div><div class="status-chip" id="usageChip" style="gap:8px;font-size:12px;display:none;"></div>' : ''}
         <div class="status-chip"><span class="status-dot"></span>${esc(s.name)} (${esc(s.role)})</div>
         <button class="btn small" id="logoutBtn">Log Out</button>
       </div>
@@ -788,7 +865,7 @@ function renderShell(){
   `;
   $('#logoutBtn').addEventListener('click', logout);
   window.__adminRepaint = null; // each admin tab registers its own below
-  if(s.role==='Admin'){ updateAdminSyncChip(); adminStartAutoSync(); }
+  if(s.role==='Admin'){ updateAdminSyncChip(); adminStartAutoSync(); loadUsageChip(); }
   $all('.tab-btn').forEach(b=>b.addEventListener('click', ()=>{ ACTIVE_TAB=b.dataset.tab; renderShell(); }));
   const renderers = { analytics:renderAnalytics, performance:renderPerformance, submissions:renderSubmissions, users:renderUsers, mydata:renderMyData, myverified:renderMyVerified };
   (renderers[ACTIVE_TAB]||(()=>{}))();
@@ -1378,7 +1455,7 @@ function billCopyLinkCell(r){
   // HTML wrapper page itself, since Apps Script can only ever hand back
   // HTML/text from a Web App, never a raw file, so there's only one link
   // now rather than a separate (and broken) direct-download one.
-  return `<a href="${esc(photoViewUrl(r.BillCopyURL))}" target="_blank" rel="noopener" class="bill-copy-link">📷 View</a>`;
+  return `<a href="${esc(photoBestUrl(r.BillCopyURL, r.BillCopyDownloadURL))}" target="_blank" rel="noopener" class="bill-copy-link">📷 View</a>`;
 }
 function renderSubmissionsTable(rows){
   const content = $('#subInner');
@@ -1580,7 +1657,15 @@ async function exportBillPhotosZip(rows, btn){
         try{
           let blob, ext;
           const fid = photoFileId(r.BillCopyURL);
-          if(fid && photoAppUrl()){            // Drive photo -> fetched as JSON (base64) through the photo script
+          const sbCopy = /\/storage\/v1\/object\/public\//.test(r.BillCopyDownloadURL||'') ? r.BillCopyDownloadURL : '';
+          if(sbCopy){
+            try{
+              const resp0 = await fetch(sbCopy);
+              if(resp0.ok){ blob = await resp0.blob(); ext = /pdf/i.test(blob.type) || /\.pdf($|\?)/i.test(sbCopy) ? 'pdf' : 'jpg'; }
+            }catch(e){ blob = null; }
+          }
+          if(blob){ /* got it from the Supabase safety copy */ }
+          else if(fid && photoAppUrl()){            // Drive photo -> fetched as JSON (base64) through the photo script
             const resp = await fetch(`${photoBaseFor(r.BillCopyURL)}?action=photojson&fileId=${fid}`);
             const j = await resp.json();
             if(!j.ok) throw new Error(j.error||'photo');
