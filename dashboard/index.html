@@ -1471,7 +1471,7 @@ function renderActiveFilterChips(){
 }
 function statusLabelFor(s){ return s==='over'?'Overcharge':(s==='under'?'Undercharge':(s==='negligible'?'Overcharge – Negligible':'Match')); }
 function billCopyLinkCell(r){
-  if(!r.BillCopyURL) return r.BillUID ? `<button class="btn small accent" data-attach-uid="${esc(r.BillUID)}" title="Bill copy attach karein (ek baar attach hone ke baad change nahi hoga)">📎 Attach</button>` : '<span class="small-muted">—</span>';
+  if(!r.BillCopyURL) return r.BillUID ? `<button class="btn small accent" data-attach-uid="${esc(r.BillUID)}" title="Attach the bill copy (it cannot be changed once attached)">📎 Attach</button>` : '<span class="small-muted">—</span>';
   // The viewer page (opened in a new tab) has its own visible download link
   // for the actual file — a plain <a download> here would just save the
   // HTML wrapper page itself, since Apps Script can only ever hand back
@@ -2191,7 +2191,7 @@ function paintMissing(){
   const q = (MS.q||'').toLowerCase();
   const shown = q ? list.filter(b=>[b.dbName,b.dbCode,b.retailer,b.billNo,b.billDate,b.sub,b.collected,b.verdict].join(' ').toLowerCase().includes(q)) : list;
   shown.sort((a,b)=>String(b.sub).split('-').reverse().join('').localeCompare(String(a.sub).split('-').reverse().join('')));
-  const mine = s.role==='Admin' ? '' : `<div style="font-size:13px;color:var(--ink-soft);margin-bottom:10px;">Sirf aapke woh audits jinke saath bill copy attach nahi hui hai. <b>Ek baar attach hone ke baad change / replace nahi ho sakti.</b></div>`;
+  const mine = s.role==='Admin' ? '' : `<div style="font-size:13px;color:var(--ink-soft);margin-bottom:10px;">Only your own audits that have no bill copy attached yet. <b>Once attached, a copy cannot be changed or replaced.</b></div>`;
   el.innerHTML = `
     ${mine}
     <div class="filterbar" style="align-items:center;">
@@ -2209,7 +2209,7 @@ function paintMissing(){
           <td style="padding:9px 12px;white-space:nowrap;">${esc(b.verdict)}</td>
           <td style="padding:9px 12px;text-align:right;">${b.amt?fmtMoney(b.amt):'—'}</td>
           <td style="padding:9px 12px;">${esc(b.auditor)}<div style="font-size:11px;color:var(--ink-faint);">${esc(b.verifier)}</div></td>
-          <td style="padding:9px 12px;"><button class="btn small accent" data-ms-attach="${esc(b.uid)}">📎 Attach</button></td></tr>`).join('') || `<tr><td colspan="9" class="empty-state">${list.length?'No match.':'🎉 Sab bills ki copy attached hai.'}</td></tr>`}</tbody>
+          <td style="padding:9px 12px;"><button class="btn small accent" data-ms-attach="${esc(b.uid)}">📎 Attach</button></td></tr>`).join('') || `<tr><td colspan="9" class="empty-state">${list.length?'No match.':'🎉 Every bill has a copy attached.'}</td></tr>`}</tbody>
       </table>
     </div>
     <input type="file" id="msFile" accept="image/*,application/pdf" style="display:none;">`;
@@ -2227,8 +2227,8 @@ async function msAttachFlow(bill, file){
   const s = getSession();
   const isImage = /^image\//.test(file.type) || /\.(jpe?g|png|webp|heic)$/i.test(file.name);
   const isPdf = /pdf$/i.test(file.type) || /\.pdf$/i.test(file.name);
-  if(!isImage && !isPdf){ toast('Sirf photo ya PDF attach kar sakte hain', 'err'); return; }
-  toast('Photo taiyaar ho rahi hai…');
+  if(!isImage && !isPdf){ toast('Only a photo or a PDF can be attached', 'err'); return; }
+  toast('Preparing the photo…');
   const v = msBillVerdict(bill.lines);
   const ext = isImage ? 'jpg' : 'pdf';
   const savedName = msFileName(bill, v.label, ext);
@@ -2243,15 +2243,15 @@ async function msAttachFlow(bill, file){
       dataUrl = await new Promise((res, rej)=>{ const r=new FileReader(); r.onload=ev=>res(ev.target.result); r.onerror=rej; r.readAsDataURL(file); });
       mime = 'application/pdf';
     }
-  }catch(e){ toast('Is file ko padh nahi paye', 'err'); return; }
+  }catch(e){ toast('Could not read this file', 'err'); return; }
   const ov = document.createElement('div');
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,15,.6);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;';
   ov.innerHTML = `<div class="card" style="background:var(--panel);border-radius:12px;max-width:520px;width:100%;max-height:92vh;overflow:auto;padding:18px;">
-    <h3 style="margin-bottom:8px;">Bill copy attach karein?</h3>
+    <h3 style="margin-bottom:8px;">Attach this bill copy?</h3>
     <div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${esc(bill.dbName)} — ${esc(bill.retailer)} | Bill ${esc(bill.billNo)} | ${esc(bill.billDate)}</div>
     ${isImage ? `<img src="${dataUrl}" style="width:100%;border-radius:8px;border:1px solid var(--edge);">` : `<div class="empty-state">📄 ${esc(file.name)}</div>`}
     <div style="font-size:12px;margin:10px 0;word-break:break-all;"><b>File:</b> ${esc(savedName)}<br><b>Folder:</b> ${esc(folderName)}</div>
-    <div style="font-size:12px;background:#fff4e5;border:1px solid #f0c27b;border-radius:8px;padding:8px 10px;margin-bottom:12px;">⚠ Ek baar attach hone ke baad ye copy <b>dobara change / replace nahi</b> ho sakti. Photo sahi bill ki hai na?</div>
+    <div style="font-size:12px;background:#fff4e5;border:1px solid #f0c27b;border-radius:8px;padding:8px 10px;margin-bottom:12px;">⚠ Once attached, this copy <b>cannot be changed or replaced</b>. Please make sure this is the correct bill.</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;"><button class="btn" id="msCancel">Cancel</button><button class="btn accent" id="msConfirm">✔ Confirm & Attach</button></div></div>`;
   document.body.appendChild(ov);
   $('#msCancel').onclick = ()=>ov.remove();
@@ -2260,10 +2260,10 @@ async function msAttachFlow(bill, file){
     let res;
     try{ res = await supaUploadBillCopy(s, bill.uid, savedName, mime, dataUrl.split(',')[1]||'', folderName); }
     catch(e){ res = { ok:false, error:String(e.message||e) }; }
-    if(!res.ok){ toast('Attach nahi hua: ' + (res.error||'error'), 'err'); btn.disabled=false; btn.textContent='✔ Retry'; $('#msCancel').disabled=false; return; }
+    if(!res.ok){ toast('Could not attach: ' + (res.error||'error'), 'err'); btn.disabled=false; btn.textContent='✔ Retry'; $('#msCancel').disabled=false; return; }
     ov.remove();
-    if(res.alreadyAttached){ toast('Is bill ki copy pehle se attached thi — change nahi hui.', 'err'); }
-    else toast('Bill copy attach ho gayi ✔', 'ok');
+    if(res.alreadyAttached){ toast('This bill already had a copy attached — nothing was changed.', 'err'); }
+    else toast('Bill copy attached ✔', 'ok');
     bill.lines.forEach(r=>{ if(!res.alreadyAttached){ r.BillCopyURL = res.url; r.BillCopyDownloadURL = res.dl || res.url; } });
     if(s.role==='Admin' && !res.alreadyAttached){ try{ await asPersist(bill.lines.filter(r=>r._k)); }catch(e){} }
     msClearCaches();
@@ -2288,8 +2288,8 @@ document.addEventListener('click', ev=>{
   const src = [window.__mvAllRows, window.__myAllRows, MS.rows, (getSession()||{}).role==='Admin' ? AdminStore.rows : null].filter(Boolean);
   let bill = null;
   for(const arr of src){ const b = msBills(arr.filter(r=>r.BillUID===uid))[0]; if(b){ bill = b; break; } }
-  if(!bill){ toast('Ye bill list me nahi mila — Sync karke dobara try kijiye', 'err'); return; }
-  if(bill.hasCopy){ toast('Is bill ki copy pehle se attached hai', 'err'); return; }
+  if(!bill){ toast('This bill was not found in the list — please Sync and try again', 'err'); return; }
+  if(bill.hasCopy){ toast('This bill already has a copy attached', 'err'); return; }
   const inp = document.createElement('input'); inp.type='file'; inp.accept='image/*,application/pdf'; inp.style.display='none';
   inp.addEventListener('change', ()=>{ const f = inp.files && inp.files[0]; inp.remove(); if(f) msAttachFlow(bill, f); });
   document.body.appendChild(inp); inp.click();
@@ -2300,7 +2300,7 @@ function msAnalyticsCardHtml(rows){
   const sm = msSummary(bills, 'auditor').filter(g=>g.missing).slice(0,8);
   return `<div class="chart-card" style="grid-column:1/-1;"><h3>📎 Bills Without Bill Copy <span class="click-hint">click a name to attach copies</span></h3>
     <div style="font-size:13px;margin-bottom:10px;"><b>${fmtInt(miss.length)}</b> of ${fmtInt(bills.length)} bills have no copy yet.</div>
-    ${sm.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;">${sm.map(g=>`<button class="btn small" data-ms-go="${esc(g.name)}">${esc(g.name)} <b style="color:var(--danger);">${fmtInt(g.missing)}</b></button>`).join('')}</div>` : '<div style="color:var(--ink-faint);">Sab bills mein copy attached hai ✔</div>'}
+    ${sm.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;">${sm.map(g=>`<button class="btn small" data-ms-go="${esc(g.name)}">${esc(g.name)} <b style="color:var(--danger);">${fmtInt(g.missing)}</b></button>`).join('')}</div>` : '<div style="color:var(--ink-faint);">Every bill has a copy attached ✔</div>'}
     <div style="margin-top:10px;"><button class="btn small accent" data-ms-go="">Auditor / Verifier-wise full report →</button></div></div>`;
 }
 
