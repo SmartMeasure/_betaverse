@@ -622,10 +622,10 @@ function supaSaveCfg(url, key, photoUrl){ try{ const o = JSON.parse(localStorage
 
 /* Bill photos live in GOOGLE DRIVE (served by the small photo Apps Script); Supabase only stores the link.
    PHOTO_APP_URL = that script's /exec URL. If it is not set, photos fall back to Supabase Storage. */
-const PHOTO_APP_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbw4a5Db2cjkID6zaUasqYLzTQc0269vGo96eaQHAkT04umKq7B0FLjmup1C6_UrXz8TXQ/exec';
+const PHOTO_APP_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbwBVkuujpth71CfbEVF_vYTRwVzyzo2gBHqkrh4fTEX2XycjTMzoa5y87Z6rlKLhRlYkg/exec';   // old Drive account is suspended -> new photos go to Supabase Storage until a new healthy-account script URL is set here
 function photoAppUrl(){
   if(!PHOTO_APP_URL_DEFAULT.startsWith('PASTE')) return PHOTO_APP_URL_DEFAULT;
-  try{ return (JSON.parse(localStorage.getItem(SUPA_CFG_KEY)||'{}').photoUrl || '').trim(); }catch(e){ return ''; }
+  try{ const u=(JSON.parse(localStorage.getItem(SUPA_CFG_KEY)||'{}').photoUrl || '').trim(); return (u && u.indexOf(PHOTO_APP_URL_OLD)===0) ? '' : u; }catch(e){ return ''; }
 }
 function photoFileId(url){ const m = String(url||'').match(/[?&]fileId=([^&]+)/) || String(url||'').match(/[?&]id=([^&]+)/); return m ? m[1] : null; }
 // Any stored Drive-photo link (old or new deployment) -> opens through the CURRENT photo script.
@@ -636,14 +636,13 @@ function photoViewUrl(url){
   const base = photoBaseFor(url), id = photoFileId(url);
   return (base && id) ? `${base}?action=viewphoto&fileId=${id}` : url;
 }
-async function driveUploadBillCopy(session, billUid, fileName, mimeType, base64Data){
+async function driveUploadBillCopy(session, billUid, fileName, mimeType, base64Data, folderName){
+  // Uploads to the permanent Google Drive home only (no link written here) -> {ok, url, fileId}
   const res = await fetch(photoAppUrl(), { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({ action:'uploadBillCopy', code:session.code, pin:session.pin, billUid, fileName, mimeType, base64Data }) });
+    body: JSON.stringify({ action:'uploadBillCopy', code:session.code, pin:session.pin, billUid, fileName, folderName: folderName||'', mimeType, base64Data }) });
   const j = await res.json();
   if(!j.ok) return { ok:false, error: j.error || 'Drive upload failed' };
-  const at = await supaRpc('rl_attach_copy', { p_code:session.code, p_pin:session.pin, p_bill_uid:billUid, p_url:j.url, p_dl_url:j.url, p_path:j.fileId }, 3);
-  if(!at.ok) return { ok:false, error: at.error || 'Could not link the photo to the bill' };
-  return { ok:true, url:j.url };
+  return { ok:true, url:j.url, fileId:j.fileId };
 }
 function backendConfigured(){ const c = supaCfg(); return !!(c.url && c.key); }
 
@@ -730,25 +729,67 @@ function supaB64ToBlob(b64, mime){
   for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
   return new Blob([bytes], { type: mime });
 }
-async function supaUploadBillCopy(session, billUid, fileName, mimeType, base64Data){
-  if(photoAppUrl() && base64Data) return driveUploadBillCopy(session, billUid, fileName, mimeType, base64Data);
-  if(!base64Data) return { ok:false, error:'No file data' };
+/* SAFETY NET: the SAME photo is also kept in Supabase Storage (verifier-wise folder). Drive stays the permanent home
+   (url = Drive link); the Supabase copy is the backup (dl_url) and an Apps Script job trims the OLDEST backups so the bucket
+   never goes past ~70 % full. If Drive is down, the Supabase copy becomes the link, so a photo is never lost. */
+async function sbStorageCopy(fileName, mimeType, base64Data, folderName){
   const safe = s => String(s||'').replace(/[^A-Za-z0-9._-]+/g,'_').slice(0,80) || 'file';
-  const d = new Date();
   const rand = Math.random().toString(36).slice(2,8);
-  const path = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}/${safe(billUid)}/${Date.now()}_${rand}_${safe(fileName)}`;
+  let path = `${safe(folderName || 'UNASSIGNED')}/${safe(fileName)}`;   // one folder per Auditor/Verifier
   const blob = supaB64ToBlob(base64Data, mimeType);
   let res;
   for(let attempt=0; attempt<3; attempt++){
     try{
       res = await supaFetch(`/storage/v1/object/${SUPA_BUCKET}/${path}`, { method:'POST', headers:{ 'Content-Type': mimeType, 'x-upsert':'false', 'cache-control':'max-age=31536000' }, body: blob }, 60000);
+      if(res.status===400 || res.status===409){ // same file name already there (e.g. a retry) -> keep both, never overwrite
+        let m=''; try{ m=JSON.stringify(await res.clone().json()); }catch(e){}
+        if(/exist|duplicate/i.test(m)){ path = path.replace(/(\.[A-Za-z0-9]+)$/, '_'+rand+'$1'); continue; }
+      }
       if(res.ok || res.status < 500) break;
     } catch(e){ if(attempt===2) throw e; }
     await new Promise(r=>setTimeout(r, 700*(attempt+1)));
   }
-  if(!res.ok){ let m=''; try{ m=(await res.json()).message||''; }catch(e){} return { ok:false, error: m || ('Upload failed (' + res.status + ')') }; }
-  const url = `${supaCfg().url}/storage/v1/object/public/${SUPA_BUCKET}/${path}`;
-  const at = await supaRpc('rl_attach_copy', { p_code:session.code, p_pin:session.pin, p_bill_uid:billUid, p_url:url, p_dl_url:url, p_path:path }, 3);
+  if(!res || !res.ok){ let m=''; try{ m=(await res.json()).message||''; }catch(e){} return { ok:false, error: m || ('Upload failed (' + (res&&res.status) + ')') }; }
+  return { ok:true, url: `${supaCfg().url}/storage/v1/object/public/${SUPA_BUCKET}/${path}`, path };
+}
+/* Every bill photo is saved TWICE:
+     1) Google Drive  = the permanent home of ALL photos (link stored in url)
+     2) Supabase Storage = a safety-net copy of the latest photos (link stored in dl_url); a nightly job keeps this
+        bucket at about 70% full by removing the OLDEST copies that are already safe on Drive.
+   If Drive is down the bill still gets its Supabase copy (and a nightly job copies it to Drive later);
+   if Supabase is down the Drive copy alone is linked. Only if BOTH fail is the photo queued for retry. */
+async function supaStoragePut_(billUid, fileName, mimeType, base64Data, folderName){
+  const safe = s => String(s||'').replace(/[^A-Za-z0-9._-]+/g,'_').slice(0,80) || 'file';
+  const rand = Math.random().toString(36).slice(2,8);
+  let path = `${safe(folderName || 'UNASSIGNED')}/${safe(fileName)}`;   // one folder per Auditor/Verifier
+  const blob = supaB64ToBlob(base64Data, mimeType);
+  let res;
+  for(let attempt=0; attempt<3; attempt++){
+    try{
+      res = await supaFetch(`/storage/v1/object/${SUPA_BUCKET}/${path}`, { method:'POST', headers:{ 'Content-Type': mimeType, 'x-upsert':'false', 'cache-control':'max-age=31536000' }, body: blob }, 60000);
+      if(res.status===400 || res.status===409){ // same file name already there (e.g. a retry) -> keep both, never overwrite
+        let m=''; try{ m=JSON.stringify(await res.clone().json()); }catch(e){}
+        if(/exist|duplicate/i.test(m)){ path = path.replace(/(\.[A-Za-z0-9]+)$/, '_'+rand+'$1'); continue; }
+      }
+      if(res.ok || res.status < 500) break;
+    } catch(e){ if(attempt===2) throw e; }
+    await new Promise(r=>setTimeout(r, 700*(attempt+1)));
+  }
+  if(!res || !res.ok){ let m=''; try{ m=(await res.json()).message||''; }catch(e){} return { ok:false, error: m || ('Upload failed (' + (res&&res.status) + ')') }; }
+  return { ok:true, path, url: `${supaCfg().url}/storage/v1/object/public/${SUPA_BUCKET}/${path}` };
+}
+async function supaUploadBillCopy(session, billUid, fileName, mimeType, base64Data, folderName){
+  if(!base64Data) return { ok:false, error:'No file data' };
+  let sb = null, dr = null, sbErr = '', drErr = '';
+  try{ sb = await supaStoragePut_(billUid, fileName, mimeType, base64Data, folderName); if(!sb.ok){ sbErr = sb.error; sb = null; } }catch(e){ sbErr = String(e.message||e); sb = null; }
+  if(photoAppUrl()){
+    try{ dr = await driveUploadBillCopy(session, billUid, fileName, mimeType, base64Data, folderName); if(!dr.ok){ drErr = dr.error; dr = null; } }catch(e){ drErr = String(e.message||e); dr = null; }
+  }
+  if(!sb && !dr) return { ok:false, error: drErr || sbErr || 'Upload failed' };
+  const url  = dr ? dr.url : sb.url;                 // permanent link (Drive) — Supabase link only if Drive failed
+  const dl   = sb ? sb.url : dr.url;                 // safety-net copy
+  const path = dr ? dr.fileId : sb.path;
+  const at = await supaRpc('rl_attach_copy', { p_code:session.code, p_pin:session.pin, p_bill_uid:billUid, p_url:url, p_dl_url:dl, p_path:path }, 3);
   if(!at.ok) return { ok:false, error: at.error || 'Could not link the photo to the bill' };
   return { ok:true, url };
 }
@@ -798,16 +839,16 @@ async function retryPendingSubmissions(silent){
 const PENDING_PHOTOS_KEY = 'rateLedger_pendingPhotos';
 function getPendingPhotos(){ try{ return JSON.parse(localStorage.getItem(PENDING_PHOTOS_KEY)||'[]'); }catch(e){ return []; } }
 function setPendingPhotos(list){ try{ localStorage.setItem(PENDING_PHOTOS_KEY, JSON.stringify(list)); }catch(e){ /* localStorage full — the photo stays only in STATE.billFiles for this session */ } }
-function queuePendingPhoto(billUid, fileName, mimeType, base64Data){
+function queuePendingPhoto(billUid, fileName, mimeType, base64Data, folderName){
   const list = getPendingPhotos();
   // Don't pile up duplicate queue entries for the same bill if it's retried
   // more than once before succeeding.
   if(list.some(p=>p.billUid===billUid)) return;
-  list.push({ billUid, fileName, mimeType, base64Data, queuedAt: new Date().toISOString() });
+  list.push({ billUid, fileName, mimeType, base64Data, folderName: folderName||'', queuedAt: new Date().toISOString() });
   setPendingPhotos(list);
 }
-async function uploadAndAttachOnePhoto_(session, billUid, fileName, mimeType, base64Data){
-  return supaUploadBillCopy(session, billUid, fileName, mimeType, base64Data);
+async function uploadAndAttachOnePhoto_(session, billUid, fileName, mimeType, base64Data, folderName){
+  return supaUploadBillCopy(session, billUid, fileName, mimeType, base64Data, folderName);
 }
 async function retryPendingPhotos(silent){
   if(!backendConfigured()) return;
@@ -819,7 +860,7 @@ async function retryPendingPhotos(silent){
   let sent = 0;
   for(const item of list){
     try{
-      const res = await uploadAndAttachOnePhoto_(session, item.billUid, item.fileName, item.mimeType, item.base64Data);
+      const res = await uploadAndAttachOnePhoto_(session, item.billUid, item.fileName, item.mimeType, item.base64Data, item.folderName);
       if(res.ok) sent++; else remaining.push(item);
     }catch(e){ remaining.push(item); }
   }
@@ -1116,16 +1157,36 @@ function stampBillPhotoFooter(dataUrl, footerLines){
     img.src = dataUrl;
   });
 }
+/* Whole-bill verdict used in the photo's file name + footer: Overinvoicing / Underinvoicing / Correct. */
+function billInvoicingLabel(lineItems){
+  let over=0, under=0;
+  (lineItems||[]).forEach(li=>{
+    if(li._status==='over') over += Math.abs(li._diffAmount||0);
+    else if(li._status==='under') under += Math.abs(li._diffAmount||0);
+  });
+  if(over>0 && over>=under) return { label:'Overinvoicing', amt:over };
+  if(under>0) return { label:'Underinvoicing', amt:under };
+  return { label:'Correct-Invoicing', amt:0 };
+}
+function fileSafe(s, max){ return String(s||'').trim().replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,max||30) || 'NA'; }
+/* <Overinvoicing|Underinvoicing>_Sub-<submission date>_<Auditor/Verifier>_Coll-<collected by>_Bill-<bill date>_<id>.<ext> */
+function buildBillFileName(rec, label, ext){
+  return `${label}_Sub-${rec.submissionStr}_${fileSafe(rec.verifiedBy,24)}_Coll-${fileSafe(rec.collectedBy,24)}_Bill-${rec.billDateStr}_${String(rec.billUid||'').replace('bill_','').slice(-6)}.${ext}`;
+}
 /* Builds the footer's text lines from a saved bill record + its line items. */
 function billPhotoFooterLines(billRecord, lineItems){
+  const v = billInvoicingLabel(lineItems);
   const lines = [];
-  lines.push(`${billRecord.dbName||'—'} (${billRecord.dbCode||'—'})  —  ${billRecord.retailer||'—'}  —  ${billRecord.billDateStr||'—'}`);
-  lines.push(`Collected By: ${billRecord.collectedBy||'—'}    |    Verified By: ${billRecord.verifiedBy||'—'}`);
+  lines.push(`${v.label.toUpperCase()}${v.amt>0 ? ' — ₹'+fmtMoney(v.amt) : ''}`);
+  lines.push(`${billRecord.dbName||'—'} (${billRecord.dbCode||'—'})  —  ${billRecord.retailer||'—'}`);
+  lines.push(`Submission Date: ${billRecord.submissionStr||'—'}    |    Bill Date: ${billRecord.billDateStr||'—'}`);
+  lines.push(`Auditor/Verifier: ${billRecord.verifiedBy||'—'}    |    Collected By: ${billRecord.collectedBy||'—'}`);
   const overLines = (lineItems||[]).filter(li=>li._status==='over' && li._diffAmount>0);
   if(overLines.length){
     const detail = overLines.map(li=>`${li.productName} +₹${fmtMoney(li._diffAmount)}`).join(';  ');
     lines.push(`⚠ Overcharge — ${detail}`);
   }
+  if(billRecord.fileName) lines.push(`File: ${billRecord.fileName}`);
   return lines;
 }
 /* Animated readout — counts a stat-value node up from 0 to target on render. */
@@ -3919,20 +3980,23 @@ async function saveBill(){
   // final status) is known — not at attach time — so the footer's overcharge
   // detail is always complete and accurate, whatever order fields were filled.
   if(f.billCopy){
-    const savedName = `Bill_${billUid.replace('bill_','')}.${f.billCopy.ext.replace(/[^a-z0-9]/gi,'')||'jpg'}`;
+    const extSafe = f.billCopy.ext.replace(/[^a-z0-9]/gi,'')||'jpg';
+    const nameRec = { billUid, submissionStr: fmtDMY(subDate), billDateStr: fmtDMY(billDate), verifiedBy:(f.verifiedBy||'').toUpperCase(), collectedBy:(f.collectedBy||'').toUpperCase() };
+    const savedName = buildBillFileName(nameRec, billInvoicingLabel(lineSummaries).label, extSafe);
+    const folderName = (nameRec.verifiedBy || ((getSession()||{}).name||'')).toUpperCase() || 'UNASSIGNED';
     if(f.billCopy.kind==='image'){
       try{
         const footerLines = billPhotoFooterLines(
-          { dbName:f.dbName, dbCode:f.dbCode, retailer:(f.retailer||'').toUpperCase(), billDateStr:fmtDMY(billDate), collectedBy:(f.collectedBy||'').toUpperCase(), verifiedBy:(f.verifiedBy||'').toUpperCase() },
+          { dbName:f.dbName, dbCode:f.dbCode, retailer:(f.retailer||'').toUpperCase(), billDateStr:nameRec.billDateStr, submissionStr:nameRec.submissionStr, collectedBy:nameRec.collectedBy, verifiedBy:nameRec.verifiedBy, fileName:savedName },
           lineSummaries
         );
         const stampedUrl = await stampBillPhotoFooter(f.billCopy.dataUrl, footerLines);
-        STATE.billFiles[billUid] = { fileName: f.billCopy.fileName, ext: f.billCopy.ext, dataUrl: stampedUrl, savedName, kind: 'image' };
+        STATE.billFiles[billUid] = { fileName: f.billCopy.fileName, ext: f.billCopy.ext, dataUrl: stampedUrl, savedName, folderName, kind: 'image' };
       }catch(e){
-        STATE.billFiles[billUid] = { fileName: f.billCopy.fileName, ext: f.billCopy.ext, dataUrl: f.billCopy.dataUrl, savedName, kind: 'image' };
+        STATE.billFiles[billUid] = { fileName: f.billCopy.fileName, ext: f.billCopy.ext, dataUrl: f.billCopy.dataUrl, savedName, folderName, kind: 'image' };
       }
     } else {
-      STATE.billFiles[billUid] = { fileName: f.billCopy.fileName, ext: f.billCopy.ext, dataUrl: f.billCopy.dataUrl, savedName, kind: f.billCopy.kind || 'pdf' };
+      STATE.billFiles[billUid] = { fileName: f.billCopy.fileName, ext: f.billCopy.ext, dataUrl: f.billCopy.dataUrl, savedName, folderName, kind: f.billCopy.kind || 'pdf' };
     }
   }
   if(saveBtn){ saveBtn.disabled = false; saveBtn.textContent = 'Save bill to report'; }
@@ -3983,13 +4047,13 @@ async function saveBill(){
     const base64Data = bf.dataUrl.split(',')[1] || '';
     (async () => {
       try{
-        const res = await uploadAndAttachOnePhoto_(session1, billUid, bf.savedName, mimeType, base64Data);
+        const res = await uploadAndAttachOnePhoto_(session1, billUid, bf.savedName, mimeType, base64Data, bf.folderName);
         if(res.ok){ toast('Bill photo uploaded and linked', 'ok'); return; }
-        queuePendingPhoto(billUid, bf.savedName, mimeType, base64Data);
+        queuePendingPhoto(billUid, bf.savedName, mimeType, base64Data, bf.folderName);
         toast(`Bill photo couldn't be uploaded (${res.error}) — queued to retry automatically`, 'err');
         renderSyncBanner();
       } catch(e){
-        queuePendingPhoto(billUid, bf.savedName, mimeType, base64Data);
+        queuePendingPhoto(billUid, bf.savedName, mimeType, base64Data, bf.folderName);
         toast("Bill photo couldn't be uploaded (connection issue) — queued to retry automatically", 'err');
         renderSyncBanner();
       }
