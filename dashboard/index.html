@@ -192,14 +192,13 @@ function photoBestUrl(url, dlUrl){
   if(dlUrl && /\/storage\/v1\/object\/public\//.test(dlUrl)) return dlUrl;
   return photoViewUrl(url);
 }
-async function driveUploadBillCopy(session, billUid, fileName, mimeType, base64Data){
+async function driveUploadBillCopy(session, billUid, fileName, mimeType, base64Data, folderName){
+  // Uploads to the permanent Google Drive home only (no link written here) -> {ok, url, fileId}
   const res = await fetch(photoAppUrl(), { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({ action:'uploadBillCopy', code:session.code, pin:session.pin, billUid, fileName, mimeType, base64Data }) });
+    body: JSON.stringify({ action:'uploadBillCopy', code:session.code, pin:session.pin, billUid, fileName, folderName: folderName||'', mimeType, base64Data }) });
   const j = await res.json();
   if(!j.ok) return { ok:false, error: j.error || 'Drive upload failed' };
-  const at = await supaRpc('rl_attach_copy', { p_code:session.code, p_pin:session.pin, p_bill_uid:billUid, p_url:j.url, p_dl_url:j.url, p_path:j.fileId }, 3);
-  if(!at.ok) return { ok:false, error: at.error || 'Could not link the photo to the bill' };
-  return { ok:true, url:j.url };
+  return { ok:true, url:j.url, fileId:j.fileId };
 }
 function backendConfigured(){ const c = supaCfg(); return !!(c.url && c.key); }
 
@@ -287,27 +286,46 @@ function supaB64ToBlob(b64, mime){
   for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
   return new Blob([bytes], { type: mime });
 }
-async function supaUploadBillCopy(session, billUid, fileName, mimeType, base64Data){
-  if(photoAppUrl() && base64Data) return driveUploadBillCopy(session, billUid, fileName, mimeType, base64Data);
-  if(!base64Data) return { ok:false, error:'No file data' };
+/* Every bill photo is saved TWICE:
+     1) Google Drive  = the permanent home of ALL photos (link stored in url)
+     2) Supabase Storage = a safety-net copy of the latest photos (link stored in dl_url); a nightly job keeps this
+        bucket at about 70% full by removing the OLDEST copies that are already safe on Drive.
+   If Drive is down the bill still gets its Supabase copy (and a nightly job copies it to Drive later);
+   if Supabase is down the Drive copy alone is linked. Only if BOTH fail is the photo queued for retry. */
+async function supaStoragePut_(billUid, fileName, mimeType, base64Data, folderName){
   const safe = s => String(s||'').replace(/[^A-Za-z0-9._-]+/g,'_').slice(0,80) || 'file';
-  const d = new Date();
   const rand = Math.random().toString(36).slice(2,8);
-  const path = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}/${safe(billUid)}/${Date.now()}_${rand}_${safe(fileName)}`;
+  let path = `${safe(folderName || 'UNASSIGNED')}/${safe(fileName)}`;   // one folder per Auditor/Verifier
   const blob = supaB64ToBlob(base64Data, mimeType);
   let res;
   for(let attempt=0; attempt<3; attempt++){
     try{
       res = await supaFetch(`/storage/v1/object/${SUPA_BUCKET}/${path}`, { method:'POST', headers:{ 'Content-Type': mimeType, 'x-upsert':'false', 'cache-control':'max-age=31536000' }, body: blob }, 60000);
+      if(res.status===400 || res.status===409){ // same file name already there (e.g. a retry) -> keep both, never overwrite
+        let m=''; try{ m=JSON.stringify(await res.clone().json()); }catch(e){}
+        if(/exist|duplicate/i.test(m)){ path = path.replace(/(\.[A-Za-z0-9]+)$/, '_'+rand+'$1'); continue; }
+      }
       if(res.ok || res.status < 500) break;
     } catch(e){ if(attempt===2) throw e; }
     await new Promise(r=>setTimeout(r, 700*(attempt+1)));
   }
-  if(!res.ok){ let m=''; try{ m=(await res.json()).message||''; }catch(e){} return { ok:false, error: m || ('Upload failed (' + res.status + ')') }; }
-  const url = `${supaCfg().url}/storage/v1/object/public/${SUPA_BUCKET}/${path}`;
-  const at = await supaRpc('rl_attach_copy', { p_code:session.code, p_pin:session.pin, p_bill_uid:billUid, p_url:url, p_dl_url:url, p_path:path }, 3);
+  if(!res || !res.ok){ let m=''; try{ m=(await res.json()).message||''; }catch(e){} return { ok:false, error: m || ('Upload failed (' + (res&&res.status) + ')') }; }
+  return { ok:true, path, url: `${supaCfg().url}/storage/v1/object/public/${SUPA_BUCKET}/${path}` };
+}
+async function supaUploadBillCopy(session, billUid, fileName, mimeType, base64Data, folderName){
+  if(!base64Data) return { ok:false, error:'No file data' };
+  let sb = null, dr = null, sbErr = '', drErr = '';
+  try{ sb = await supaStoragePut_(billUid, fileName, mimeType, base64Data, folderName); if(!sb.ok){ sbErr = sb.error; sb = null; } }catch(e){ sbErr = String(e.message||e); sb = null; }
+  if(photoAppUrl()){
+    try{ dr = await driveUploadBillCopy(session, billUid, fileName, mimeType, base64Data, folderName); if(!dr.ok){ drErr = dr.error; dr = null; } }catch(e){ drErr = String(e.message||e); dr = null; }
+  }
+  if(!sb && !dr) return { ok:false, error: drErr || sbErr || 'Upload failed' };
+  const url  = dr ? dr.url : sb.url;                 // permanent link (Drive) — Supabase link only if Drive failed
+  const dl   = sb ? sb.url : dr.url;                 // safety-net copy
+  const path = dr ? dr.fileId : sb.path;
+  const at = await supaRpc('rl_attach_copy', { p_code:session.code, p_pin:session.pin, p_bill_uid:billUid, p_url:url, p_dl_url:dl, p_path:path }, 3);
   if(!at.ok) return { ok:false, error: at.error || 'Could not link the photo to the bill' };
-  return { ok:true, url };
+  return { ok:true, url, dl, alreadyAttached: !!at.alreadyAttached };
 }
 
 /* Shared session with the Rate Ledger app: if this Dashboard is opened from
@@ -843,10 +861,10 @@ function adminRowsFor(from, to, basis){ adminMaybeLoadArchive(from, basis); retu
 function renderShell(){
   const s = getSession();
   const tabs = s.role==='Admin'
-    ? [{id:'analytics',label:'Analytics'},{id:'performance',label:'Performance'},{id:'submissions',label:'All Submissions'},{id:'users',label:'Manage Users'}]
+    ? [{id:'analytics',label:'Analytics'},{id:'performance',label:'Performance'},{id:'submissions',label:'All Submissions'},{id:'missing',label:'Missing Bill Copies'},{id:'users',label:'Manage Users'}]
     : s.role==='Verifier'
-    ? [{id:'myverified',label:'Bills I Verified'}]
-    : [{id:'mydata',label:'My Data'}];
+    ? [{id:'myverified',label:'Bills I Verified'},{id:'missing',label:'Missing Bill Copies'}]
+    : [{id:'mydata',label:'My Data'},{id:'missing',label:'Missing Bill Copies'}];
   if(!ACTIVE_TAB || !tabs.find(t=>t.id===ACTIVE_TAB)) ACTIVE_TAB = tabs[0].id;
   $('#app').innerHTML = `
     <header class="topbar">
@@ -866,8 +884,8 @@ function renderShell(){
   $('#logoutBtn').addEventListener('click', logout);
   window.__adminRepaint = null; // each admin tab registers its own below
   if(s.role==='Admin'){ updateAdminSyncChip(); adminStartAutoSync(); loadUsageChip(); }
-  $all('.tab-btn').forEach(b=>b.addEventListener('click', ()=>{ ACTIVE_TAB=b.dataset.tab; renderShell(); }));
-  const renderers = { analytics:renderAnalytics, performance:renderPerformance, submissions:renderSubmissions, users:renderUsers, mydata:renderMyData, myverified:renderMyVerified };
+  $all('.tab-btn').forEach(b=>b.addEventListener('click', ()=>{ ACTIVE_TAB=b.dataset.tab; if(ACTIVE_TAB==='missing' && !window.__msKeep) MS.person=null; window.__msKeep=false; renderShell(); }));
+  const renderers = { analytics:renderAnalytics, performance:renderPerformance, submissions:renderSubmissions, users:renderUsers, mydata:renderMyData, myverified:renderMyVerified, missing:()=>renderMissing(true) };
   (renderers[ACTIVE_TAB]||(()=>{}))();
 }
 
@@ -989,7 +1007,11 @@ function renderAnalyticsContent(rows){
     <div class="chart-card">
       <h3>📦 Overcharge Lines by Category <span class="click-hint">click a bar</span></h3><div id="chCategoryWrap"><canvas id="chCategory" height="200"></canvas></div>
     </div>
+    <div style="margin-top:18px;">${msAnalyticsCardHtml(rows)}</div>
   `;
+  $all('[data-ms-go]').forEach(b=>b.addEventListener('click', ()=>{
+    const n = b.dataset.msGo; MS.group = 'auditor'; MS.person = n ? n : null; window.__msKeep = true; ACTIVE_TAB = 'missing'; renderShell();
+  }));
   // Every clickable stat card routes through the exact same place any other
   // click does — goToFilteredSubmissions — so the destination report is
   // always the same familiar table/export, just pre-filtered differently.
@@ -2006,6 +2028,258 @@ async function renderMyData(){
     }
   );
 }
+/* ==================== MISSING BILL COPIES ====================
+   Auditor / Verifier: only THEIR OWN bills that have no bill copy yet -> attach it here.
+   Admin (Analytics card + this tab): Auditor/Verifier-wise totals of bills still missing a copy, click -> the list.
+   Attaching works exactly like "Save bill" in Rate Ledger (compress + footer stamp + file name + folder per
+   Auditor/Verifier + Drive & Supabase copy). Once attached it is LOCKED: the server never replaces an existing copy. */
+function wrapCanvasText(ctx, text, maxWidth){
+  const words = String(text).split(' '); const lines = []; let cur = '';
+  for(const w of words){ const test = cur ? cur+' '+w : w; if(ctx.measureText(test).width > maxWidth && cur){ lines.push(cur); cur = w; } else cur = test; }
+  if(cur) lines.push(cur); return lines;
+}
+function downscaleImage(file, maxWidth, quality){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ev=>{
+      const img = new Image();
+      img.onload = ()=>{
+        const scale = Math.min(1, maxWidth/img.width);
+        const w = Math.round(img.width*scale), h = Math.round(img.height*scale);
+        const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject; img.src = ev.target.result;
+    };
+    reader.onerror = reject; reader.readAsDataURL(file);
+  });
+}
+function stampBillPhotoFooter(dataUrl, footerLines){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const W = img.width, PAD = 14, LINE_H = 20, TITLE_SIZE = 13, BODY_SIZE = 12;
+      const cm = document.createElement('canvas').getContext('2d');
+      let wrapped = [];
+      footerLines.forEach((line, i)=>{
+        cm.font = (i===0 ? `700 ${TITLE_SIZE}px Arial` : `400 ${BODY_SIZE}px Arial`);
+        wrapCanvasText(cm, line, W-PAD*2).forEach(l=>wrapped.push({text:l, bold:i===0}));
+      });
+      const footerH = PAD*2 + wrapped.length*LINE_H;
+      const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = img.height + footerH;
+      const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0);
+      ctx.fillStyle = 'rgba(10,10,15,0.88)'; ctx.fillRect(0, img.height, W, footerH);
+      ctx.textBaseline = 'top'; let y = img.height + PAD;
+      wrapped.forEach(l=>{ ctx.font = l.bold ? `700 ${TITLE_SIZE}px Arial` : `400 ${BODY_SIZE}px Arial`; ctx.fillStyle = '#FFFFFF'; ctx.fillText(l.text, PAD, y); y += LINE_H; });
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = reject; img.src = dataUrl;
+  });
+}
+function fileSafe(s, max){ return String(s||'').trim().replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,max||30) || 'NA'; }
+// One bill = all its product lines. Same verdict rule as Rate Ledger's billInvoicingLabel.
+function msBillVerdict(lines){
+  let over=0, under=0;
+  lines.forEach(r=>{ over += Number(r.OverchargeAmt)||0; under += Number(r.UnderchargeAmt)||0; });
+  if(over>0 && over>=under) return { label:'Overinvoicing', amt:over };
+  if(under>0) return { label:'Underinvoicing', amt:under };
+  return { label:'Correct-Invoicing', amt:0 };
+}
+function msFileName(b, label, ext){
+  return `${label}_Sub-${b.sub}_${fileSafe(b.verifier,24)}_Coll-${fileSafe(b.collected,24)}_Bill-${b.billDate}_${String(b.uid||'').replace('bill_','').slice(-6)}.${ext}`;
+}
+function msFooterLines(b, label, amt, fileName){
+  const L = [];
+  L.push(`${label.toUpperCase()}${amt>0 ? ' — ₹'+fmtMoney(amt) : ''}`);
+  L.push(`${b.dbName||'—'} (${b.dbCode||'—'})  —  ${b.retailer||'—'}`);
+  L.push(`Submission Date: ${b.sub||'—'}    |    Bill Date: ${b.billDate||'—'}`);
+  L.push(`Auditor/Verifier: ${b.verifier||'—'}    |    Collected By: ${b.collected||'—'}`);
+  const ov = b.lines.filter(r=>r.Status==='over' && Number(r.OverchargeAmt)>0);
+  if(ov.length) L.push('⚠ Overcharge — ' + ov.map(r=>`${r.ProductName} +₹${fmtMoney(Number(r.OverchargeAmt))}`).join(';  '));
+  L.push(`File: ${fileName}`);
+  return L;
+}
+/* Bills (unique BillUID) from raw rows, with whether a copy exists. */
+function msBills(rows){
+  const m = new Map();
+  rows.forEach(r=>{
+    if(!r.BillUID) return;
+    let b = m.get(r.BillUID);
+    if(!b){
+      b = { uid:r.BillUID, dbName:r.DBName||'', dbCode:r.DBCode||'', retailer:r.Retailer||'', billNo:r.BillNo||'', billDate:r.BillDate||'',
+            sub:r.SubmissionDate||'', collected:String(r.CollectedBy||'').toUpperCase(), verifier:String(r.VerifiedBy||'').toUpperCase(),
+            auditor:r.AuditorName||'', auditorCode:r.AuditorCode||'', hasCopy:false, lines:[] };
+      m.set(r.BillUID, b);
+    }
+    b.lines.push(r);
+    if(r.BillCopyURL) b.hasCopy = true;
+  });
+  const out = [...m.values()];
+  out.forEach(b=>{ const v = msBillVerdict(b.lines); b.verdict = v.label; b.amt = v.amt; });
+  return out;
+}
+const MS = { rows:null, loading:false, person:null, group:'auditor', q:'', error:'' };
+function msClearCaches(){ try{ Object.keys(localStorage).filter(k=>k.indexOf('dashCache_')===0).forEach(k=>localStorage.removeItem(k)); }catch(e){} }
+async function msLoadRows(force){
+  const s = getSession();
+  if(s.role==='Admin'){
+    if(!(await adminStoreReady('#msBody'))) return null;
+    return AdminStore.rows;
+  }
+  if(MS.rows && !force) return MS.rows;
+  const res = await backendGet({ action: s.role==='Verifier' ? 'myverifieddata' : 'mydata', code:s.code, pin:s.pin, fromDate:'', toDate:'', dateBasis:'submission' });
+  if(!res.ok) throw new Error(res.error || 'Could not load your bills.');
+  MS.rows = res.rows || [];
+  return MS.rows;
+}
+async function renderMissing(force){
+  const body = $('#tabBody'); const s = getSession();
+  body.innerHTML = `<div id="msBody">${ultimateLoaderHtml('msLoader')}</div>`;
+  const stop = startUltimateLoader('msLoader');
+  let rows;
+  try{ rows = await msLoadRows(force); }catch(e){ stop(); $('#msBody').innerHTML = `<div class="empty-state">${esc(e.message||'Could not load.')}</div>`; return; }
+  if(ACTIVE_TAB!=='missing') return;
+  if(rows===null) return;
+  stop();
+  window.__adminRepaint = (f)=>{ if(ACTIVE_TAB==='missing') paintMissing(); };
+  paintMissing();
+}
+function msSummary(bills, group){
+  const m = new Map();
+  bills.forEach(b=>{
+    const name = (group==='verifier' ? b.verifier : b.auditor) || '— (not set)';
+    let g = m.get(name); if(!g){ g = { name, total:0, missing:0 }; m.set(name, g); }
+    g.total++; if(!b.hasCopy) g.missing++;
+  });
+  return [...m.values()].sort((a,b)=>b.missing-a.missing || a.name.localeCompare(b.name));
+}
+function paintMissing(){
+  const el = $('#msBody'); if(!el) return;
+  const s = getSession();
+  const rowsSrc = s.role==='Admin' ? AdminStore.rows : MS.rows;
+  const bills = msBills(rowsSrc || []);
+  const missing = bills.filter(b=>!b.hasCopy);
+  if(s.role==='Admin' && MS.person===null){
+    const sm = msSummary(bills, MS.group);
+    const totMiss = missing.length;
+    el.innerHTML = `
+      <div class="filterbar" style="align-items:center;">
+        <div class="field"><label>Group by</label><select id="msGroup"><option value="auditor" ${MS.group==='auditor'?'selected':''}>Auditor</option><option value="verifier" ${MS.group==='verifier'?'selected':''}>Verifier</option></select></div>
+        <div style="margin-left:auto;font-size:13px;"><b>${fmtInt(totMiss)}</b> of <b>${fmtInt(bills.length)}</b> bills have no bill copy</div>
+      </div>
+      <div class="chart-card" style="padding:0;overflow:auto;">
+        <table class="data-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr><th style="text-align:left;padding:10px 14px;">${MS.group==='verifier'?'Verifier':'Auditor'}</th><th style="text-align:right;padding:10px 14px;">Total bills</th><th style="text-align:right;padding:10px 14px;">Bill copy missing</th><th style="text-align:right;padding:10px 14px;">Missing %</th><th></th></tr></thead>
+          <tbody>${sm.map((g,i)=>`<tr style="border-top:1px solid var(--edge);">
+            <td style="padding:10px 14px;font-weight:600;">${esc(g.name)}</td>
+            <td style="padding:10px 14px;text-align:right;">${fmtInt(g.total)}</td>
+            <td style="padding:10px 14px;text-align:right;color:${g.missing?'var(--danger)':'var(--ink-faint)'};font-weight:700;">${fmtInt(g.missing)}</td>
+            <td style="padding:10px 14px;text-align:right;">${g.total?Math.round(g.missing/g.total*100):0}%</td>
+            <td style="padding:10px 14px;text-align:right;">${g.missing?`<button class="btn small accent" data-ms-open="${i}">Open list →</button>`:'✓'}</td></tr>`).join('') || '<tr><td colspan="5" class="empty-state">No data.</td></tr>'}</tbody>
+        </table>
+      </div>`;
+    $('#msGroup').addEventListener('change', e=>{ MS.group = e.target.value; paintMissing(); });
+    $all('[data-ms-open]').forEach(b=>b.addEventListener('click', ()=>{ MS.person = sm[Number(b.dataset.msOpen)].name; MS.q=''; paintMissing(); }));
+    return;
+  }
+  // list view (own bills for Auditor/Verifier; one person's bills for Admin)
+  let list = missing;
+  if(s.role==='Admin' && MS.person!==null){
+    list = missing.filter(b=>((MS.group==='verifier' ? b.verifier : b.auditor) || '— (not set)') === MS.person);
+  }
+  const q = (MS.q||'').toLowerCase();
+  const shown = q ? list.filter(b=>[b.dbName,b.dbCode,b.retailer,b.billNo,b.billDate,b.sub,b.collected,b.verdict].join(' ').toLowerCase().includes(q)) : list;
+  shown.sort((a,b)=>String(b.sub).split('-').reverse().join('').localeCompare(String(a.sub).split('-').reverse().join('')));
+  const mine = s.role==='Admin' ? '' : `<div style="font-size:13px;color:var(--ink-soft);margin-bottom:10px;">Sirf aapke woh audits jinke saath bill copy attach nahi hui hai. <b>Ek baar attach hone ke baad change / replace nahi ho sakti.</b></div>`;
+  el.innerHTML = `
+    ${mine}
+    <div class="filterbar" style="align-items:center;">
+      ${s.role==='Admin' ? `<button class="btn" id="msBack">← All ${MS.group==='verifier'?'Verifiers':'Auditors'}</button><div style="font-weight:700;">${esc(MS.person)}</div>` : ''}
+      <div class="field"><label>Search</label><input type="text" id="msQ" value="${esc(MS.q||'')}" placeholder="DB / retailer / bill no / date"></div>
+      <div style="margin-left:auto;font-size:13px;"><b>${fmtInt(list.length)}</b> bill(s) without copy${s.role==='Admin'?'':` &nbsp;|&nbsp; ${fmtInt(bills.length-list.length)} with copy`}</div>
+    </div>
+    <div class="chart-card" style="padding:0;overflow:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr>${['Submitted','Bill Date','Distributor','Retailer','Bill No','Result','Amount ₹','Auditor / Verifier',''].map(h=>`<th style="text-align:left;padding:10px 12px;white-space:nowrap;">${h}</th>`).join('')}</tr></thead>
+        <tbody>${shown.map(b=>`<tr style="border-top:1px solid var(--edge);">
+          <td style="padding:9px 12px;white-space:nowrap;">${esc(b.sub)}</td><td style="padding:9px 12px;white-space:nowrap;">${esc(b.billDate)}</td>
+          <td style="padding:9px 12px;">${esc(b.dbName)}<div style="font-size:11px;color:var(--ink-faint);">${esc(b.dbCode)}</div></td>
+          <td style="padding:9px 12px;">${esc(b.retailer)}</td><td style="padding:9px 12px;">${esc(b.billNo)}</td>
+          <td style="padding:9px 12px;white-space:nowrap;">${esc(b.verdict)}</td>
+          <td style="padding:9px 12px;text-align:right;">${b.amt?fmtMoney(b.amt):'—'}</td>
+          <td style="padding:9px 12px;">${esc(b.auditor)}<div style="font-size:11px;color:var(--ink-faint);">${esc(b.verifier)}</div></td>
+          <td style="padding:9px 12px;"><button class="btn small accent" data-ms-attach="${esc(b.uid)}">📎 Attach</button></td></tr>`).join('') || `<tr><td colspan="9" class="empty-state">${list.length?'No match.':'🎉 Sab bills ki copy attached hai.'}</td></tr>`}</tbody>
+      </table>
+    </div>
+    <input type="file" id="msFile" accept="image/*,application/pdf" style="display:none;">`;
+  if($('#msBack')) $('#msBack').addEventListener('click', ()=>{ MS.person = null; paintMissing(); });
+  $('#msQ').addEventListener('input', e=>{ MS.q = e.target.value; const pos = e.target.selectionStart; paintMissing(); const n=$('#msQ'); n.focus(); try{ n.setSelectionRange(pos,pos); }catch(_){} });
+  let pickUid = null;
+  $all('[data-ms-attach]').forEach(b=>b.addEventListener('click', ()=>{ pickUid = b.dataset.msAttach; const f=$('#msFile'); f.value=''; f.click(); }));
+  $('#msFile').addEventListener('change', async e=>{
+    const file = e.target.files && e.target.files[0]; if(!file || !pickUid) return;
+    const bill = bills.find(x=>x.uid===pickUid); if(!bill) return;
+    msAttachFlow(bill, file);
+  });
+}
+async function msAttachFlow(bill, file){
+  const s = getSession();
+  const isImage = /^image\//.test(file.type) || /\.(jpe?g|png|webp|heic)$/i.test(file.name);
+  const isPdf = /pdf$/i.test(file.type) || /\.pdf$/i.test(file.name);
+  if(!isImage && !isPdf){ toast('Sirf photo ya PDF attach kar sakte hain', 'err'); return; }
+  toast('Photo taiyaar ho rahi hai…');
+  const v = msBillVerdict(bill.lines);
+  const ext = isImage ? 'jpg' : 'pdf';
+  const savedName = msFileName(bill, v.label, ext);
+  const folderName = (bill.verifier || String(s.name||'')).toUpperCase() || 'UNASSIGNED';
+  let dataUrl, mime;
+  try{
+    if(isImage){
+      const base = await downscaleImage(file, 1100, 0.78);
+      try{ dataUrl = await stampBillPhotoFooter(base, msFooterLines(bill, v.label, v.amt, savedName)); }catch(e){ dataUrl = base; }
+      mime = 'image/jpeg';
+    } else {
+      dataUrl = await new Promise((res, rej)=>{ const r=new FileReader(); r.onload=ev=>res(ev.target.result); r.onerror=rej; r.readAsDataURL(file); });
+      mime = 'application/pdf';
+    }
+  }catch(e){ toast('Is file ko padh nahi paye', 'err'); return; }
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,15,.6);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.innerHTML = `<div class="card" style="background:var(--panel);border-radius:12px;max-width:520px;width:100%;max-height:92vh;overflow:auto;padding:18px;">
+    <h3 style="margin-bottom:8px;">Bill copy attach karein?</h3>
+    <div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">${esc(bill.dbName)} — ${esc(bill.retailer)} | Bill ${esc(bill.billNo)} | ${esc(bill.billDate)}</div>
+    ${isImage ? `<img src="${dataUrl}" style="width:100%;border-radius:8px;border:1px solid var(--edge);">` : `<div class="empty-state">📄 ${esc(file.name)}</div>`}
+    <div style="font-size:12px;margin:10px 0;word-break:break-all;"><b>File:</b> ${esc(savedName)}<br><b>Folder:</b> ${esc(folderName)}</div>
+    <div style="font-size:12px;background:#fff4e5;border:1px solid #f0c27b;border-radius:8px;padding:8px 10px;margin-bottom:12px;">⚠ Ek baar attach hone ke baad ye copy <b>dobara change / replace nahi</b> ho sakti. Photo sahi bill ki hai na?</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;"><button class="btn" id="msCancel">Cancel</button><button class="btn accent" id="msConfirm">✔ Confirm & Attach</button></div></div>`;
+  document.body.appendChild(ov);
+  $('#msCancel').onclick = ()=>ov.remove();
+  $('#msConfirm').onclick = async ()=>{
+    const btn = $('#msConfirm'); btn.disabled = true; btn.textContent = 'Uploading…'; $('#msCancel').disabled = true;
+    let res;
+    try{ res = await supaUploadBillCopy(s, bill.uid, savedName, mime, dataUrl.split(',')[1]||'', folderName); }
+    catch(e){ res = { ok:false, error:String(e.message||e) }; }
+    if(!res.ok){ toast('Attach nahi hua: ' + (res.error||'error'), 'err'); btn.disabled=false; btn.textContent='✔ Retry'; $('#msCancel').disabled=false; return; }
+    ov.remove();
+    if(res.alreadyAttached){ toast('Is bill ki copy pehle se attached thi — change nahi hui.', 'err'); }
+    else toast('Bill copy attach ho gayi ✔', 'ok');
+    bill.lines.forEach(r=>{ if(!res.alreadyAttached){ r.BillCopyURL = res.url; r.BillCopyDownloadURL = res.dl || res.url; } });
+    if(s.role==='Admin' && !res.alreadyAttached){ try{ await asPersist(bill.lines.filter(r=>r._k)); }catch(e){} }
+    msClearCaches();
+    if(res.alreadyAttached){ MS.rows = null; renderMissing(true); } else paintMissing();
+  };
+}
+/* Admin Analytics card: Auditor/Verifier-wise missing-copy totals, click -> Missing tab with that person's list. */
+function msAnalyticsCardHtml(rows){
+  const bills = msBills(rows); const miss = bills.filter(b=>!b.hasCopy);
+  const sm = msSummary(bills, 'auditor').filter(g=>g.missing).slice(0,8);
+  return `<div class="chart-card" style="grid-column:1/-1;"><h3>📎 Bills Without Bill Copy <span class="click-hint">click a name to attach copies</span></h3>
+    <div style="font-size:13px;margin-bottom:10px;"><b>${fmtInt(miss.length)}</b> of ${fmtInt(bills.length)} bills have no copy yet.</div>
+    ${sm.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;">${sm.map(g=>`<button class="btn small" data-ms-go="${esc(g.name)}">${esc(g.name)} <b style="color:var(--danger);">${fmtInt(g.missing)}</b></button>`).join('')}</div>` : '<div style="color:var(--ink-faint);">Sab bills mein copy attached hai ✔</div>'}
+    <div style="margin-top:10px;"><button class="btn small accent" data-ms-go="">Auditor / Verifier-wise full report →</button></div></div>`;
+}
+
 /* ==================== BOOT ==================== */
 function boot(){
   const s = getSession();
