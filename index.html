@@ -569,7 +569,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v73-supabase';
+const APP_VERSION = 'v74-supabase';
 /* Supabase connection is configured inside the BACKEND block just below (SUPABASE_URL_DEFAULT / SUPABASE_ANON_KEY_DEFAULT). */
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -3135,6 +3135,22 @@ function freshBillForm(){
 }
 
 function renderRateCheck(){
+  const ae = document.activeElement, v0 = $('#view-ratecheck');
+  let keep = null;
+  if(ae && ae.id && v0 && v0.contains(ae)){
+    keep = { id: ae.id, a: ae.selectionStart, b: ae.selectionEnd };
+  }
+  renderRateCheck_();
+  const want = STATE._rcFocus; STATE._rcFocus = null;
+  let el = null;
+  if(want) el = $(want);
+  else if(keep){ el = document.getElementById(keep.id); }
+  if(el && el.focus){
+    el.focus();
+    try{ if(!want && keep && keep.a!=null && el.setSelectionRange) el.setSelectionRange(keep.a, keep.b); else if(el.select && /^(text|number)$/.test(el.type||'')) el.select(); }catch(e){}
+  }
+}
+function renderRateCheck_(){
   if(!STATE.billForm) STATE.billForm = freshBillForm();
   const view = $('#view-ratecheck');
   const f = STATE.billForm;
@@ -3210,14 +3226,18 @@ function renderRateCheck(){
         <div class="hint">Date the Sales Officer handed this bill over to you — not the invoice's own date</div>
       </div>
       <div class="field"><label>Collected By</label>
-        <input type="text" id="rcCollectedBy" list="rcCollectedByList" value="${esc(f.collectedBy)}" style="text-transform:uppercase;">
+        <select id="rcCollectorType" title="Who collected / audited this bill?">
+          <option value="SO" ${f.designation==='3PA'?'':'selected'}>Sales Officer</option>
+          <option value="3PA" ${f.designation==='3PA'?'selected':''}>External Auditor (3PA)</option>
+        </select>
+        <input type="text" id="rcCollectedBy" style="margin-top:6px;" list="rcCollectedByList" value="${esc(f.collectedBy)}" style="text-transform:uppercase;">
         <datalist id="rcCollectedByList">${lsGetList('collectedByList').map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
-        <div class="hint">Remembered on this device</div>
+        <div class="hint">${f.designation==='3PA' ? 'External Auditor / 3rd Party Agency (3PA) — type the auditor\'s name' : 'Default: Sales Officer. Switch to External Auditor if a 3rd party agency (3PA) collected this bill.'}</div>
       </div>
       <div class="field"><label>Designation</label>
         <select id="rcDesignation">
           <option value="">— Select —</option>
-          ${['Sales Officer','Merchandiser','ASM','ASE','RSM'].map(d=>`<option value="${d}" ${f.designation===d?'selected':''}>${d}</option>`).join('')}
+          ${['Sales Officer','Merchandiser','ASM','ASE','RSM','3PA'].map(d=>`<option value="${d}" ${f.designation===d?'selected':''}>${d==='3PA'?'3PA (3rd Party Agency)':d}</option>`).join('')}
         </select>
       </div>
       ${backendConfigured() ? (
@@ -3255,8 +3275,8 @@ function renderRateCheck(){
           <button type="button" class="icon-btn" id="rcBillCopyClear" title="Remove attachment">✕</button>
         </div>` : `
         <div class="dropzone" id="rcBillCopyZone" style="padding:14px;">
-          <label class="dz-btn" style="margin-top:0;">Attach bill copy<input type="file" id="rcBillCopyInput" accept="image/*,.pdf"></label>
-          <div class="dz-hint">Photo or scan of this invoice/hand bill</div>
+          <label class="dz-btn" style="margin-top:0;">Attach bill copy<input type="file" id="rcBillCopyInput" accept="image/*,application/pdf,.pdf"></label>
+          <div class="dz-hint">Photo (JPG/PNG) or PDF of this invoice/hand bill — max 8 MB</div>
         </div>`}
     </div>
 
@@ -3326,7 +3346,26 @@ function renderRateCheck(){
     collectedByEl.addEventListener('change', e=>{ if(e.target.value.trim()) lsAddToList('collectedByList', e.target.value.trim()); });
   }
   const designationEl = $('#rcDesignation');
-  if(designationEl) designationEl.addEventListener('change', e=>{ f.designation=e.target.value; lsSet('designation', e.target.value); });
+  const collectorTypeEl = $('#rcCollectorType');
+  if(designationEl) designationEl.addEventListener('change', e=>{
+    f.designation=e.target.value; lsSet('designation', e.target.value);
+    if(collectorTypeEl) collectorTypeEl.value = (e.target.value==='3PA') ? '3PA' : 'SO';
+  });
+  if(collectorTypeEl) collectorTypeEl.addEventListener('change', e=>{
+    const toExt = e.target.value==='3PA';
+    const wasExt = f.designation==='3PA';
+    if(toExt===wasExt) return;
+    // each type remembers its own last name, so an auditor's name never lands on a Sales Officer bill (and vice-versa)
+    lsSet('collectedBy_'+(wasExt?'3PA':'SO'), f.collectedBy||'');
+    const nextName = lsGet('collectedBy_'+(toExt?'3PA':'SO'));
+    f.designation = toExt ? '3PA' : 'Sales Officer';
+    f.collectedBy = nextName; lsSet('collectedBy', nextName); lsSet('designation', f.designation);
+    if(collectedByEl) collectedByEl.value = nextName;
+    if(designationEl) designationEl.value = f.designation;
+    const hint = collectedByEl && collectedByEl.parentElement.querySelector('.hint');
+    if(hint) hint.textContent = toExt ? "External Auditor / 3rd Party Agency (3PA) — type the auditor's name" : 'Default: Sales Officer. Switch to External Auditor if a 3rd party agency (3PA) collected this bill.';
+    if(collectedByEl) collectedByEl.focus();
+  });
   const verifiedByEl = $('#rcVerifiedBy');
   if(verifiedByEl){
     verifiedByEl.addEventListener('input', e=>{
@@ -3416,6 +3455,74 @@ function renderRateCheck(){
 
 function emptyLineItem(){ return {productCode:'', productName:'', sku:'', category:'', packSize:'', companyRate:null, gstPct:null, amountExcludesGst:true, amountInclGstShown:'', packSizeKgManual:'', packSizeConfirmed:false, bagSizeValue:'', bagSizeUnit:'KG', components:[emptyComponent('KG')]}; }
 
+/* ---------------- Keyboard navigation (Excel-style) ----------------
+   Tab / Shift+Tab : next / previous EDITABLE field (read-only boxes are skipped, a date box is one stop, not three).
+   Enter           : picks the highlighted search result (or the first one) / moves to the next field.
+   ↑ ↓             : move through search results (DB code, product) — native dropdowns already use ↑ ↓.
+   Esc             : closes a search result list. */
+function rcFocusables(){
+  const view = $('#view-ratecheck');
+  return $all('input,select,textarea,button', view).filter(el=>
+    !el.disabled && el.type!=='hidden' && el.type!=='file' && el.tabIndex>=0 && !el.readOnly &&
+    el.offsetParent!==null && !el.closest('.combo-results'));
+}
+function rcMoveFocus(from, dir){
+  const list = rcFocusables(); const i = list.indexOf(from);
+  if(i<0) return false;
+  const nx = list[i+dir];
+  if(!nx) return false;
+  nx.focus();
+  try{ if(nx.select && /^(text|number|password)$/.test(nx.type||'')) nx.select(); }catch(e){}
+  if(nx.scrollIntoView) nx.scrollIntoView({block:'nearest'});
+  return true;
+}
+function rcComboHost(t){
+  if(t.id==='rcDbCode') return $('#rcDbResults');
+  if(t.classList && t.classList.contains('prodsearch')) return $('#liResults'+t.id.replace('liSearch',''));
+  return null;
+}
+document.addEventListener('keydown', e=>{
+  const t = e.target, view = $('#view-ratecheck');
+  if(!t || !view || !view.contains(t) || e.ctrlKey || e.altKey || e.metaKey) return;
+  const host = rcComboHost(t);
+  if(host){
+    let items = $all('.combo-item', host);
+    const hlIdx = items.findIndex(x=>x.classList.contains('hl'));
+    if(e.key==='ArrowDown' || e.key==='ArrowUp'){
+      e.preventDefault();
+      if(!items.length){ t.dispatchEvent(new Event('input')); items = $all('.combo-item', host); }
+      if(!items.length) return;
+      let n = e.key==='ArrowDown' ? hlIdx+1 : hlIdx-1;
+      if(n>=items.length) n = 0; if(n<0) n = items.length-1;
+      items.forEach(x=>x.classList.remove('hl'));
+      items[n].classList.add('hl'); items[n].scrollIntoView({block:'nearest'});
+      return;
+    }
+    if(e.key==='Enter'){
+      e.preventDefault();
+      const pick = items[hlIdx>=0?hlIdx:0];
+      if(pick) pick.click(); else rcMoveFocus(t, 1);
+      return;
+    }
+    if(e.key==='Tab' && !e.shiftKey && hlIdx>=0){ e.preventDefault(); items[hlIdx].click(); return; }
+    if(e.key==='Escape'){ host.innerHTML=''; return; }
+  }
+  if(e.key==='Tab'){
+    if(rcMoveFocus(t, e.shiftKey?-1:1)) e.preventDefault();
+    return;
+  }
+  if(e.key==='Enter' && !e.shiftKey){
+    if(t.tagName==='SELECT' || (t.tagName==='INPUT' && /^(text|number|date|password)$/.test(t.type) && !t.getAttribute('list'))){
+      if(rcMoveFocus(t, 1)) e.preventDefault();
+    }
+  }
+}, true);
+// close a search list when focus leaves it (so it never hangs over the next field)
+document.addEventListener('focusout', e=>{
+  const host = rcComboHost(e.target);
+  if(host) setTimeout(()=>{ if(!host.contains(document.activeElement) && document.activeElement!==e.target) host.innerHTML=''; }, 200);
+}, true);
+
 function wireDbCombo(){
   const input = $('#rcDbCode');
   const results = $('#rcDbResults');
@@ -3450,6 +3557,7 @@ function pickDb(code){
   const defaultBeat = f.beats[0] || {code:'', name:''};
   f.beatCode = defaultBeat.code; f.beatName = defaultBeat.name;
   recomputeAllLineRates();
+  STATE._rcFocus = (f.beats && f.beats.length>1) ? '#rcBeatSelect' : '#rcRetailer';
   renderRateCheck();
 }
 function isInactiveStatus(v){ return /inactive/i.test(String(v||'')); }
@@ -3605,7 +3713,7 @@ function bagSizeInlineHtml(li, liIdx){
 function renderProductCard(li, liIdx, isNew){
   const canRemoveComp = li.components.length>1;
   return `<div class="product-card ${isNew?'line-row-new':''}" id="liCard${liIdx}">
-    <button type="button" class="icon-btn product-card-remove" id="liRemove${liIdx}" title="Remove product">✕</button>
+    <button type="button" class="icon-btn product-card-remove" tabindex="-1" id="liRemove${liIdx}" title="Remove product">✕</button>
     <div class="product-card-head">
       <div class="product-card-search combo">
         <input type="text" class="prodsearch ${li.productCode?'picked':''}" id="liSearch${liIdx}" placeholder="Search product name or code…" value="${esc(li.productName ? li.productName+(li.sku?(' — '+li.sku):'') : '')}">
