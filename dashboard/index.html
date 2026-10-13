@@ -150,7 +150,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v22-super-users';
+const APP_VERSION = 'v23-3pa';
 /* ==================== SUPABASE BACKEND ====================
    Same action names the app has always used (login / submit / mydata / syncdata …) — each one is
    now a single fast call to a Postgres function (rl_*) on Supabase. Photos go straight to Supabase
@@ -1807,7 +1807,7 @@ async function renderUsers(){
         <div class="field"><label>Role</label><select id="nuRole"><option value="Auditor">Auditor</option><option value="Verifier">Verifier</option><option value="Admin">Admin</option>${(getSession()||{}).superAdmin?'<option value="SuperAdmin">Super Admin (can delete entries)</option>':''}</select></div>
         <div class="field"><label>Designation</label><select id="nuDesignation">
           <option value="">— None —</option>
-          ${['Sales Officer','Merchandiser','ASM','ASE','RSM'].map(d=>`<option value="${d}">${d}</option>`).join('')}
+          ${['Sales Officer','Merchandiser','ASM','ASE','RSM','3PA'].map(d=>`<option value="${d}">${d}</option>`).join('')}
         </select></div>
         <button class="btn accent wide" id="nuAdd">Add User</button>
         <p class="small-muted" id="nuErr" style="color:var(--danger);margin-top:8px;"></p>
