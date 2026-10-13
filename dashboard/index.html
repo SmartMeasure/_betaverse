@@ -150,7 +150,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v23-3pa';
+const APP_VERSION = 'v25-3pa';
 /* ==================== SUPABASE BACKEND ====================
    Same action names the app has always used (login / submit / mydata / syncdata …) — each one is
    now a single fast call to a Postgres function (rl_*) on Supabase. Photos go straight to Supabase
@@ -248,7 +248,7 @@ function supaMapRow(r){
     CompanyRate:r.companyRate||0, InvoiceRate:r.invoiceRate||0, GSTPct:r.gstPct||0,
     DiffPerKg:r.diff||0, VariancePct:r.pct||0, Status:r.status||'', Qty:r.qty||'', UOM:r.uom||'', QtyKG:r.qtyKg||'',
     OverchargeAmt:r.overchargeAmt||0, UnderchargeAmt:r.underchargeAmt||0, NegligibleAmt:r.negligibleAmt||0,
-    CollectedBy:r.collectedBy||'', SubmissionDate:r.submissionStr||'', VerifiedByCode:r.verifiedByCode||'',
+    CollectedBy:(String(r.designation||'').toUpperCase()==='3PA')?'EXTERNAL AUDITOR':(r.collectedBy||''), SubmissionDate:r.submissionStr||'', VerifiedByCode:r.verifiedByCode||'',
     PackSizeKg:r.packSizeKg||'', BagSizeLabel:r.bagSizeLabel||'', ComponentsSummary:r.componentsSummary||'', DiffPerPc:r.diffPerPc||'', DiffPerBag:r.diffPerBag||'',
     AmountExcludesGst: r.amountExcludesGst===true?'TRUE':(r.amountExcludesGst===false?'FALSE':''),
     TotalInvoicedExclGst:r.totalInvoicedExclGst||'', AmountInclGstShown:r.amountInclGstShown||'', GSTPctCharged:r.gstPctCharged||'',
