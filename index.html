@@ -569,7 +569,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v74-supabase';
+const APP_VERSION = 'v77-supabase';
 /* Supabase connection is configured inside the BACKEND block just below (SUPABASE_URL_DEFAULT / SUPABASE_ANON_KEY_DEFAULT). */
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -692,7 +692,7 @@ function supaMapRow(r){
     CompanyRate:r.companyRate||0, InvoiceRate:r.invoiceRate||0, GSTPct:r.gstPct||0,
     DiffPerKg:r.diff||0, VariancePct:r.pct||0, Status:r.status||'', Qty:r.qty||'', UOM:r.uom||'', QtyKG:r.qtyKg||'',
     OverchargeAmt:r.overchargeAmt||0, UnderchargeAmt:r.underchargeAmt||0, NegligibleAmt:r.negligibleAmt||0,
-    CollectedBy:r.collectedBy||'', SubmissionDate:r.submissionStr||'', VerifiedByCode:r.verifiedByCode||'',
+    CollectedBy:(r.designation==='3PA')?'EXTERNAL AUDITOR':(r.collectedBy||''), SubmissionDate:r.submissionStr||'', VerifiedByCode:r.verifiedByCode||'',
     PackSizeKg:r.packSizeKg||'', BagSizeLabel:r.bagSizeLabel||'', ComponentsSummary:r.componentsSummary||'', DiffPerPc:r.diffPerPc||'', DiffPerBag:r.diffPerBag||'',
     AmountExcludesGst: r.amountExcludesGst===true?'TRUE':(r.amountExcludesGst===false?'FALSE':''),
     TotalInvoicedExclGst:r.totalInvoicedExclGst||'', AmountInclGstShown:r.amountInclGstShown||'', GSTPctCharged:r.gstPctCharged||'',
@@ -3230,9 +3230,9 @@ function renderRateCheck_(){
           <option value="SO" ${f.designation==='3PA'?'':'selected'}>Sales Officer</option>
           <option value="3PA" ${f.designation==='3PA'?'selected':''}>External Auditor (3PA)</option>
         </select>
-        <input type="text" id="rcCollectedBy" style="margin-top:6px;" list="rcCollectedByList" value="${esc(f.collectedBy)}" style="text-transform:uppercase;">
+        <input type="text" id="rcCollectedBy" list="rcCollectedByList" value="${esc(f.designation==='3PA'?'EXTERNAL AUDITOR':f.collectedBy)}" ${f.designation==='3PA'?'readonly':''} style="margin-top:6px;text-transform:uppercase;">
         <datalist id="rcCollectedByList">${lsGetList('collectedByList').map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
-        <div class="hint">${f.designation==='3PA' ? 'External Auditor / 3rd Party Agency (3PA) — type the auditor\'s name' : 'Default: Sales Officer. Switch to External Auditor if a 3rd party agency (3PA) collected this bill.'}</div>
+        <div class="hint">${f.designation==='3PA' ? 'Designation 3PA → Collected By is always EXTERNAL AUDITOR' : 'Default: Sales Officer. Switch to External Auditor if a 3rd party agency (3PA) collected this bill.'}</div>
       </div>
       <div class="field"><label>Designation</label>
         <select id="rcDesignation">
@@ -3349,22 +3349,27 @@ function renderRateCheck_(){
   const collectorTypeEl = $('#rcCollectorType');
   if(designationEl) designationEl.addEventListener('change', e=>{
     f.designation=e.target.value; lsSet('designation', e.target.value);
-    if(collectorTypeEl) collectorTypeEl.value = (e.target.value==='3PA') ? '3PA' : 'SO';
+    if(collectorTypeEl){ collectorTypeEl.value = (e.target.value==='3PA') ? '3PA' : 'SO'; }
+    const ext = e.target.value==='3PA';
+    if(ext){ if(f.collectedBy!=='EXTERNAL AUDITOR') lsSet('collectedBy_SO', f.collectedBy||''); f.collectedBy='EXTERNAL AUDITOR'; }
+    else if(f.collectedBy==='EXTERNAL AUDITOR'){ f.collectedBy = lsGet('collectedBy_SO'); }
+    lsSet('collectedBy', f.collectedBy);
+    if(collectedByEl){ collectedByEl.value = f.collectedBy; collectedByEl.readOnly = ext; }
   });
   if(collectorTypeEl) collectorTypeEl.addEventListener('change', e=>{
     const toExt = e.target.value==='3PA';
     const wasExt = f.designation==='3PA';
     if(toExt===wasExt) return;
     // each type remembers its own last name, so an auditor's name never lands on a Sales Officer bill (and vice-versa)
-    lsSet('collectedBy_'+(wasExt?'3PA':'SO'), f.collectedBy||'');
-    const nextName = lsGet('collectedBy_'+(toExt?'3PA':'SO'));
+    if(!wasExt) lsSet('collectedBy_SO', f.collectedBy||'');
+    const nextName = toExt ? 'EXTERNAL AUDITOR' : lsGet('collectedBy_SO');
     f.designation = toExt ? '3PA' : 'Sales Officer';
     f.collectedBy = nextName; lsSet('collectedBy', nextName); lsSet('designation', f.designation);
-    if(collectedByEl) collectedByEl.value = nextName;
+    if(collectedByEl){ collectedByEl.value = nextName; collectedByEl.readOnly = toExt; }
     if(designationEl) designationEl.value = f.designation;
     const hint = collectedByEl && collectedByEl.parentElement.querySelector('.hint');
-    if(hint) hint.textContent = toExt ? "External Auditor / 3rd Party Agency (3PA) — type the auditor's name" : 'Default: Sales Officer. Switch to External Auditor if a 3rd party agency (3PA) collected this bill.';
-    if(collectedByEl) collectedByEl.focus();
+    if(hint) hint.textContent = toExt ? "Designation 3PA → Collected By is always EXTERNAL AUDITOR" : 'Default: Sales Officer. Switch to External Auditor if a 3rd party agency (3PA) collected this bill.';
+    if(collectedByEl && !toExt) collectedByEl.focus();
   });
   const verifiedByEl = $('#rcVerifiedBy');
   if(verifiedByEl){
@@ -4029,6 +4034,7 @@ async function saveBill(){
   // too as a second safety net — belt-and-braces against any path that
   // could still reach saveBill() while it's in flight.
   if(STATE.billCopyPending){ await STATE.billCopyPending; }
+  if(f.designation==='3PA'){ f.collectedBy = 'EXTERNAL AUDITOR'; const cb=$('#rcCollectedBy'); if(cb) cb.value = f.collectedBy; }
   if(!f.dbCode){ errEl.textContent = 'Pick a DB code first.'; return; }
   if(!f.location){ errEl.textContent = "This DB's location could not be resolved — fix the Price Group Mapping."; return; }
   if(!f.retailer.trim()){ errEl.textContent = 'Retailer / outlet name is required.'; return; }
@@ -4355,7 +4361,7 @@ function renderReportTable(){
       <td class="num" style="font-weight:700;color:var(--warn);">${b.status==='under'?'₹'+fmtMoney(b.underchargeAmt):'—'}</td>
       <td class="num" style="font-weight:700;color:${b.gstEntrySuspect?'var(--warn)':'#9B59EB'};" title="${b.gstMismatch?(b.gstEntrySuspect?`This ${b.gstPctCharged}% figure isn't a realistic GST rate — the 'Amount incl. GST' entered for this line is probably wrong.`:`Correct GST is ${b.gstPct}%, ${b.gstPctCharged}% was actually charged.`):''}">${b.gstMismatch?(b.gstEntrySuspect?'⚠ check entry':(b.gstMismatchAmt>0?'+':'')+'₹'+fmtMoney(b.gstMismatchAmt)):'—'}</td>
       <td>${billCopyCell(b)}</td>
-      <td>${esc(b.collectedBy||'—')}</td><td>${esc(b.designation||'—')}</td><td>${esc(b.verifiedBy||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.submissionStr)}</td>
+      <td>${esc(b.designation==='3PA'?'EXTERNAL AUDITOR':(b.collectedBy||'—'))}</td><td>${esc(b.designation||'—')}</td><td>${esc(b.verifiedBy||'—')}</td><td style="font-family:var(--font-mono);">${esc(b.submissionStr)}</td>
       <td><button class="icon-btn" data-del-bill="${b.sl}" title="Delete line">✕</button></td>
     </tr>`; }).join('')}</tbody>
   </table></div>`;
@@ -4506,7 +4512,7 @@ async function exportExcelPro(){
         overchargeAmt: b.status==='over' ? (b.overchargeAmt||0) : '',
         underchargeAmt: b.status==='under' ? (b.underchargeAmt||0) : '',
         gstMismatchLabel: b.gstMismatch ? (b.gstEntrySuspect ? `⚠ Check entry — ${b.gstPctCharged}% isn't a realistic GST rate` : `${b.gstPctCharged}% charged vs correct ${b.gstPct}% = ${b.gstMismatchAmt>0?'+':''}₹${fmtMoney(b.gstMismatchAmt)}`) : '',
-        billCopy: '', collectedBy:b.collectedBy||'', designation:b.designation||'', verifiedBy:b.verifiedBy||'', submissionStr:b.submissionStr,
+        billCopy: '', collectedBy:(b.designation==='3PA')?'EXTERNAL AUDITOR':(b.collectedBy||''), designation:b.designation||'', verifiedBy:b.verifiedBy||'', submissionStr:b.submissionStr,
       };
       cols.forEach((c,i)=>{ if(c.key!=='billCopy') row.getCell(i+1).value = vals[c.key]; });
       let photoEmbedded = false;
