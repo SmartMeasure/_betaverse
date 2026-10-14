@@ -569,7 +569,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v77-supabase';
+const APP_VERSION = 'v78-supabase';
 /* Supabase connection is configured inside the BACKEND block just below (SUPABASE_URL_DEFAULT / SUPABASE_ANON_KEY_DEFAULT). */
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -4902,7 +4902,7 @@ async function ixLoadAll(){
     keys.forEach((k,i)=>{
       if(vals[i]!=null){
         if(k==='rateRows') IX_STATE.rateRows = vals[i].map(r=>({...r, effDate: r.effDate?new Date(r.effDate):null}));
-        else if(k==='salesRows') IX_STATE.salesRows = vals[i].map(r=>({...r, invoiceDate: r.invoiceDate?new Date(r.invoiceDate):null}));
+        else if(k==='salesRows') IX_STATE.salesRows = vals[i].map(r=>({...r, invoiceDate: r.invoiceDate?new Date(r.invoiceDate):null, orderDate: r.orderDate?new Date(r.orderDate):((m=>m?new Date(+m[3],+m[2]-1,+m[1]):null)(String(r.orderDateStr||'').match(/^(\d{2})-(\d{2})-(\d{4})$/)))}));
         else IX_STATE[k] = vals[i];
       }
     });
@@ -5278,6 +5278,7 @@ async function ixParseSalesRegisterFile(file, onProgress){
       out.push({
         seq,   // running row number in the SAP file(s) — export keeps this exact order
         invoiceDate, invoiceDateStr: ixFmtDMY(invoiceDate),
+        orderDate,   // the rate is looked up on the ORDER date (falls back to Invoice Date only if a row has no order date)
         orderNo: String(cell(row,idx.orderNo)||'').trim(),
         orderDateStr: orderDate ? ixFmtDMY(orderDate) : '',
         dbCode: String(row[idx.dbCode]||'').trim(),
@@ -5364,7 +5365,7 @@ function ixBasePerKg(s){
 /* ---------------- Comparison engine ----------------
    For each sales row: resolve its distributor's Price Group / Price Group Name from the master, then find the
    rate-file row for that Price Group Name + Item Code whose Effective Date is the LATEST one on or before the
-   Invoice Date — product by product, because different products change rate on different dates. Example: invoice
+   ORDER Date (Invoice Date only if a row has no order date) — product by product, because different products change rate on different dates. Example: invoice
    on 30-Sep, no rate change on 30-Sep, product's last change was 28-Sep → checked against the 28-Sep rate, and
    "Rate File Date" (last column) says so. A rate that only took effect AFTER the invoice is never used. */
 function ixBuildRateIndex(){
@@ -5376,7 +5377,8 @@ function ixBuildRateIndex(){
   Object.values(map).forEach(list=>list.sort((a,b)=>a.effDate-b.effDate));
   return map;
 }
-function ixFindRateFor(rateIndex, location, productCode, invoiceDate){
+function ixFindRateFor(rateIndex, location, productCode, refDate){
+  const invoiceDate = refDate;   // kept as the local name; it now carries the ORDER date (or the invoice date when no order date exists)
   const key = ixNormLoc(location)+'|'+String(productCode).trim();
   const list = rateIndex[key];
   if(!list || !list.length) return { match:null, reason:'Item code not in the rate file for this Price Group Name' };
@@ -5385,7 +5387,7 @@ function ixFindRateFor(rateIndex, location, productCode, invoiceDate){
   for(const r of list){
     if(r.effDate <= invoiceDate) best = r; else break;
   }
-  if(!best) return { match:null, reason:`Earliest rate on file starts ${list[0].effDateStr}, after this invoice date` };
+  if(!best) return { match:null, reason:`Earliest rate on file starts ${list[0].effDateStr}, after this order date` };
   return { match:best, reason:'' };
 }
 function ixRunCheck(){
@@ -5398,7 +5400,9 @@ function ixRunCheck(){
     if(!pg){
       return { ...s, priceGroup:'', location:'', expectedRate:null, diff:null, baseKg:null, rateDateStr:'', status:'No Location Mapping', remark:'Distributor code not found in the Distributor Master' };
     }
-    const f = ixFindRateFor(rateIndex, pg.location, s.itemCode, s.invoiceDate);
+    const refDate = s.orderDate || s.invoiceDate;           // rate applies as on the ORDER date
+    const refStr = s.orderDate ? s.orderDateStr : s.invoiceDateStr;
+    const f = ixFindRateFor(rateIndex, pg.location, s.itemCode, refDate);
     if(!f.match){
       return { ...s, priceGroup: pg.pg, location: pg.location, expectedRate:null, diff:null, baseKg:null, rateDateStr:'', status:'No Rate Found', remark: f.reason };
     }
@@ -5413,8 +5417,8 @@ function ixRunCheck(){
     let status = 'Match';
     if(diff > TOL) status = 'Overcharge';
     else if(diff < -TOL) status = 'Undercharge';
-    const sameDay = match.effDateStr === s.invoiceDateStr;
-    const remark = [conv.note, isCredit ? 'Negative price (credit note / return) — compared on absolute value' : '', sameDay ? '' : `Latest rate change on/before invoice date: ${match.effDateStr}`].filter(Boolean).join(' · ');
+    const sameDay = match.effDateStr === refStr;
+    const remark = [conv.note, isCredit ? 'Negative price (credit note / return) — compared on absolute value' : '', sameDay ? '' : `Latest rate change on/before ${s.orderDate?'order':'invoice'} date: ${match.effDateStr}`, s.orderDate ? '' : 'No order date on this row — invoice date used'].filter(Boolean).join(' · ');
     return { ...s, priceGroup: pg.pg, location: pg.location, productName: match.productName, expectedRate: match.distRate, baseKg, diff, status, rateDateStr: match.effDateStr, remark };
   });
   IX_STATE.results = results;
