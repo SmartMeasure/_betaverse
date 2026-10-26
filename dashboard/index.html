@@ -146,6 +146,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 .an-hero{--o:#FF4D73;--n:#6C95FF;--u:#F0A93E;--m:#2FD08D;display:grid;grid-template-columns:minmax(0,1.25fr) auto minmax(0,1.5fr);gap:28px 36px;align-items:center;background:#12131A;color:#fff;border-radius:16px;padding:28px 32px;margin-bottom:16px;position:relative;overflow:hidden;}
 .an-hero::before{content:'';position:absolute;inset:0;background:radial-gradient(520px 220px at 12% 0%,rgba(255,77,115,.20),transparent 70%);pointer-events:none;}
 .an-hero > *{position:relative;}
+.an-period{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:6px 14px;font-size:13px;color:rgba(255,255,255,.8);margin-bottom:16px;}.an-period b{color:#fff;font-weight:600;}.an-period em{font-style:normal;color:rgba(255,255,255,.55);}.an-period span{color:rgba(255,255,255,.7);}
 .an-hero-lbl{font-size:13px;color:rgba(255,255,255,.62);margin-bottom:6px;}
 .an-hero-val{font-family:var(--font-display);font-weight:600;font-size:clamp(34px,4.6vw,58px);line-height:1.04;letter-spacing:-.02em;font-variant-numeric:tabular-nums;cursor:pointer;display:inline-block;}
 .an-hero-val .rs{color:var(--o);margin-right:4px;font-weight:500;}
@@ -226,7 +227,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v29';
+const APP_VERSION = 'v30';
 /* ==================== SUPABASE BACKEND ====================
    Same action names the app has always used (login / submit / mydata / syncdata …) — each one is
    now a single fast call to a Postgres function (rl_*) on Supabase. Photos go straight to Supabase
@@ -1064,6 +1065,22 @@ function renderAnalyticsContent(rows){
   const pct = (a,b)=> b ? Math.round(a/b*100) : 0;
   const goAttr = (f)=> `data-goto='${esc(JSON.stringify({...rangeFilters, ...f}))}' role="button" tabindex="0"`;
 
+  /* ---------- Period label (always visible, DD-MM-YYYY) ---------- */
+  const isoDMY = (iso)=>{ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m? `${m[3]}-${m[2]}-${m[1]}` : ''; };
+  const basisName = window.__anDateBasis==='bill' ? 'Bill date' : 'Submission date';
+  const dField = window.__anDateBasis==='bill' ? 'BillDate' : 'SubmissionDate';
+  let periodMain, periodSub = '';
+  if(window.__anFrom || window.__anTo){
+    const f = isoDMY(window.__anFrom), t = isoDMY(window.__anTo);
+    periodMain = f && t ? (f===t ? f : `${f} to ${t}`) : f ? `From ${f}` : `Up to ${t}`;
+  } else {
+    periodMain = 'All time';
+    const ts = rows.map(r=>parseDMYClient(normalizeDMYDisplay(r[dField]))).filter(Boolean).map(d=>d.getTime());
+    if(ts.length){ const dm = (t)=>{ const d=new Date(t); return String(d.getDate()).padStart(2,'0')+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+d.getFullYear(); };
+      periodSub = `${dm(Math.min(...ts))} to ${dm(Math.max(...ts))}`; }
+  }
+  const periodChip = `<div class="an-period"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><b>${esc(periodMain)}</b>${periodSub?`<span>(${esc(periodSub)})</span>`:''}<em>by ${esc(basisName.toLowerCase())}</em></div>`;
+
   /* ---------- Hero: how much was overcharged + how the lines split ---------- */
   const seg = [
     {key:'over',       label:'Overcharge',              n:over.length,  cls:'s-over'},
@@ -1081,7 +1098,8 @@ function renderAnalyticsContent(rows){
   const hero = `
     <section class="an-hero">
       <div class="an-hero-main">
-        <div class="an-hero-lbl">Overcharged in this period</div>
+        ${periodChip}
+        <div class="an-hero-lbl">Total overcharged</div>
         <div class="an-hero-val" ${goAttr({status:'over'})}><span class="rs">₹</span>${fmtMoney(overAmt)}</div>
         <div class="an-hero-sub">${fmtInt(over.length)} overcharge ${over.length===1?'line':'lines'} on ${fmtInt(billsOver.size)} ${billsOver.size===1?'bill':'bills'} from ${fmtInt(dbsOver.size)} ${dbsOver.size===1?'distributor':'distributors'}.
           Undercharge in the same period: <b>₹${fmtMoney(underAmt)}</b>.</div>
@@ -1137,7 +1155,7 @@ function renderAnalyticsContent(rows){
     ${hero}
     ${kpis}
     <section class="an-panel an-trend">
-      <div class="an-ph"><h3>Overcharge value by day</h3><span>Click a bar to open that day's overcharge lines</span></div>
+      <div class="an-ph"><h3>Overcharge value by day</h3><span>${esc(periodMain)}${periodSub?' ('+esc(periodSub)+')':''} · click a bar to open that day's lines</span></div>
       <div id="chTrendWrap"></div>
     </section>
     <div class="an-rank-head">
