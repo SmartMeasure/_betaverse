@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co https://script.google.com https://script.googleusercontent.com https://cdnjs.cloudflare.com; worker-src blob: https://cdnjs.cloudflare.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<script>/* anti-clickjacking: this page must not be shown inside another site's frame */
+if(window.top!==window.self){ try{ document.documentElement.style.display='none'; window.top.location=window.self.location; }catch(e){} }</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rate Ledger — Overinvoicing Audit</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -569,7 +573,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v78-supabase';
+const APP_VERSION = 'v80-supabase';
 /* Supabase connection is configured inside the BACKEND block just below (SUPABASE_URL_DEFAULT / SUPABASE_ANON_KEY_DEFAULT). */
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -591,15 +595,29 @@ function getSession(){
     const s = sessionStorage.getItem(SESSION_KEY);
     if(s) return JSON.parse(s);
   }catch(e){}
-  try{ return JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); }catch(e){ return null; }
+  try{ const v = JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); if(v && typeof idleExpired_==='function' && idleExpired_()){ localStorage.removeItem(SESSION_KEY); return null; } return v; }catch(e){ return null; }
 }
 function setSession(s, remember){
   try{
     if(remember){ localStorage.setItem(SESSION_KEY, JSON.stringify(s)); sessionStorage.removeItem(SESSION_KEY); }
     else { sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)); localStorage.removeItem(SESSION_KEY); }
+    idleTouch_();
   }catch(e){}
 }
 function clearSession(){ try{ localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); }catch(e){} }
+/* Only https links to our own Google script / Supabase storage may ever be put in an href or opened — blocks javascript: / foreign links stored in data. */
+function safeHref(u){ u = String(u||'').trim(); return /^https:\/\/(script\.google\.com|script\.googleusercontent\.com|[a-z0-9-]+\.supabase\.co)\//i.test(u) ? u : '#'; }
+
+/* ---- Idle sign-out: after 12 hours without any click / key press the saved login is erased ---- */
+const IDLE_KEY = 'rl_app_last_active', IDLE_MS = 43200000;
+function idleTouch_(){ try{ localStorage.setItem(IDLE_KEY, String(Date.now())); }catch(e){} }
+function idleExpired_(){ try{ const t = Number(localStorage.getItem(IDLE_KEY)||0); return t>0 && (Date.now()-t) > IDLE_MS; }catch(e){ return false; } }
+(function(){
+  let last = 0;
+  ['click','keydown','touchstart'].forEach(ev=>document.addEventListener(ev, ()=>{ const n=Date.now(); if(n-last>15000){ last=n; idleTouch_(); } }, {passive:true, capture:true}));
+  setInterval(()=>{ if(getSession() && idleExpired_()){ clearSession(); try{ if(typeof adminStoreWipe==='function') adminStoreWipe(); }catch(e){} location.reload(); } }, 60000);
+})();
+
 
 /* ==================== SUPABASE BACKEND (replaces Google Sheet / Apps Script) ====================
    Same action names the app has always used (login / submit / mydata / syncdata …) — each one is
@@ -4376,7 +4394,7 @@ function renderReportTable(){
     if(!bf) return;
     try{
       const url = URL.createObjectURL(dataUrlToBlob(bf.dataUrl));
-      window.open(url, '_blank');
+      window.open(safeHref(url), '_blank', 'noopener,noreferrer');
     }catch(err){ toast('Could not open bill copy', 'err'); }
   }));
 }
@@ -5368,30 +5386,62 @@ function ixBasePerKg(s){
    ORDER Date (Invoice Date only if a row has no order date) — product by product, because different products change rate on different dates. Example: invoice
    on 30-Sep, no rate change on 30-Sep, product's last change was 28-Sep → checked against the 28-Sep rate, and
    "Rate File Date" (last column) says so. A rate that only took effect AFTER the invoice is never used. */
-function ixBuildRateIndex(){
-  const map = {}; // "location|code" (normalised) -> [{effDate, distRate, productName}] sorted by effDate asc
+/* A rate-file sheet name and the Price Group Name in the Distributor Master do not always spell the location the same way
+   (sheet "NB" in August, "North Bengal" in September; "WB" = "West Bengal"). Every rate sheet is matched to a Price Group Name by:
+   exact name -> initials ("NB" = North Bengal) -> one name containing the other. */
+function ixInitials(n){ return String(n).split(' ').filter(Boolean).map(w=>w[0]).join(''); }
+function ixCanonMaker(){
+  const known = [...new Set(IX_STATE.pgMap.map(p=>ixNormLoc(p.location)).filter(Boolean))];
+  const cache = {};
+  return function(loc){
+    const n = ixNormLoc(loc); if(!n) return '';
+    if(cache[n]!==undefined) return cache[n];
+    let out = n;
+    if(!known.includes(n)){
+      const flat = n.replace(/ /g,'');
+      const hit = known.find(k=> flat.length>=2 && ixInitials(k)===flat) || known.find(k=> k.replace(/ /g,'')===flat) || known.find(k=> k.includes(n) || n.includes(k));
+      if(hit) out = hit;
+    }
+    return cache[n]=out;
+  };
+}
+function ixBuildRateIndex(canon){
+  canon = canon || ixCanonMaker();
+  const map = {}; // "location|code" (matched to Price Group Name) -> [{effDate, distRate, productName}] sorted by effDate asc
+  const locFiles = {};   // matched location -> {names:Set(sheet names), files:Set(file names)}
   IX_STATE.rateRows.forEach(r=>{
-    const key = ixNormLoc(r.location)+'|'+String(r.productCode).trim();
+    const c = canon(r.location);
+    const key = c+'|'+String(r.productCode).trim();
     (map[key] = map[key]||[]).push(r);
+    const lf = locFiles[c] = locFiles[c] || {names:new Set(), files:new Set()};
+    lf.names.add(r.location); if(r.sourceFile) lf.files.add(r.sourceFile);
   });
   Object.values(map).forEach(list=>list.sort((a,b)=>a.effDate-b.effDate));
+  Object.defineProperty(map, '__locFiles', { value: locFiles, enumerable:false });
   return map;
 }
-function ixFindRateFor(rateIndex, location, productCode, refDate){
-  const invoiceDate = refDate;   // kept as the local name; it now carries the ORDER date (or the invoice date when no order date exists)
-  const key = ixNormLoc(location)+'|'+String(productCode).trim();
-  const list = rateIndex[key];
-  if(!list || !list.length) return { match:null, reason:'Item code not in the rate file for this Price Group Name' };
-  if(!invoiceDate) return { match:list[list.length-1], reason:'' }; // no invoice date to compare — fall back to the latest known rate
-  let best = null;
-  for(const r of list){
-    if(r.effDate <= invoiceDate) best = r; else break;
+/* Finds the rate valid on refDate (the ORDER date). Every "not found" carries the exact reason; a product whose FIRST rate in the file
+   starts after the order date (cells before that are 0 / blank in the rate file) falls back to that first rate, clearly flagged. */
+function ixFindRateFor(rateIndex, location, productCode, refDate, canon){
+  canon = canon || ixCanonMaker();
+  const c = canon(location);
+  const code = String(productCode).trim();
+  const lf = rateIndex.__locFiles && rateIndex.__locFiles[c];
+  if(!lf){
+    const have = Object.values(rateIndex.__locFiles||{}).map(x=>[...x.names][0]).join(', ') || 'none';
+    return { match:null, reason:`No rate sheet for Price Group Name "${location}" is loaded. Rate sheets loaded for: ${have}. Name the sheet like the Price Group Name (WB / NB short forms are matched automatically).` };
   }
-  if(!best) return { match:null, reason:`Earliest rate on file starts ${list[0].effDateStr}, after this order date` };
+  const list = rateIndex[c+'|'+code];
+  if(!list || !list.length) return { match:null, reason:`Item code ${code} has no usable rate in the "${[...lf.names][0]}" rate sheet (${[...lf.files].join(', ')||'rate file'}) — the product is missing there, or all its rate cells are 0 / blank / #N/A / not a number.` };
+  if(!refDate) return { match:list[list.length-1], reason:'' };
+  let best = null;
+  for(const r of list){ if(r.effDate <= refDate) best = r; else break; }
+  if(!best) return { match:list[0], fallback:true, reason:`No rate on or before the order date — the product's first rate in the rate file starts ${list[0].effDateStr} (cells before that are 0 / blank in the file)` };
   return { match:best, reason:'' };
 }
 function ixRunCheck(){
-  const rateIndex = ixBuildRateIndex();
+  const canon = ixCanonMaker();
+  const rateIndex = ixBuildRateIndex(canon);
   const pgByCode = {};
   IX_STATE.pgMap.forEach(p=> pgByCode[p.dbCode] = p);
   const TOL = 0.01; // rounding tolerance — SAP/PDF values are already 2-decimal, so anything bigger than a paise is a real mismatch
@@ -5402,14 +5452,14 @@ function ixRunCheck(){
     }
     const refDate = s.orderDate || s.invoiceDate;           // rate applies as on the ORDER date
     const refStr = s.orderDate ? s.orderDateStr : s.invoiceDateStr;
-    const f = ixFindRateFor(rateIndex, pg.location, s.itemCode, refDate);
+    const f = ixFindRateFor(rateIndex, pg.location, s.itemCode, refDate, canon);
     if(!f.match){
-      return { ...s, priceGroup: pg.pg, location: pg.location, expectedRate:null, diff:null, baseKg:null, rateDateStr:'', status:'No Rate Found', remark: f.reason };
+      return { ...s, priceGroup: pg.pg, location: pg.location, expectedRate:null, diff:null, baseKg:null, rateDateStr:'', status:'No Rate Found', remark: f.reason, rateBasis:'No rate found' };
     }
     const match = f.match;
     const conv = ixBasePerKg(s);
     if(conv.perKg==null){
-      return { ...s, priceGroup: pg.pg, location: pg.location, productName: match.productName, expectedRate: match.distRate, diff:null, baseKg:null, rateDateStr: match.effDateStr, status:'UOM Missing', remark: conv.note };
+      return { ...s, priceGroup: pg.pg, location: pg.location, productName: match.productName, expectedRate: match.distRate, diff:null, baseKg:null, rateDateStr: match.effDateStr, status:'UOM Missing', remark: conv.note, rateBasis: f.fallback ? 'First rate in file (no earlier rate)' : 'Rate on order date' };
     }
     const baseKg = Math.round(conv.perKg*100)/100;
     const isCredit = baseKg < 0;                       // credit note / return line: SAP prints a negative price
@@ -5418,8 +5468,9 @@ function ixRunCheck(){
     if(diff > TOL) status = 'Overcharge';
     else if(diff < -TOL) status = 'Undercharge';
     const sameDay = match.effDateStr === refStr;
-    const remark = [conv.note, isCredit ? 'Negative price (credit note / return) — compared on absolute value' : '', sameDay ? '' : `Latest rate change on/before ${s.orderDate?'order':'invoice'} date: ${match.effDateStr}`, s.orderDate ? '' : 'No order date on this row — invoice date used'].filter(Boolean).join(' · ');
-    return { ...s, priceGroup: pg.pg, location: pg.location, productName: match.productName, expectedRate: match.distRate, baseKg, diff, status, rateDateStr: match.effDateStr, remark };
+    const rateBasis = f.fallback ? 'First rate in file (no earlier rate)' : (s.orderDate ? 'Rate on order date' : 'Rate on invoice date (no order date)');
+    const remark = [f.fallback ? '⚠ '+f.reason+' — compared with that first available rate' : '', conv.note, isCredit ? 'Negative price (credit note / return) — compared on absolute value' : '', (sameDay || f.fallback) ? '' : `Latest rate change on/before ${s.orderDate?'order':'invoice'} date: ${match.effDateStr}`, s.orderDate ? '' : 'No order date on this row — invoice date used'].filter(Boolean).join(' · ');
+    return { ...s, priceGroup: pg.pg, location: pg.location, productName: match.productName, expectedRate: match.distRate, baseKg, diff, status, rateDateStr: match.effDateStr, remark, rateBasis };
   });
   IX_STATE.results = results;
   return results;
@@ -5529,7 +5580,7 @@ async function renderIntelX(){
 function ixRateFilesSummaryHtml(){
   const n=IX_STATE.rateFiles.length;
   return `<div style="margin-bottom:6px;"><span class="status-chip ready"><span class="status-dot"></span>${n} rate file${n===1?'':'s'} loaded</span></div>
-  <div class="ix-files">${IX_STATE.rateFiles.map(f=>`<div class="ix-file"><b title="${ixEsc(f.fileName)}">${ixEsc(f.matchedLocation||f.fileName)}</b><span class="r">${ixEsc(f.effDateStr)}</span><span>${ixEsc(f.fileName)}</span><span class="r">${f.note?ixEsc(f.note):f.rowCount+' rows'}</span></div>`).join('')}</div>`;
+  <div class="ix-files">${IX_STATE.rateFiles.map(f=>`<div class="ix-file"><b title="${ixEsc(f.fileName)}">${ixEsc(f.matchedLocation||f.fileName)}</b><span class="r">${ixEsc(f.effDateStr)}</span><span>${ixEsc(f.fileName)}</span><span class="r" style="${f.note&&f.note.indexOf('⚠')>=0?'color:var(--danger);white-space:normal;':''}">${f.note?ixEsc(f.note):f.rowCount+' rows'}</span></div>`).join('')}</div>`;
 }
 
 
@@ -5562,16 +5613,21 @@ async function ixParseRateExcelBuffer(buf){
       for(let c=rg.s.c; c<=rg.e.c; c++){ const v=cellAt(r,c); if(v && v.t==='s' && /rate\s*change\s*date/i.test(String(v.v))){ dateRow=r; break; } }
     }
     if(dateRow<0) return;
-    const dateCols=[];
+    const dateCols=[]; const badHeads=[];
     for(let c=codeCol+1; c<=rg.e.c; c++){
-      const v = cellAt(dateRow,c); if(!v) continue;
+      const v = cellAt(dateRow,c); if(!v || v.v==null || String(v.v).trim()==='') continue;
+      if(v.t==='s' && /rate\s*change\s*date/i.test(String(v.v))) continue;       // the row label itself
       let d=null;
-      if(v.t==='n') d = ixExcelSerialToDate(v.v);
+      if(v.t==='n' && v.v>20000 && v.v<80000) d = ixExcelSerialToDate(v.v);
       else if(v.t==='d' && v.v instanceof Date) d = new Date(v.v.getFullYear(), v.v.getMonth(), v.v.getDate());
-      else if(v.t==='s') d = ixParseDMY(String(v.v).trim());
-      if(d && !isNaN(d)) dateCols.push({c, d});
+      else if(v.t==='s'){
+        const t = String(v.v).trim().replace(/\s+/g,'').replace(/[,]/g,'.').replace(/(\d)(st|nd|rd|th)/i,'$1');
+        d = ixParseDMY(t);
+      }
+      if(d && !isNaN(d)) dateCols.push({c, d}); else badHeads.push(XLSX.utils.encode_col(c)+': '+String(v.v).slice(0,18));
     }
     if(!dateCols.length) return;
+    const rep_ = { read:0, zero:0, blank:0, na:0, textFixed:0, textBad:0, badHeads };
     const pad=n=>String(n).padStart(2,'0');
     const fmt=d=>`${pad(d.getDate())}-${pad(d.getMonth()+1)}-${d.getFullYear()}`;
     const rows=[];
@@ -5581,11 +5637,21 @@ async function ixParseRateExcelBuffer(buf){
       const nm = nameCol>=0 ? cellAt(r,nameCol) : null;
       dateCols.forEach(({c,d})=>{
         const v = cellAt(r,c);
-        if(!v || v.t!=='n' || !(v.v>0)) return;          // skip #N/A (t:'e'), blanks and text
-        rows.push({ productCode: code, productName: nm?String(nm.v).trim():'', category:'', sku:'', distRate: Math.round(v.v*100)/100, retailRate:null, effDate:d, effDateStr:fmt(d) });
+        if(!v || v.v==null || v.v===''){ rep_.blank++; return; }
+        let num = null;
+        if(v.t==='n') num = v.v;
+        else if(v.t==='e'){ rep_.na++; return; }                                   // #N/A etc.
+        else if(v.t==='s'){                                                          // a rate typed / pasted as text: "65", "₹ 1,700.00", "65/-"
+          const tx = String(v.v).trim().replace(/[₹,\s]/g,'').replace(/^rs\.?/i,'').replace(/\/-$/,'');
+          if(tx==='' || /^(-|—|na|n\/a)$/i.test(tx)){ rep_.blank++; return; }
+          if(/^\d+(\.\d+)?$/.test(tx)){ num = Number(tx); rep_.textFixed++; } else { rep_.textBad++; return; }
+        } else { rep_.textBad++; return; }
+        if(!(num>0)){ rep_.zero++; return; }                                         // 0 = product not priced yet on that date
+        rep_.read++;
+        rows.push({ productCode: code, productName: nm?String(nm.v).trim():'', category:'', sku:'', distRate: Math.round(num*100)/100, retailRate:null, effDate:d, effDateStr:fmt(d) });
       });
     }
-    if(rows.length) out.push({ location: sn.trim(), rows });
+    if(rows.length) out.push({ location: sn.trim(), rows, report: rep_, dateCount: dateCols.length });
   });
   return out;
 }
@@ -5609,7 +5675,7 @@ async function ixHandleRateUpload(files){
         sh.rows.forEach(r=> IX_STATE.rateRows.push({...r, location: sh.location, sourceFile: file.name}));
         const ds = sh.rows.map(r=>r.effDate.getTime()); const mn=new Date(Math.min(...ds)), mx=new Date(Math.max(...ds));
         const f2=d=>`${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
-        IX_STATE.rateFiles.push({ fileName: file.name, matchedLocation: sh.location, effDateStr: dates.length>1 ? `${f2(mn)} → ${f2(mx)}` : f2(mn), rowCount: new Set(sh.rows.map(r=>r.productCode)).size, note: `${new Set(sh.rows.map(r=>r.productCode)).size} products · ${dates.length} rate date${dates.length===1?'':'s'}` });
+        IX_STATE.rateFiles.push({ fileName: file.name, matchedLocation: sh.location, effDateStr: dates.length>1 ? `${f2(mn)} → ${f2(mx)}` : f2(mn), rowCount: new Set(sh.rows.map(r=>r.productCode)).size, note: `${new Set(sh.rows.map(r=>r.productCode)).size} products · ${dates.length} rate date${dates.length===1?'':'s'}` + ((sh.report && (sh.report.badHeads.length||sh.report.textBad||sh.report.textFixed)) ? ` ⚠ ${sh.report.badHeads.length?('date header not read: '+sh.report.badHeads.join(', ')+'. '):''}${sh.report.textBad?(sh.report.textBad+' rate cell(s) not a number — ignored. '):''}${sh.report.textFixed?(sh.report.textFixed+' text rate(s) converted.'):''}` : ''), report: sh.report });
       });
       newFiles.push(file.name);
       continue;
@@ -5642,6 +5708,7 @@ async function ixHandleRateUpload(files){
   await ixSaveAll();
   $('#ixRateStatus').innerHTML = ixRateFilesSummaryHtml();
   if(newFiles.length) toast(`Loaded ${newFiles.length} rate file(s)`, 'ok');
+  if(IX_STATE.rateFiles.some(f=>f.note && f.note.indexOf('⚠')>=0)) toast('Some rate dates / cells could not be read — see the red note in the rate file list', 'err');
   ixRefreshRunButton();
 }
 
@@ -5818,6 +5885,7 @@ async function ixExportDetailedExcel(rows){
       {header:'Taxable Amount', key:'taxableAmt', width:15}, {header:'Total Amount', key:'totalAmt', width:15},
       {header:'Status', key:'status', width:18}, {header:'Remark', key:'remark', width:44},
       {header:'Rate File Date (checked against)', key:'rateDateStr', width:20},
+      {header:'Rate Basis', key:'rateBasis', width:30},
     ];
     ws.columns = cols.map(c=>({key:c.key, width:c.width}));
     ixStampHeader(ws, 'INTELX — SAP vs RATE FILE CHECK (DETAILED)', `Generated ${formatISTDateTime(new Date())} IST · ${ixFmtInt(rows.length)} line(s)`, cols.length);
