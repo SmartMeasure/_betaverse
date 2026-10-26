@@ -573,7 +573,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v82-supabase';
+const APP_VERSION = 'v83-supabase';
 /* Supabase connection is configured inside the BACKEND block just below (SUPABASE_URL_DEFAULT / SUPABASE_ANON_KEY_DEFAULT). */
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -5413,7 +5413,8 @@ function ixBuildRateIndex(canon){
     const c = canon(r.location);
     const key = c+'|'+String(r.productCode).trim();
     (map[key] = map[key]||[]).push(r);
-    const lf = locFiles[c] = locFiles[c] || {names:new Set(), files:new Set()};
+    const lf = locFiles[c] = locFiles[c] || {names:new Set(), files:new Set(), minDate:null};
+    if(r.effDate && (!lf.minDate || r.effDate < lf.minDate)) lf.minDate = r.effDate;
     lf.names.add(r.location); if(r.sourceFile) lf.files.add(r.sourceFile);
   });
   Object.values(map).forEach(list=>list.sort((a,b)=>a.effDate-b.effDate));
@@ -5436,7 +5437,7 @@ function ixFindRateFor(rateIndex, location, productCode, refDate, canon){
   if(!refDate) return { match:list[list.length-1], reason:'' };
   let best = null;
   for(const r of list){ if(r.effDate <= refDate) best = r; else break; }
-  if(!best) return { match:list[0], fallback:true, reason:`No rate on or before the order date — the product's first rate in the rate file starts ${list[0].effDateStr} (cells before that are 0 / blank in the file)` };
+  if(!best) return { match:list[0], fallback:true, kind:(lf.minDate && refDate < lf.minDate) ? 'nofile' : 'prelaunch', reason:`No rate on or before the order date — the product's first rate in the rate file starts ${list[0].effDateStr} (cells before that are 0 / blank in the file)` };
   return { match:best, reason:'' };
 }
 function ixRunCheck(){
@@ -5468,13 +5469,15 @@ function ixRunCheck(){
     if(diff > TOL) status = 'Overcharge';
     else if(diff < -TOL) status = 'Undercharge';
     const gapDays = (refDate && match.effDate) ? Math.round((refDate - match.effDate)/86400000) : null;   // + = rate started this many days before the order; − = rate starts AFTER the order
+    const preLaunch = !!(f.fallback && f.kind==='prelaunch');
     const sameDay = match.effDateStr === refStr;
-    const rateBasis = (!f.fallback && gapDays>30) ? `Rate on order date — OLD RATE (${gapDays} days before order)` : f.fallback ? `First rate in file — starts ${Math.abs(gapDays)} day(s) AFTER the order date (earlier rate file missing?)` : (s.orderDate ? 'Rate on order date' : 'Rate on invoice date (no order date)');
+    const rateBasis = preLaunch ? `First rate of this product — starts ${Math.abs(gapDays)} day(s) AFTER the order (order before rate start)` : (!f.fallback && gapDays>30) ? `Rate on order date — OLD RATE (${gapDays} days before order)` : f.fallback ? `First rate in file — starts ${Math.abs(gapDays)} day(s) AFTER the order date (earlier rate file missing?)` : (s.orderDate ? 'Rate on order date' : 'Rate on invoice date (no order date)');
     const fileNm = match.sourceFile || 'rate file';
     const veryOld = !f.fallback && gapDays!=null && gapDays > 30;
-    const remark = [f.fallback ? `⚠ OLD ORDER: order date ${refStr} is BEFORE the oldest rate in the loaded file(s). Compared with the FIRST available rate (${match.effDateStr}, ${Math.abs(gapDays)} day(s) after the order) from file "${fileNm}" — load the earlier month's rate file for an exact check.` : '',
+    const rateFlag = preLaunch ? 'ORDER BEFORE RATE START' : (f.fallback ? 'ORDER OLDER THAN RATE FILES' : (veryOld ? 'OLD RATE' : ''));
+    const remark = [preLaunch ? `⚠ ORDER BEFORE RATE START: this product has no rate (0 / blank) on the order date ${refStr}; its first rate starts ${match.effDateStr} (${Math.abs(gapDays)} day(s) after the order) in file "${fileNm}". Orders should be taken only after a rate exists — check this order. Compared with that first rate.` : '', (f.fallback && !preLaunch) ? `⚠ OLD ORDER: order date ${refStr} is BEFORE the oldest rate in the loaded file(s). Compared with the FIRST available rate (${match.effDateStr}, ${Math.abs(gapDays)} day(s) after the order) from file "${fileNm}" — load the earlier month's rate file for an exact check.` : '',
       veryOld ? `⚠ OLD RATE: the rate used is ${gapDays} day(s) older than the order date (rate dated ${match.effDateStr}, file "${fileNm}") — a newer rate file may be missing.` : '', conv.note, isCredit ? 'Negative price (credit note / return) — compared on absolute value' : '', (sameDay || f.fallback) ? '' : `Latest rate change on/before ${s.orderDate?'order':'invoice'} date: ${match.effDateStr}`, s.orderDate ? '' : 'No order date on this row — invoice date used'].filter(Boolean).join(' · ');
-    return { ...s, priceGroup: pg.pg, location: pg.location, productName: match.productName, expectedRate: match.distRate, baseKg, diff, status, rateDateStr: match.effDateStr, remark, rateBasis, rateFile: fileNm, gapDays, rateFallback: !!f.fallback };
+    return { ...s, priceGroup: pg.pg, location: pg.location, productName: match.productName, expectedRate: match.distRate, baseKg, diff, status, rateDateStr: match.effDateStr, remark, rateBasis, rateFile: fileNm, rateFlag, preLaunch, gapDays, rateFallback: !!f.fallback };
   });
   IX_STATE.results = results;
   return results;
@@ -5485,12 +5488,19 @@ let IX_FILTERS = { status:'', location:'', pg:'', q:'', page:1 };
 const IX_PAGE_SIZE = 100;
 
 function ixCoverageBannerHtml(results){
-  const fb = results.filter(r=>r.rateFallback);
-  if(!fb.length) return '';
+  const pre = results.filter(r=>r.preLaunch);
+  let preHtml = '';
+  if(pre.length){
+    const ex = {}; pre.forEach(r=>{ const k=(r.itemCode||'')+' '+(r.productName||r.itemDesc||''); const o=ex[k]||(ex[k]={n:0,first:r.rateDateStr,loc:r.location}); o.n++; });
+    const li = Object.entries(ex).slice(0,8).map(([k,o])=>`<li><b>${ixEsc(k.trim())}</b> (${ixEsc(o.loc)}) — ${ixFmtInt(o.n)} line(s), first rate starts ${ixEsc(o.first)}</li>`).join('');
+    preHtml = `<div style="background:#fff6dd;border:1px solid #d9a21b;border-radius:10px;padding:12px 16px;margin:12px 0;font-size:13px;line-height:1.5;"><b style="color:#8a5d00;">⚠ ${ixFmtInt(pre.length)} line(s): order taken BEFORE the product's rate started.</b> These should not happen — an order is placed only after the rate exists. They are highlighted yellow in the table and flagged in the export.<ul style="margin:6px 0 0 18px;padding:0;">${li}${Object.keys(ex).length>8?'<li>…and more (see export)</li>':''}</ul></div>`;
+  }
+  const fb = results.filter(r=>r.rateFallback && !r.preLaunch);
+  if(!fb.length) return preHtml;
   const by = {};
   fb.forEach(r=>{ const k=r.location||'?'; const o=by[k]||(by[k]={n:0, first:r.rateDateStr, minOrder:r.orderDateStr, maxGap:0}); o.n++; o.maxGap=Math.max(o.maxGap, Math.abs(r.gapDays||0)); });
   const rows = Object.entries(by).map(([loc,o])=>`<li><b>${ixEsc(loc)}</b>: ${ixFmtInt(o.n)} line(s) — orders are up to ${o.maxGap} day(s) older than the first rate loaded (${ixEsc(o.first)})</li>`).join('');
-  return `<div style="background:var(--danger-soft,#fdecef);border:1px solid var(--danger,#d6234b);border-radius:10px;padding:12px 16px;margin:12px 0;font-size:13px;line-height:1.5;">
+  return preHtml + `<div style="background:var(--danger-soft,#fdecef);border:1px solid var(--danger,#d6234b);border-radius:10px;padding:12px 16px;margin:12px 0;font-size:13px;line-height:1.5;">
     <b style="color:var(--danger,#d6234b);">⚠ ${ixFmtInt(fb.length)} line(s) have an order date earlier than the oldest rate loaded.</b>
     <ul style="margin:6px 0 6px 18px;padding:0;">${rows}</ul>
     These lines were compared with the first available rate, which may be wrong. <b>Load the earlier month's rate file too</b> (for example the August file for August orders) and the correct rate on the order date will be used. Filter Status or open "Rate Basis" in the export to see them.
@@ -5838,7 +5848,7 @@ function renderIxResults(){
     <div class="small-muted" style="margin-bottom:8px;">${ixFmtInt(rows.length)} line(s) match this filter · showing page ${IX_FILTERS.page} of ${totalPages}</div>
     <div class="table-wrap"><table>
       <thead><tr><th>Order No</th><th>Order Date</th><th>Invoice Date</th><th>Accounting Doc</th><th>DB Code</th><th>Distributor</th><th>Price Group</th><th>Price Group Name</th><th>Item Code</th><th>Product</th><th class="num">Qty (kg)</th><th class="num">Base Price</th><th>per UoM</th><th class="num">Special Disc</th><th class="num">Manual Disc %</th><th class="num">Base/kg</th><th class="num">Rate File (Exc-GST)</th><th class="num">Diff/kg</th><th>Status</th><th>Rate File Date</th></tr></thead>
-      <tbody>${pageRows.map(r=>`<tr title="${ixEsc(r.remark||'')}">
+      <tbody>${pageRows.map(r=>`<tr title="${ixEsc(r.remark||'')}" ${r.preLaunch?'style="background:#fff6dd;"':''}>
         <td>${ixEsc(r.orderNo)}</td><td>${ixEsc(r.orderDateStr)}</td><td>${ixEsc(r.invoiceDateStr)}</td><td>${ixEsc(r.accountingDoc)}</td><td>${ixEsc(r.dbCode)}</td><td class="wrap">${ixEsc(r.dbName)}</td><td>${ixEsc(r.priceGroup)}</td><td>${ixEsc(r.location)}</td>
         <td>${ixEsc(r.itemCode)}</td><td class="wrap">${ixEsc(r.itemDesc)}</td><td class="num">${ixFmtInt(r.qtyKg)}</td>
         <td class="num">${ixFmtMoney(r.basePrice)}</td><td>${ixEsc(r.perUom)}</td><td class="num">${r.specialDisc===''||r.specialDisc==null?'—':ixFmtMoney(r.specialDisc)}</td><td class="num">${r.manualDiscPct===''||r.manualDiscPct==null?'—':r.manualDiscPct}</td><td class="num">${r.baseKg!=null?ixFmtMoney(r.baseKg):'—'}</td><td class="num">${r.expectedRate!=null?ixFmtMoney(r.expectedRate):'—'}</td>
@@ -5902,6 +5912,7 @@ async function ixExportDetailedExcel(rows){
       {header:'Taxable Amount', key:'taxableAmt', width:15}, {header:'Total Amount', key:'totalAmt', width:15},
       {header:'Status', key:'status', width:18}, {header:'Remark', key:'remark', width:44},
       {header:'Rate File Date (checked against)', key:'rateDateStr', width:20},
+      {header:'Flag', key:'rateFlag', width:28},
       {header:'Rate File Name', key:'rateFile', width:34},
       {header:'Rate Basis', key:'rateBasis', width:30},
       {header:'Days: Rate Date → Order Date', key:'gapDays', width:16},
@@ -5929,6 +5940,7 @@ async function ixExportDetailedExcel(rows){
       const statusCell = row.getCell(cols.findIndex(c=>c.key==='status')+1);
       statusCell.fill = {type:'pattern',pattern:'solid',fgColor:{argb:fill}};
       statusCell.font = {bold:true,color:{argb:font}};
+      if(rr.preLaunch){ row.eachCell(c=>{ c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFE08A'}}; }); statusCell.font={bold:true,color:{argb:'FF8A5D00'}}; row.getCell(cols.findIndex(c=>c.key==='rateFlag')+1).font={bold:true,color:{argb:'FF8A5D00'}}; }
       const diffCell = row.getCell(cols.findIndex(c=>c.key==='diff')+1);
       if(rr.diff!=null) diffCell.font = {bold:true, color:{argb:font}};
       r++;
