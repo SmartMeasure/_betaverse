@@ -7,7 +7,7 @@
 <script>/* anti-clickjacking: this page must not be shown inside another site's frame */
 if(window.top!==window.self){ try{ document.documentElement.style.display='none'; window.top.location=window.self.location; }catch(e){} }</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Rate Ledger — Overinvoicing Audit</title>
+<title>Rate Audit</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -573,7 +573,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v83-supabase';
+const APP_VERSION = 'v85-supabase';
 /* Supabase connection is configured inside the BACKEND block just below (SUPABASE_URL_DEFAULT / SUPABASE_ANON_KEY_DEFAULT). */
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -1367,10 +1367,10 @@ function renderShell(){
   app.innerHTML = `
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark">RL</div>
+        <div class="brand-mark">RA</div>
         <div class="brand-text">
-          <h1>Rate Ledger <span class="version-badge" title="Build version — check this matches what support/chat referenced">${APP_VERSION}</span></h1>
-          <p>Overinvoicing audit for the DB → retailer network</p>
+          <h1>Rate Audit <span class="version-badge" title="Build version — check this matches what support/chat referenced">${APP_VERSION}</span></h1>
+          <p>Validate invoice rates against company rates</p>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
@@ -3070,7 +3070,7 @@ async function exportRateWallExcel(){
   btn.disabled = true;
   try{
     const wb = new ExcelJS.Workbook();
-    wb.creator = 'Rate Ledger'; wb.created = new Date();
+    wb.creator = 'Rate Audit'; wb.created = new Date();
     const INK='FF1E2438', DANGER='FFB23A2E', DANGERSOFT='FFF3DEDA', SUCCESSSOFT='FFDCEBE0', SUCCESS='FF1E7A4C', WHITE='FFFFFFFF';
     const ws = wb.addWorksheet('Rate Change Timeline', {views:[{state:'frozen', ySplit:5}]});
     const cols = [
@@ -3081,7 +3081,7 @@ async function exportRateWallExcel(){
     ];
     ws.columns = cols.map(c=>({key:c.key, width:c.width}));
     ws.mergeCells(1,1,1,cols.length);
-    ws.getCell(1,1).value = 'RATE LEDGER — RATE CHANGE TIMELINE';
+    ws.getCell(1,1).value = 'RATE AUDIT — RATE CHANGE TIMELINE';
     ws.getCell(1,1).font = {size:14, bold:true, color:{argb:WHITE}};
     ws.getCell(1,1).fill = {type:'pattern', pattern:'solid', fgColor:{argb:INK}};
     ws.getRow(1).height = 24;
@@ -4418,7 +4418,7 @@ async function exportExcelPro(){
   btn.disabled = true;
   try{
     const wb = new ExcelJS.Workbook();
-    wb.creator = 'Rate Ledger';
+    wb.creator = 'Rate Audit';
     wb.created = new Date();
 
     const INK = 'FF1E2438', ACCENT='FF2B5D50', DANGER='FFB23A2E', DANGERSOFT='FFF3DEDA',
@@ -4473,7 +4473,7 @@ async function exportExcelPro(){
     // Title block
     ws.mergeCells(1,1,1,cols.length);
     const titleCell = ws.getCell(1,1);
-    titleCell.value = 'RATE LEDGER — OVERINVOICING AUDIT REPORT';
+    titleCell.value = 'RATE AUDIT — OVERINVOICING AUDIT REPORT';
     titleCell.font = {name:'Calibri', size:14, bold:true, color:{argb:WHITE}};
     titleCell.alignment = {vertical:'middle', horizontal:'left'};
     titleCell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:INK}};
@@ -4605,7 +4605,7 @@ async function exportExcelPro(){
     // Summary sheet
     const ws2 = wb.addWorksheet('Summary');
     ws2.columns = [{width:28},{width:18}];
-    ws2.getCell('A1').value = 'RATE LEDGER — SUMMARY';
+    ws2.getCell('A1').value = 'RATE AUDIT — SUMMARY';
     ws2.getCell('A1').font = {size:13,bold:true,color:{argb:WHITE}};
     ws2.mergeCells('A1:B1'); ws2.getCell('A1').fill={type:'pattern',pattern:'solid',fgColor:{argb:INK}};
     ws2.getRow(1).height=22;
@@ -4758,10 +4758,10 @@ function renderLoginGate(errorMsg){
     <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;">
       <div class="card" style="max-width:380px;width:100%;padding:32px 28px;">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-          <div class="brand-mark">RL</div>
+          <div class="brand-mark">RA</div>
           <div>
-            <h1 style="font-size:19px;">Rate Ledger</h1>
-            <p class="small-muted" style="margin-top:2px;">Sign in to continue</p>
+            <h1 style="font-size:19px;">Rate Audit</h1>
+            <p class="small-muted" style="margin-top:2px;">Validate invoice rates against company rates</p>
           </div>
         </div>
         <div class="field"><label>User Code</label><input type="text" id="loginCode" autocomplete="username" style="text-transform:uppercase;"></div>
