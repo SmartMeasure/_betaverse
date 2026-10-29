@@ -145,6 +145,38 @@ td.num{font-family:var(--font-mono);text-align:right;}
 .btn.danger-outline{background:var(--danger-soft);color:var(--danger);border:1px solid var(--danger);font-weight:700;}
 .btn.danger-outline:hover:not(:disabled){background:var(--danger);color:#fff;}
 .btn.danger-outline:disabled{opacity:.5;}
+.bell-wrap{position:relative;}
+.bell-btn{position:relative;width:38px;height:38px;border-radius:50%;border:1px solid var(--edge);background:var(--panel);color:var(--ink-soft);display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.bell-btn:hover{color:var(--ink);border-color:var(--ink-faint);}
+.bell-btn:focus-visible{outline:2px solid var(--negligible);outline-offset:2px;}
+.bell-badge{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--danger);color:#fff;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid var(--panel-2);}
+.bell-panel{display:none;position:absolute;right:0;top:46px;width:min(380px,92vw);background:var(--panel);border:1px solid var(--edge);border-radius:14px;box-shadow:0 16px 40px rgba(16,17,20,.18);z-index:60;overflow:hidden;}
+.bell-panel.open{display:block;}
+.bell-head{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--edge-soft);font-size:13.5px;}
+.bell-head span{display:flex;gap:10px;} .bell-head button{background:none;border:0;color:var(--negligible);font:600 12px var(--font-body);cursor:pointer;padding:0;}
+.bell-list{max-height:380px;overflow:auto;}
+.bell-item{padding:12px 16px;border-bottom:1px solid var(--edge-soft);border-left:3px solid transparent;}
+.bell-item:last-child{border-bottom:0;}
+.bell-item.new{background:var(--panel-2);} .bell-item.t-warn{border-left-color:var(--warn);} .bell-item.t-ok{border-left-color:var(--success);} .bell-item.t-info{border-left-color:var(--negligible);}
+.bell-title{font-weight:600;font-size:13px;} .bell-msg{font-size:12.5px;color:var(--ink-soft);margin-top:3px;line-height:1.5;} .bell-time{font-size:11px;color:var(--ink-faint);margin-top:5px;}
+.bell-empty{padding:26px 18px;text-align:center;font-size:12.5px;color:var(--ink-faint);line-height:1.5;}
+/* ===== All Submissions toolbar ===== */
+.sub-card{background:var(--panel);border:1px solid var(--edge);border-radius:14px;padding:16px 18px;margin-bottom:12px;}
+.sub-card .field{margin-bottom:0;}
+.sub-dates{display:flex;gap:14px 18px;align-items:flex-end;flex-wrap:wrap;padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--edge-soft);}
+.sub-dates .filterbar{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin:0;}
+.sub-filters{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr)) minmax(260px,2fr);gap:14px;}
+.sub-actions{display:flex;gap:18px 32px;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;background:var(--panel-2);}
+.sub-dl-title{font-size:13px;font-weight:600;margin-bottom:8px;}
+.sub-dl-title span{font-weight:400;color:var(--ink-faint);font-size:11.5px;margin-left:8px;}
+.sub-dl-row{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;}
+.sub-dl-row .field{min-width:170px;}
+.sub-dl-btn{background:var(--ink);color:#fff;border-color:var(--ink);padding:10px 18px;}
+.sub-dl-btn:hover:not(:disabled){background:#2a2c35;}
+.sub-dl-btn:disabled{background:var(--panel-3);color:var(--ink-faint);border-color:var(--edge);cursor:not-allowed;}
+.sub-export .btn{padding:10px 18px;}
+@media (max-width:900px){.sub-filters{grid-template-columns:1fr 1fr;}.sub-search{grid-column:1 / -1;}.sub-actions{flex-direction:column;align-items:stretch;}}
+@media (max-width:560px){.topbar .status-chip{flex-wrap:wrap;}.sub-filters{grid-template-columns:1fr;}.sub-dl-row .field{flex:1;min-width:140px;}.sub-dl-btn,.sub-export .btn{width:100%;justify-content:center;}}
 /* ===== Analytics (v29) ===== */
 .an-hero{--o:#FF4D73;--n:#6C95FF;--u:#F0A93E;--m:#2FD08D;display:grid;grid-template-columns:minmax(0,1.25fr) auto minmax(0,1.5fr);gap:28px 36px;align-items:center;background:#12131A;color:#fff;border-radius:16px;padding:28px 32px;margin-bottom:16px;position:relative;overflow:hidden;}
 .an-hero::before{content:'';position:absolute;inset:0;background:radial-gradient(520px 220px at 12% 0%,rgba(255,77,115,.20),transparent 70%);pointer-events:none;}
@@ -219,6 +251,35 @@ td.num{font-family:var(--font-mono);text-align:right;}
 @media (max-width:1100px){.an-hero{grid-template-columns:1fr auto;}.an-hero-split{grid-column:1 / -1;}}
 @media (max-width:640px){.kpi-grid{grid-template-columns:1fr 1fr;gap:8px;}.kpi{padding:12px;min-height:84px;}.kpi-v{font-size:24px;}.an-hero{grid-template-columns:1fr;padding:22px 20px;}.an-hero-ring{justify-self:start;}.an-legend{grid-template-columns:1fr;}.an-panel{padding:16px;}.an-rank-grid{grid-template-columns:1fr;}}
 @media (prefers-reduced-motion:reduce){.an-seg,.an-ring-arc{transition:none;}.an-seg{transform:none;opacity:1;}}
+/* ===== 3D tactile buttons ===== */
+.btn{--edge3:rgba(16,17,20,.26);position:relative;border:1px solid rgba(16,17,20,.16);border-radius:10px;background:linear-gradient(180deg,#ffffff 0%,#e9ebef 100%);color:var(--ink);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.95), 0 3px 0 var(--edge3), 0 7px 14px rgba(16,17,20,.10);transform:translateY(0);
+  transition:transform .09s ease, box-shadow .09s ease, filter .15s ease, background .15s ease;-webkit-tap-highlight-color:transparent;user-select:none;}
+.btn:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.03);border-color:rgba(16,17,20,.28);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.95), 0 4px 0 var(--edge3), 0 10px 18px rgba(16,17,20,.14);}
+.btn:active:not(:disabled){transform:translateY(3px);box-shadow:inset 0 1px 2px rgba(16,17,20,.18), 0 0 0 var(--edge3), 0 1px 2px rgba(16,17,20,.12);filter:brightness(.98);}
+.btn:focus-visible{outline:3px solid rgba(42,95,217,.45);outline-offset:2px;}
+.btn.small{border-radius:8px;box-shadow:inset 0 1px 0 rgba(255,255,255,.95), 0 2px 0 var(--edge3), 0 4px 8px rgba(16,17,20,.08);}
+.btn.small:hover:not(:disabled){transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.95), 0 3px 0 var(--edge3), 0 7px 12px rgba(16,17,20,.12);}
+.btn.small:active:not(:disabled){transform:translateY(2px);box-shadow:inset 0 1px 2px rgba(16,17,20,.18), 0 0 0 var(--edge3);}
+.btn.accent,.btn.sub-dl-btn{--edge3:#000;background:linear-gradient(180deg,#3b3e4a 0%,#14151c 100%);color:#fff;border-color:#000;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22), 0 3px 0 var(--edge3), 0 8px 16px rgba(16,17,20,.28);}
+.btn.accent:hover:not(:disabled),.btn.sub-dl-btn:hover:not(:disabled){background:linear-gradient(180deg,#464a58 0%,#1b1c25 100%);border-color:#000;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.26), 0 4px 0 var(--edge3), 0 12px 20px rgba(16,17,20,.32);}
+.btn.accent:active:not(:disabled),.btn.sub-dl-btn:active:not(:disabled){box-shadow:inset 0 2px 4px rgba(0,0,0,.5), 0 0 0 var(--edge3);}
+.btn.danger{--edge3:#8c1230;background:linear-gradient(180deg,#ea4a6e 0%,#c91f46 100%);color:#fff;border-color:#a3163a;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3), 0 3px 0 var(--edge3), 0 8px 16px rgba(214,35,75,.28);}
+.btn.danger:active:not(:disabled){box-shadow:inset 0 2px 4px rgba(0,0,0,.35), 0 0 0 var(--edge3);}
+.btn.danger-outline{--edge3:rgba(214,35,75,.55);background:linear-gradient(180deg,#fff5f7 0%,#fde3e9 100%);color:var(--danger);border-color:var(--danger);}
+.btn.danger-outline:hover:not(:disabled){background:linear-gradient(180deg,#ea4a6e 0%,#c91f46 100%);color:#fff;}
+.btn:disabled{transform:none;filter:none;background:var(--panel-3);color:var(--ink-faint);border-color:var(--edge);box-shadow:none;opacity:.75;cursor:not-allowed;}
+.btn.accent:disabled,.btn.sub-dl-btn:disabled,.btn.danger:disabled{background:var(--panel-3);color:var(--ink-faint);border-color:var(--edge);box-shadow:none;}
+.quick-range button{box-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 2px 0 rgba(16,17,20,.16);transition:transform .08s ease, box-shadow .08s ease, background .15s ease;}
+.quick-range button:hover{transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 3px 0 rgba(16,17,20,.18);}
+.quick-range button:active{transform:translateY(2px);box-shadow:none;}
+.quick-range button.sel{box-shadow:inset 0 1px 0 rgba(255,255,255,.2), 0 2px 0 #000;}
+.an-seg-toggle button:active{transform:translateY(1px);}
+@media (prefers-reduced-motion:reduce){.btn,.quick-range button{transition:none;}.btn:hover:not(:disabled),.btn:active:not(:disabled){transform:none;}}
 </style>
 </head>
 <body>
@@ -231,7 +292,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v36';
+const APP_VERSION = 'v39';
 /* ==================== SUPABASE BACKEND ====================
    Same action names the app has always used (login / submit / mydata / syncdata …) — each one is
    now a single fast call to a Postgres function (rl_*) on Supabase. Photos go straight to Supabase
@@ -574,6 +635,44 @@ function istMonthStartISO(){ return istDateISO().slice(0,8)+'01'; }
 
 function fmtMoney(n){ return (n==null||isNaN(n)) ? '—' : Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtInt(n){ return (n==null||isNaN(n)) ? '—' : Number(n).toLocaleString('en-IN'); }
+/* ---- Notification centre (bell icon): non-urgent messages live here instead of red pop-ups ---- */
+const NOTIF_MAX = 50;
+function notifKey(){ const s = getSession(); return 'rlNotifs|' + (s ? s.code : 'anon'); }
+function notifLoad(){ try{ return JSON.parse(localStorage.getItem(notifKey())||'[]'); }catch(e){ return []; } }
+function notifSave(a){ try{ localStorage.setItem(notifKey(), JSON.stringify(a.slice(0, NOTIF_MAX))); }catch(e){} }
+function notify(title, msg, type){
+  const a = notifLoad();
+  if(a.some(n=>n.title===title && n.msg===msg && Date.now()-n.ts < 86400000)) return;   // same message again within a day: don't repeat it
+  a.unshift({ id: Date.now()+'-'+Math.random().toString(36).slice(2,6), ts: Date.now(), type: type||'info', title, msg, read:false });
+  notifSave(a); renderBell();
+}
+function renderBell(openNow){
+  const wrap = $('#bellWrap'); if(!wrap) return;
+  const a = notifLoad(), unread = a.filter(n=>!n.read).length;
+  const badge = wrap.querySelector('.bell-badge'); badge.textContent = unread>9 ? '9+' : String(unread); badge.style.display = unread ? '' : 'none';
+  wrap.querySelector('#bellBtn').setAttribute('aria-label', unread ? `Notifications, ${unread} new` : 'Notifications');
+  const panel = wrap.querySelector('#bellPanel');
+  panel.innerHTML = `<div class="bell-head"><b>Notifications</b>${a.length?`<span><button type="button" data-n="read">Mark all read</button><button type="button" data-n="clear">Clear all</button></span>`:''}</div>
+    <div class="bell-list">${a.length ? a.map(n=>`<div class="bell-item ${n.read?'':'new'} t-${esc(n.type)}"><div class="bell-title">${n.type==='warn'?'⚠ ':n.type==='ok'?'✓ ':'ⓘ '}${esc(n.title)}</div><div class="bell-msg">${esc(n.msg)}</div><div class="bell-time">${esc(formatISTDateTime(new Date(n.ts)))} IST</div></div>`).join('') : '<div class="bell-empty">No notifications. Anything that needs your attention will appear here.</div>'}</div>`;
+  panel.querySelectorAll('[data-n]').forEach(b=>b.addEventListener('click', ev=>{
+    ev.stopPropagation();
+    if(b.dataset.n==='clear') notifSave([]); else notifSave(notifLoad().map(n=>({...n, read:true})));
+    renderBell(true);
+  }));
+}
+function wireBell(){
+  const wrap = $('#bellWrap'); if(!wrap) return;
+  const panel = wrap.querySelector('#bellPanel');
+  wrap.querySelector('#bellBtn').addEventListener('click', ev=>{
+    ev.stopPropagation();
+    const open = panel.classList.toggle('open');
+    if(open){ setTimeout(()=>{ notifSave(notifLoad().map(n=>({...n, read:true}))); const b=wrap.querySelector('.bell-badge'); b.style.display='none'; }, 1200); }  // new items stay highlighted for a moment, then count as read
+    else renderBell();
+  });
+  panel.addEventListener('click', ev=>ev.stopPropagation());
+  if(!window.__bellDocWired){ window.__bellDocWired = true; document.addEventListener('click', ()=>{ const p=$('#bellPanel'); if(p && p.classList.contains('open')){ p.classList.remove('open'); renderBell(); } }); }
+  renderBell();
+}
 function toast(msg, type){
   const wrap = $('#toastWrap');
   const t = document.createElement('div');
@@ -955,7 +1054,10 @@ function adminMaybeLoadArchive(from, basis){
       toast(added ? `Loaded ${fmtInt(added)} older bill lines from the archive` : 'Archive checked — no extra older bills in this range', 'ok');
     }catch(e){
       AdminStore.archiveFailAt = Date.now();
-      toast('Could not load older bills from the Google archive (' + (e.message||e) + '). Showing what is already stored.', 'err');
+      const why = /unknown action/i.test(String(e.message||e))
+        ? 'The Google script that holds the archive is an older version and cannot read it yet. Paste the latest Rate_Ledger_Google_Backend.gs, then Deploy → Manage deployments → New version.'
+        : String(e.message||e);
+      notify('Older bills not loaded', 'Bills older than 6 months could not be read from the Google archive. Everything stored on this device is still shown. ' + why, 'warn');
     }finally{
       AdminStore.archiveBusy = false;
     }
@@ -978,9 +1080,10 @@ function renderShell(){
         <div class="brand-mark">RA</div>
         <div class="brand-text"><h1>Rate Audit <span class="version-badge" title="Build version — check this matches what support/chat referenced">${APP_VERSION}</span></h1><p>Validate invoice rates against company rates</p></div>
       </div>
-      <div style="display:flex;align-items:center;gap:12px;">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         ${s.role==='Admin' ? '<div class="status-chip" id="adminSyncChip" style="gap:8px;font-size:12px;"></div><div class="status-chip" id="usageChip" style="gap:8px;font-size:12px;display:none;"></div>' : ''}
         <div class="status-chip"><span class="status-dot"></span>${esc(s.name)} (${esc(s.superAdmin ? 'Super Admin' : s.role)})</div>
+        <div id="bellWrap" class="bell-wrap"><button type="button" class="bell-btn" id="bellBtn" aria-label="Notifications"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="bell-badge" style="display:none;">0</span></button><div id="bellPanel" class="bell-panel"></div></div>
         <button class="btn small" id="logoutBtn">Log Out</button>
       </div>
     </header>
@@ -988,6 +1091,7 @@ function renderShell(){
     <main id="tabBody"></main>
   `;
   $('#logoutBtn').addEventListener('click', logout);
+  wireBell();
   window.__adminRepaint = null; // each admin tab registers its own below
   if(s.role==='Admin'){ updateAdminSyncChip(); adminStartAutoSync(); loadUsageChip(); }
   $all('.tab-btn').forEach(b=>b.addEventListener('click', ()=>{ ACTIVE_TAB=b.dataset.tab; if(ACTIVE_TAB==='missing' && !window.__msKeep) MS.person=null; window.__msKeep=false; renderShell(); }));
@@ -1529,25 +1633,39 @@ async function renderSubmissions(){
   // the dropdown for anyone auditing by the invoice's own date instead.
   if(window.__subDateBasis===undefined) window.__subDateBasis = 'submission';
   body.innerHTML = `
-    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
-      ${dateRangeBarHtml('sub', window.__subFrom, window.__subTo, window.__subDateBasis)}
-      ${quickRangeHtml('sub')}
-      <div class="field"><label>Auditor</label><select id="subAuditorFilter"><option value="">All</option></select></div>
-      <div class="field"><label>Verifier</label><select id="subVerifierFilter"><option value="">All</option></select></div>
-      <div class="field"><label>Status</label><select id="subStatusFilter">
-        <option value="">All</option>
-        <option value="over" ${window.__subStatus==='over'?'selected':''}>Overcharge</option>
-        <option value="under" ${window.__subStatus==='under'?'selected':''}>Undercharge</option>
-        <option value="negligible" ${window.__subStatus==='negligible'?'selected':''}>Negligible</option>
-        <option value="match" ${window.__subStatus==='match'?'selected':''}>Match</option>
-      </select></div>
-      <div class="field"><label>🔎 Search bills</label><input type="search" id="subSearch" value="${esc(window.__subQ||'')}" placeholder="retailer, DB, bill no, product, auditor, date…" style="min-width:260px;"></div>
-      <button class="btn accent" id="subExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
-      <div class="field"><label>Invoices to download</label><select id="subPhotoType" title="Follows the Status filter automatically — change it here to download a different invoice type">
-        <option value="all">All invoices</option><option value="over">Overcharge</option><option value="negligible">Negligible overcharge</option><option value="under">Undercharge</option><option value="match">Match</option></select></div>
-      <div class="field"><label>Folders</label><select id="subPhotoFolder"><option value="auditor">By auditor</option><option value="db">By distributor</option></select></div>
-      <button class="btn secondary" id="subExportPhotos" disabled>📷 Download invoices (ZIP)</button>
-    </div>
+    <section class="sub-card">
+      <div class="sub-dates">
+        ${dateRangeBarHtml('sub', window.__subFrom, window.__subTo, window.__subDateBasis)}
+        ${quickRangeHtml('sub')}
+      </div>
+      <div class="sub-filters">
+        <div class="field"><label>Auditor</label><select id="subAuditorFilter"><option value="">All</option></select></div>
+        <div class="field"><label>Verifier</label><select id="subVerifierFilter"><option value="">All</option></select></div>
+        <div class="field"><label>Status</label><select id="subStatusFilter">
+          <option value="">All</option>
+          <option value="over" ${window.__subStatus==='over'?'selected':''}>Overcharge</option>
+          <option value="under" ${window.__subStatus==='under'?'selected':''}>Undercharge</option>
+          <option value="negligible" ${window.__subStatus==='negligible'?'selected':''}>Negligible</option>
+          <option value="match" ${window.__subStatus==='match'?'selected':''}>Match</option>
+        </select></div>
+        <div class="field sub-search"><label>Search bills</label><input type="search" id="subSearch" value="${esc(window.__subQ||'')}" placeholder="Retailer, distributor, bill no, product, auditor, date…"></div>
+      </div>
+    </section>
+    <section class="sub-card sub-actions">
+      <div class="sub-dl">
+        <div class="sub-dl-title">Download invoices <span>ZIP · follows your date range, auditor and status filters</span></div>
+        <div class="sub-dl-row">
+          <div class="field"><label>Invoices</label><select id="subPhotoType" title="Follows the Status filter automatically — change it here to download a different invoice type">
+            <option value="all">All invoices</option><option value="over">Overcharge</option><option value="negligible">Negligible overcharge</option><option value="under">Undercharge</option><option value="match">Match</option></select></div>
+          <div class="field"><label>Folders</label><select id="subPhotoFolder"><option value="auditor">By auditor</option><option value="db">By distributor</option></select></div>
+          <button class="btn sub-dl-btn" id="subExportPhotos" disabled>Download invoices (ZIP)</button>
+        </div>
+      </div>
+      <div class="sub-export">
+        <div class="sub-dl-title">Excel report <span>current filtered table</span></div>
+        <button class="btn accent" id="subExport" disabled>⬇ Export (Pro format)</button>
+      </div>
+    </section>
     <div id="subActiveFilters" style="margin-top:2px;"></div>
     <div id="subAnalyticsStrip"></div>
     <div id="subContent">${ultimateLoaderHtml('subLoader')}</div>
@@ -1953,7 +2071,7 @@ function updatePhotoButton(){
   const range = (window.__subFrom||window.__subTo) ? `${isoToDMYSafe(window.__subFrom)||'…'} to ${isoToDMYSafe(window.__subTo)||'…'}` : 'All time';
   const typeLbl = type==='all' ? 'All invoices' : (type==='negligible' ? 'Negligible overcharge' : LBL[type]);
   btn.disabled = !prepared.length;
-  btn.innerHTML = `📷 Download ${esc(typeLbl.toLowerCase())} — ${esc(who)} (${fmtInt(prepared.length)} ${prepared.length===1?'invoice':'invoices'})`;
+  btn.innerHTML = `⬇ Download ${esc(typeLbl.toLowerCase())} — ${esc(who)} (${fmtInt(prepared.length)} ${prepared.length===1?'invoice':'invoices'})`;
   btn.title = `ZIP · ${typeLbl} · ${who} · ${range} · folders ${mode==='auditor'?'by auditor':'by distributor'}${type==='all'?', then by status':''}${noPhoto?` · ${noPhoto} invoice(s) in this view have no copy attached`:''}`;
   btn.onclick = ()=>exportBillPhotosZip(prepared, btn, {prepared:true, byAuditor:true,
     zipName: `Invoices_${cl(typeLbl)}_${cl(who)}_${cl(range)}.zip`,
