@@ -231,7 +231,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v34';
+const APP_VERSION = 'v36';
 /* ==================== SUPABASE BACKEND ====================
    Same action names the app has always used (login / submit / mydata / syncdata …) — each one is
    now a single fast call to a Postgres function (rl_*) on Supabase. Photos go straight to Supabase
@@ -1543,8 +1543,10 @@ async function renderSubmissions(){
       </select></div>
       <div class="field"><label>🔎 Search bills</label><input type="search" id="subSearch" value="${esc(window.__subQ||'')}" placeholder="retailer, DB, bill no, product, auditor, date…" style="min-width:260px;"></div>
       <button class="btn accent" id="subExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
-      <button class="btn secondary" id="subExportPhotos" disabled>📷 Download All Photos (ZIP)</button>
-      <button class="btn danger-outline" id="subExportOver" disabled style="display:none;"></button>
+      <div class="field"><label>Invoices to download</label><select id="subPhotoType" title="Follows the Status filter automatically — change it here to download a different invoice type">
+        <option value="all">All invoices</option><option value="over">Overcharge</option><option value="negligible">Negligible overcharge</option><option value="under">Undercharge</option><option value="match">Match</option></select></div>
+      <div class="field"><label>Folders</label><select id="subPhotoFolder"><option value="auditor">By auditor</option><option value="db">By distributor</option></select></div>
+      <button class="btn secondary" id="subExportPhotos" disabled>📷 Download invoices (ZIP)</button>
     </div>
     <div id="subActiveFilters" style="margin-top:2px;"></div>
     <div id="subAnalyticsStrip"></div>
@@ -1580,8 +1582,6 @@ function paintSubmissions(rows, isStale){
   window.__subRows = rows;
   $('#subExport').disabled = !rows.length;
   $('#subExport').onclick = ()=>exportProExcel(window.__subFilteredRows||rows, 'All_Submissions', 'All Submissions');
-  $('#subExportPhotos').disabled = !rows.length;
-  $('#subExportPhotos').onclick = ()=>exportBillPhotosZip(window.__subFilteredRows||rows, $('#subExportPhotos'));
   const staleBanner = isStale ? `<div class="stale-banner"><span class="spin"></span> Refreshing in the background…</div>` : '';
   $('#subContent').innerHTML = staleBanner + '<div id="subInner"></div>';
   // Populate the Auditor/Verifier dropdowns from whatever names actually
@@ -1618,8 +1618,8 @@ function applySubmissionFilters(){
   { const terms = String(window.__subQ||'').toLowerCase().split(/\s+/).filter(Boolean);       // every word must match somewhere in the row
     if(terms.length) rows = rows.filter(r=>{ const h = subHaystack(r); return terms.every(t=>h.includes(t)); }); }
   // Overcharge-photo export uses every filter EXCEPT Status (it always means overcharge lines only).
-  window.__subOverRows = rows.filter(r=>r.Status==='over');
-  updateOverPhotosButton();
+  window.__subPreStatusRows = rows;
+  updatePhotoButton();
   if(window.__subStatus) rows = rows.filter(r=>r.Status===window.__subStatus);
   // Analytics strip above the table reflects every filter EXCEPT the
   // unique-bills-only display toggle — so "unique bills" there always means
@@ -1914,24 +1914,57 @@ async function exportProExcel(rows, filenamePrefix, viewLabel){
 /* Bulk-downloads every bill photo currently on screen as one ZIP, built right in the browser
    straight from the public Supabase Storage links (no server round-trip, no Drive). Folder per DB,
    file name = DBCode_DBName_Verifier_CollectedBy_BillDate_uid — same as before. */
-function updateOverPhotosButton(){
-  const btn = $('#subExportOver'); if(!btn) return;
-  const rows = window.__subOverRows || [];
-  const bills = new Set(rows.filter(r=>r.BillCopyURL).map(r=>r.BillUID));
-  const who = window.__subAuditor ? window.__subAuditor : 'All auditors';
+function updatePhotoButton(){
+  const btn = $('#subExportPhotos'), typeSel = $('#subPhotoType'), folderSel = $('#subPhotoFolder'); if(!btn || !typeSel || !folderSel) return;
+  // The photo type follows the Status filter automatically (no Status filter = all photos);
+  // it can still be changed here without touching the table.
+  const st = window.__subStatus||'';
+  if(window.__photoSyncStatus !== st){ window.__photoSyncStatus = st; window.__photoType = st || 'all'; }
+  typeSel.value = window.__photoType || 'all'; folderSel.value = window.__photoFolder || 'auditor';
+  if(!typeSel.__w){
+    typeSel.__w = true;
+    typeSel.addEventListener('change', ()=>{ window.__photoType = typeSel.value; updatePhotoButton(); });
+    folderSel.addEventListener('change', ()=>{ window.__photoFolder = folderSel.value; updatePhotoButton(); });
+  }
+  const type = typeSel.value, mode = folderSel.value;
+  const LBL = {over:'Overcharge', under:'Undercharge', negligible:'Negligible', match:'Match'};
+  const RANK = {over:4, under:3, negligible:2, match:1};
+  const pre = window.__subPreStatusRows || [];
+  const worst = {};                                            // worst status per bill, across its lines in this view
+  pre.forEach(r=>{ if(!worst[r.BillUID] || (RANK[r.Status]||0) > (RANK[worst[r.BillUID]]||0)) worst[r.BillUID] = r.Status; });
+  const seen = new Set(), bills = []; let noPhoto = 0;
+  pre.forEach(r=>{
+    if(type!=='all' && r.Status!==type) return;
+    if(seen.has(r.BillUID)) return; seen.add(r.BillUID);
+    if(!r.BillCopyURL){ noPhoto++; return; }
+    bills.push(r);
+  });
+  const cl = x => String(x||'').replace(/[\\/:*?"<>|]/g,'-').replace(/\s+/g,'_').trim() || 'unknown';
+  const prepared = bills.map(r=>{
+    const stLbl = LBL[(type==='all' ? worst[r.BillUID] : type)] || 'Other';
+    const sub = type==='all' ? '/'+stLbl : '';                // all photos: one sub-folder per status inside each folder
+    const id = String(r.BillUID).replace('bill_','');
+    const aud = cl(r.AuditorName||'Unknown_Auditor'), ver = cl(r.VerifiedBy||'Unverified');
+    return Object.assign({}, r, mode==='auditor'
+      ? { _folder: aud+sub, _base: cl(`${aud}_${ver}_${stLbl}_${r.DBCode}_${r.DBName}_${r.BillDate||''}_${id}`) }
+      : { _folder: cl(`${r.DBCode}_${r.DBName}`)+sub, _base: cl(`${r.DBCode}_${r.DBName}_${aud}_${ver}_${stLbl}_${r.BillDate||''}_${id}`) });
+  });
+  const who = window.__subAuditor ? window.__subAuditor : (window.__subVerifier ? 'Verifier '+window.__subVerifier : 'All auditors');
   const range = (window.__subFrom||window.__subTo) ? `${isoToDMYSafe(window.__subFrom)||'…'} to ${isoToDMYSafe(window.__subTo)||'…'}` : 'All time';
-  btn.style.display = '';
-  btn.disabled = !bills.size;
-  btn.innerHTML = `📷 Overcharge bill photos — ${esc(who)} (${fmtInt(bills.size)} ${bills.size===1?'bill':'bills'})`;
-  btn.title = `ZIP of overcharge bill photos only · ${who} · ${range} · one folder per auditor, auditor and verifier names in every file name`;
-  btn.onclick = ()=>exportBillPhotosZip(window.__subOverRows||[], btn, {byAuditor:true, tag:'Overcharge', who, range});
+  const typeLbl = type==='all' ? 'All invoices' : (type==='negligible' ? 'Negligible overcharge' : LBL[type]);
+  btn.disabled = !prepared.length;
+  btn.innerHTML = `📷 Download ${esc(typeLbl.toLowerCase())} — ${esc(who)} (${fmtInt(prepared.length)} ${prepared.length===1?'invoice':'invoices'})`;
+  btn.title = `ZIP · ${typeLbl} · ${who} · ${range} · folders ${mode==='auditor'?'by auditor':'by distributor'}${type==='all'?', then by status':''}${noPhoto?` · ${noPhoto} invoice(s) in this view have no copy attached`:''}`;
+  btn.onclick = ()=>exportBillPhotosZip(prepared, btn, {prepared:true, byAuditor:true,
+    zipName: `Invoices_${cl(typeLbl)}_${cl(who)}_${cl(range)}.zip`,
+    summary: `${typeLbl}, ${who}, ${range}${noPhoto?` — ${noPhoto} invoice(s) had no copy attached`:''}`});
 }
 function isoToDMYSafe(iso){ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m? `${m[3]}-${m[2]}-${m[1]}` : ''; }
 async function exportBillPhotosZip(rows, btn, opts){
   opts = opts || {};
   const seen = {}; const bills = [];
   rows.forEach(r=>{ if(r.BillCopyURL && !seen[r.BillUID]){ seen[r.BillUID]=1; bills.push(r); } });
-  if(!bills.length){ toast(opts.byAuditor ? 'No overcharge bill photos for this auditor and period' : 'No bill photos in the current filtered view', 'err'); return; }
+  if(!bills.length){ toast(opts.byAuditor ? 'No invoices of this type for the selected auditor and period' : 'No bill photos in the current filtered view', 'err'); return; }
   const origLabel = btn.innerHTML;
   btn.disabled = true;
   try{
@@ -1966,8 +1999,8 @@ async function exportBillPhotosZip(rows, btn, opts){
             blob = await resp.blob();
             ext = /pdf/i.test(blob.type) || /\.pdf($|\?)/i.test(r.BillCopyURL) ? 'pdf' : 'jpg';
           }
-          const folder = opts.byAuditor ? clean(r.AuditorName||'Unknown_Auditor') : clean(`${r.DBCode}_${r.DBName}`);
-          const base = opts.byAuditor
+          const folder = r._folder ? r._folder : opts.byAuditor ? clean(r.AuditorName||'Unknown_Auditor') : clean(`${r.DBCode}_${r.DBName}`);
+          const base = r._base ? r._base : opts.byAuditor
             ? clean(`${r.AuditorName||'Unknown_Auditor'}_${r.VerifiedBy||'Unverified'}_${r.DBCode}_${r.DBName}_${r.BillDate||''}_${String(r.BillUID).replace('bill_','')}`)
             : clean(`${r.DBCode}_${r.DBName}_${r.VerifiedBy||'Unverified'}_${r.CollectedBy||'Unknown'}_${r.BillDate||''}_${String(r.BillUID).replace('bill_','')}`);
           zip.file(`${folder}/${base}.${ext}`, blob);
@@ -1982,10 +2015,10 @@ async function exportBillPhotosZip(rows, btn, opts){
     const out = await zip.generateAsync({type:'blob'});
     const url = URL.createObjectURL(out);
     const a = document.createElement('a');
-    a.href = url; a.download = opts.byAuditor ? `Overcharge_Bill_Photos_${clean(opts.who)}_${clean(opts.range)}.zip` : `Bill_Photos_${istDateDMY()}.zip`;
+    a.href = url; a.download = opts.zipName ? opts.zipName : `Bill_Photos_${istDateDMY()}.zip`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 5000);
-    toast(opts.byAuditor ? `Downloaded ${ok} overcharge bill photo${ok===1?'':'s'}, one folder per auditor` : `Downloaded ${ok} bill photo${ok===1?'':'s'}, organised by DB`, 'ok');
+    toast(opts.summary ? `Downloaded ${ok} of ${bills.length} invoice${bills.length===1?'':'s'} — ${opts.summary}` : `Downloaded ${ok} bill photo${ok===1?'':'s'}, organised by DB`, 'ok');
   } catch(e){
     toast('Could not build the photo ZIP — ' + (e.message||'try again'), 'err');
   } finally {
