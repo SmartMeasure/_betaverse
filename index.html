@@ -5840,7 +5840,7 @@ function ixRbCounts(res, cd){
   const g=res.grids[cd]; let n=0; Object.keys(g).forEach(k=>{ if(g[k].some(v=>v>0)) n++; }); return n;
 }
 
-async function ixRbBuildWorkbook(res){
+async function ixRbBuildWorkbook(res, retailer){
   const mon = res.dates.length ? res.dates[0] : new Date();
   const MONTHS=['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
   const wb = new ExcelJS.Workbook(); wb.creator='Rate Audit'; wb.created=new Date();
@@ -5849,7 +5849,7 @@ async function ixRbBuildWorkbook(res){
     let nm = ixRbName(cd).replace(/[\\\/\?\*\[\]:]/g,'').slice(0,28)||('PG '+cd); let k=nm, i=2; while(used.has(k.toLowerCase())) k = nm.slice(0,25)+' '+(i++); used.add(k.toLowerCase());
     const ws = wb.addWorksheet(k, {views:[{state:'frozen', xSplit:5, ySplit:2}]});
     const nd = res.dates.length;
-    ws.getCell(1,1).value = `${ixRbName(cd)} (${cd}) ${MONTHS[mon.getMonth()]}'${String(mon.getFullYear()).slice(2)}`;
+    ws.getCell(1,1).value = `${ixRbName(cd)} (${cd}) ${MONTHS[mon.getMonth()]}'${String(mon.getFullYear()).slice(2)}${retailer?' — RETAILER RATE':''}`;
     ws.getCell(1,1).font = {name:'Tahoma', size:10, bold:true}; ws.getCell(1,1).alignment={horizontal:'left'};
     ws.getCell(1,5).value = 'Rate change date'; ws.getCell(1,5).font={name:'Tahoma',size:10,bold:true}; ws.getCell(1,5).alignment={horizontal:'center'};
     ['PRODUCT NAME','SKU','GST','COMM','PRODUCT CODE'].forEach((h,i)=>{ const c=ws.getCell(2,i+1); c.value=h; c.font={name:'Tahoma',size:10,bold:true}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF66FF99'}}; c.alignment={horizontal:'center'}; c.border={top:{style:'thin'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}}; });
@@ -5865,7 +5865,7 @@ async function ixRbBuildWorkbook(res){
       ws.getCell(r,2).value=p.size; ws.getCell(r,3).value=p.gst!=null?Math.round((p.gst-1)*10000)/10000:0; ws.getCell(r,4).value=p.comm!=null?Math.round((p.comm-1)*10000)/10000:0;   // shown as 5% / 6%
       ws.getCell(r,3).numFmt='0%'; ws.getCell(r,4).numFmt='0%';
       ws.getCell(r,5).value=Number(code);
-      arr.forEach((v,j)=>{ const c=ws.getCell(r,6+j); c.value=v; c.numFmt='0.00'; });
+      arr.forEach((v,j)=>{ const c=ws.getCell(r,6+j); c.value = (retailer && v>0) ? Math.round(v*(p.comm!=null?p.comm:1)*(p.gst!=null?p.gst:1)*100)/100 : v; c.numFmt='0.00'; });
       r++;
     });
     ws.getColumn(1).width=43; ws.getColumn(2).width=19; ws.getColumn(3).width=6; ws.getColumn(4).width=7; ws.getColumn(5).width=15;
@@ -5959,9 +5959,10 @@ function ixRbRender(){
       ${ixRbUomHtml(res)}
       ${ixRbPreviewHtml(res)}
       <div class="rb-act">
-        <button class="btn accent" id="ixRbDl">⬇ Download Distributor Rate File (.xlsx)</button>
+        <button class="btn accent" id="ixRbDl">⬇ Distributor Rate File (.xlsx)</button>
+        <button class="btn accent" id="ixRbDlR" title="Distributor rate + commission + GST, per kg">⬇ Retailer Rate File (.xlsx)</button>
         <button class="btn secondary" id="ixRbUse">Use directly as Step 1 rate data</button>
-        <span class="hint">Same layout as your manual file: one sheet per price group, one “Rate/kg” column per rate-change date. Rates not yet launched stay 0.</span>
+        <span class="hint">Distributor file = your manual-file layout (Rate/kg per rate-change date; not-yet-launched rates stay 0). Retailer file = same layout with Rate/kg = distributor rate × COMM × GST of each product.</span>
       </div>`;
   }
   host.querySelector('#ixRbList').innerHTML = filesHtml;
@@ -5975,14 +5976,16 @@ function ixRbRender(){
   const pgi=host.querySelector('#ixRbPgInput'); if(pgi) pgi.onchange=async e=>{ const f=e.target.files[0]; e.target.value=''; if(!f) return; try{ IX_RB_PGFILE = await ixRbReadPgFile(f); try{localStorage.setItem('ix_rb_pgfile',JSON.stringify(IX_RB_PGFILE));}catch(e2){} toast('Price Group file loaded — '+Object.keys(IX_RB_PGFILE.names).length+' price groups','ok'); }catch(err){ toast('Could not read that file: '+err.message,'err'); } ixRbRender(); };
   const ui=host.querySelector('#ixRbUomInput'); if(ui) ui.onchange=async e=>{ const f=e.target.files[0]; e.target.value=''; if(!f) return; await ixHandleUomUpload(f); if(IX_STATE.uomFileInfo&&IX_STATE.uomFileInfo.fileName===f.name){ ixRefreshRunButton(); } ixRbRender(); };
   const sel=host.querySelector('#ixRbSel'); if(sel) sel.onchange=()=>{ IX_BUILD.sel=sel.value; ixRbRender(); };
-  const dl=host.querySelector('#ixRbDl');
-  if(dl) dl.onclick=async()=>{
-    dl.disabled=true; try{
-      const wb=await ixRbBuildWorkbook(res); const buf=await wb.xlsx.writeBuffer();
-      const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
-      const mon=res.dates[0]; a.download=`Distributor_Rate_File_for_upload_${ixPad2(mon.getMonth()+1)}-${mon.getFullYear()}.xlsx`; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1500);
-      toast('Distributor Rate File downloaded','ok');
-    }catch(e){ console.error(e); toast('Could not build the file: '+e.message,'err'); } dl.disabled=false; };
+  [['#ixRbDl',false,'Distributor_Rate_File_for_upload'],['#ixRbDlR',true,'Retailer_Rate_File']].forEach(([sel,ret,base])=>{
+    const dl=host.querySelector(sel); if(!dl) return;
+    dl.onclick=async()=>{
+      dl.disabled=true; try{
+        const wb=await ixRbBuildWorkbook(res, ret); const buf=await wb.xlsx.writeBuffer();
+        const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+        const mon=res.dates[0]; a.download=`${base}_${ixPad2(mon.getMonth()+1)}-${mon.getFullYear()}.xlsx`; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1500);
+        toast((ret?'Retailer':'Distributor')+' Rate File downloaded','ok');
+      }catch(e){ console.error(e); toast('Could not build the file: '+e.message,'err'); } dl.disabled=false; };
+  });
   const use=host.querySelector('#ixRbUse');
   if(use) use.onclick=async()=>{
     use.disabled=true; try{
