@@ -391,7 +391,7 @@ main{
 .rb-file .ct{color:var(--ink-soft);white-space:nowrap;font-variant-numeric:tabular-nums;}
 .rb-x{border:0;background:transparent;color:var(--ink-faint);cursor:pointer;font-size:15px;padding:2px 6px;border-radius:6px;}
 .rb-x:hover{color:var(--danger);background:var(--panel-3);}
-.rb-locs{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;}
+.rb-locs{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:8px;}
 .rb-loc{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--edge-soft);border-radius:10px;background:var(--panel-2);font-size:12px;}
 .rb-loc.off{opacity:.55;}
 .rb-loc .cd{flex:0 0 30px;text-align:center;font-weight:700;color:var(--ink);background:var(--panel-3);border-radius:6px;padding:3px 0;font-variant-numeric:tabular-nums;}
@@ -421,6 +421,8 @@ main{
 .rb-seg label.dis{opacity:.5;cursor:not-allowed;}
 .rb-seg input{position:absolute;opacity:0;pointer-events:none;}
 .rb-uomdrop{flex:1 1 240px;}
+.rb-chk{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink);cursor:pointer;}
+.rb-chk.dis{opacity:.5;cursor:not-allowed;}
 .rb-act{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
 .rb-act .hint{flex:1 1 220px;font-size:12px;color:var(--ink-soft);}
 @media (max-width:640px){.rb-file{grid-template-columns:minmax(0,1fr) 104px auto;}.rb-file .ct{display:none;}.rb-act .btn{flex:1 1 100%;}}
@@ -5675,13 +5677,54 @@ async function renderIntelX(){
    CURRENT PRICE LIST (.xlsx, one per rate-change date)  ->  "Distributor Rate File for upload"
    One sheet per price group, one "Rate/kg" column per rate-change date. Runs fully on this device. */
 const IX_BUILD = { lists: [], sel: '' };
-const IX_RB_DEFAULT_NAMES = { '01':'KOLKATA','02':'WB','40':'ABP','03':'NB','04':'JHARKHAND','05':'ODISHA','06':'Bihar','07':'VNS','39':'SATISHGARH','08':'ASSAM','36':'ANDAMAN','37':'AGRA','38':'DELHI' };
+const IX_RB_DEFAULT_NAMES = { '01':'KOLKATA','02':'WB','40':'ABP','03':'NB','04':'JHARKHAND','05':'ODISHA','06':'Bihar','07':'VNS','39':'CHHATTISGARH','08':'ASSAM','36':'ANDAMAN','37':'AGRA','38':'DELHI' };
 const IX_RB_ORDER = ['01','02','40','03','04','05','06','07','39','08','36','37','38'];
 let IX_RB_NAMES = {}, IX_RB_OFF = {}, IX_RB_UOM = 'list';
 try{ IX_RB_UOM = localStorage.getItem('ix_rb_uom')==='uom' ? 'uom' : 'list'; }catch(e){}
 try{ IX_RB_NAMES = JSON.parse(localStorage.getItem('ix_rb_names')||'{}')||{}; IX_RB_OFF = JSON.parse(localStorage.getItem('ix_rb_off')||'{}')||{}; }catch(e){}
 function ixRbSaveCfg(){ try{ localStorage.setItem('ix_rb_names', JSON.stringify(IX_RB_NAMES)); localStorage.setItem('ix_rb_off', JSON.stringify(IX_RB_OFF)); }catch(e){} }
-function ixRbName(cd){ return (IX_RB_NAMES[cd]||IX_RB_DEFAULT_NAMES[cd]||('PG '+cd)).trim(); }
+let IX_RB_ONLYFILE = true;
+try{ IX_RB_ONLYFILE = localStorage.getItem('ix_rb_onlyfile')!=='0'; }catch(e){}
+// Price Group file (= the Distributor Master of Step 2): code -> name by the most common spelling; the set of codes it contains
+let IX_RB_PGFILE = null;   // {fileName, rows:n, names:{code:name}} — the builder's own Price Group list (independent of Step 2)
+try{ IX_RB_PGFILE = JSON.parse(localStorage.getItem('ix_rb_pgfile')||'null'); }catch(e){}
+function ixRbPgInfo(){
+  if(IX_RB_PGFILE && IX_RB_PGFILE.names && Object.keys(IX_RB_PGFILE.names).length) return { loaded:true, names:IX_RB_PGFILE.names, codes:new Set(Object.keys(IX_RB_PGFILE.names)), src:IX_RB_PGFILE.fileName, rows:IX_RB_PGFILE.rows };
+  return ixRbPgFromRows(IX_STATE.pgMap||[], 'Step 2 Distributor Master');
+}
+async function ixRbReadPgFile(file){
+  const wb = await ixReadWorkbook(await file.arrayBuffer());
+  for(const sn of wb.SheetNames){
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1, raw:true, defval:''}); if(!rows.length) continue;
+    let hi=-1,iPg=-1,iNm=-1;
+    for(let i=0;i<Math.min(rows.length,15)&&hi<0;i++){ const h=rows[i].map(x=>String(x).trim().toLowerCase()); const a=h.findIndex(x=>x==='price group'||x==='pg'||x==='price group code'); const b=h.findIndex(x=>x==='price group name'||x==='location'||x==='rate location'||x==='price group/rate location'); if(a>-1&&b>-1){ hi=i;iPg=a;iNm=b; } }
+    if(hi<0) continue;
+    const list=[]; for(let r=hi+1;r<rows.length;r++){ const g=rows[r][iPg], n=rows[r][iNm]; if(g===''||g==null||!String(n||'').trim()) continue; list.push({pg:String(g).trim(), location:String(n).trim()}); }
+    if(list.length){ const info = ixRbPgFromRows(list,''); return { fileName:file.name, rows:list.length, names:info.names }; }
+  }
+  throw new Error('Need a "Price Group" column and a "Price Group Name" column.');
+}
+function ixRbPgFromRows(rowsIn, src){
+  const cnt = {}; const order = [];
+  rowsIn.forEach(r=>{
+    const n = Number(String(r.pg||'').trim()); if(!r.pg || isNaN(n)) return;
+    const cd = ixPad2(n); const nm = String(r.location||'').trim(); if(!nm) return;
+    if(!cnt[cd]) order.push(cd);
+    ((cnt[cd] = cnt[cd]||{})[nm] = (cnt[cd][nm]||0)+1);
+  });
+  const names = {}, dbs = {}, usedNm = new Set();
+  order.forEach(cd=>{
+    const groups = {};   // case-insensitive spelling groups
+    Object.keys(cnt[cd]).forEach(nm=>{ const k=nm.toLowerCase(); (groups[k]=groups[k]||{tot:0,best:nm,bc:0}); groups[k].tot+=cnt[cd][nm]; if(cnt[cd][nm]>groups[k].bc){ groups[k].best=nm; groups[k].bc=cnt[cd][nm]; } });
+    const top = Object.values(groups).sort((a,b)=>b.tot-a.tot)[0];
+    const lk = top.best.toLowerCase(); if(usedNm.has(lk)) return;     // same location name already taken by an earlier price group
+    usedNm.add(lk); names[cd] = top.best; dbs[cd] = top.tot;
+  });
+  return { loaded: Object.keys(names).length>0, names, codes: new Set(Object.keys(names)), src, rows: rowsIn.length };
+}
+function ixRbName(cd){ const f = ixRbPgInfo(); return (IX_RB_NAMES[cd]||(f.names[cd])||IX_RB_DEFAULT_NAMES[cd]||('PG '+cd)).trim(); }
+function ixRbInFile(cd){ const f = ixRbPgInfo(); return f.loaded && f.codes.has(cd); }
+function ixRbActive(cd){ return ixRbInFile(cd) && !IX_RB_OFF[cd]; }
 function ixRbDot(d){ return ixPad2(d.getDate())+'.'+ixPad2(d.getMonth()+1)+'.'+d.getFullYear(); }
 
 function ixRbDetectDate(fileName, sheetName, headerTexts){
@@ -5802,7 +5845,7 @@ async function ixRbBuildWorkbook(res){
   const MONTHS=['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
   const wb = new ExcelJS.Workbook(); wb.creator='Rate Audit'; wb.created=new Date();
   const used = new Set();
-  res.codes.filter(cd=>!IX_RB_OFF[cd]).forEach(cd=>{
+  res.codes.filter(cd=>ixRbActive(cd)).forEach(cd=>{
     let nm = ixRbName(cd).replace(/[\\\/\?\*\[\]:]/g,'').slice(0,28)||('PG '+cd); let k=nm, i=2; while(used.has(k.toLowerCase())) k = nm.slice(0,25)+' '+(i++); used.add(k.toLowerCase());
     const ws = wb.addWorksheet(k, {views:[{state:'frozen', xSplit:5, ySplit:2}]});
     const nd = res.dates.length;
@@ -5842,7 +5885,8 @@ function ixRbWarnings(res){
 }
 
 function ixRbPreviewHtml(res){
-  const cd = res.codes.includes(IX_BUILD.sel) ? IX_BUILD.sel : (res.codes[0]||'');
+  const avail = res.codes.filter(c=>ixRbActive(c));
+  const cd = avail.includes(IX_BUILD.sel) ? IX_BUILD.sel : (avail[0]||'');
   IX_BUILD.sel = cd;
   const g = res.grids[cd]||{}; const rows=[]; res.prod.forEach((p,code)=>{ if((g[code]||[]).some(v=>v>0)) rows.push([p,code,g[code]]); });
   const changed = rows.filter(([p,c,a])=>a.some((v,i)=>i>0 && v!==a[i-1])); const show = changed.concat(rows.filter(x=>!changed.includes(x))).slice(0,60);
@@ -5851,10 +5895,18 @@ function ixRbPreviewHtml(res){
     let cl=''; if(!v) cl='z'; else if(i>0){ if(a[i-1]===0) cl='nw'; else if(v>a[i-1]) cl='up'; else if(v<a[i-1]) cl='dn'; }
     return `<td class="${cl}">${v?ixFmtMoney(v):'0'}</td>`; }).join('')}</tr>`).join('');
   return `<div class="rb-prev-h"><div class="rb-sec" style="margin:0;">Preview</div>
-    <select id="ixRbSel">${res.codes.map(c=>`<option value="${c}" ${c===cd?'selected':''}>${ixEsc(ixRbName(c))} (${c})</option>`).join('')}</select>
+    <select id="ixRbSel">${res.codes.filter(c=>ixRbActive(c)).map(c=>`<option value="${c}" ${c===cd?'selected':''}>${ixEsc(ixRbName(c))} (${c})</option>`).join('')}</select>
     <span class="small-muted" style="font-size:11.5px;">${changed.length} of ${rows.length} products changed price · showing changed first</span>
     <div class="rb-legend"><span><i style="background:rgba(255,77,116,.5)"></i>Increase</span><span><i style="background:rgba(51,240,180,.5)"></i>Decrease</span><span><i style="background:rgba(255,194,78,.6)"></i>First rate</span></div></div>
     <div class="rb-tbl"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+}
+
+function ixRbPgHtml(res){
+  const f = ixRbPgInfo(); const n = f.rows||0;
+  return `<div class="rb-pc">
+      <label class="ix-drop rb-uomdrop"><input type="file" id="ixRbPgInput" accept=".xlsx,.xls,.csv"><span class="ix-drop-ic">📂</span><span class="ix-drop-t">${f.loaded?'Replace Price Group file':'Add Price Group / Rate Location file'}</span><span class="ix-drop-n">${f.loaded?ixEsc(f.src||'')+' · '+ixFmtInt(n)+' rows · '+f.codes.size+' price groups':'Not loaded'}</span></label>
+    </div>
+    <div class="small-muted" style="font-size:11.5px;line-height:1.5;">${f.loaded ? `Only the price groups in this file get a sheet, named by its <b>Price Group Name</b>. A price group missing from the file is not built.` : 'Optional. A file with <b>Price Group</b> and <b>Price Group Name</b> columns (a Distributor Master works too). It is used only here — Step 2 is not changed.'}</div>`;
 }
 
 function ixRbUomHtml(res){
@@ -5886,8 +5938,10 @@ function ixRbRender(){
       <span class="ct">${l.date?'w.e.f.':'date needed'}</span>
       <button class="rb-x" data-rbdel="${ixEsc(l.fileName)}" title="Remove">✕</button></div>`).join('')}</div>` : '';
   let resHtml='';
-  if(has && res.dates.length){
-    const act = res.codes.filter(c=>!IX_RB_OFF[c]);
+  if(has && !ixRbPgInfo().loaded){
+    resHtml = `<div class="rb-warn"><b>Add the Price Group / Rate Location file</b><ul><li>The rate file is built only for the locations in that file. Add it to see the sheets and download.</li></ul></div>${ixRbPgHtml(res)}`;
+  } else if(has && res.dates.length){
+    const act = res.codes.filter(c=>ixRbActive(c));
     const prodTotal = new Set(); act.forEach(c=>Object.keys(res.grids[c]).forEach(k=>{ if(res.grids[c][k].some(v=>v>0)) prodTotal.add(k); }));
     const warns = ixRbWarnings(res);
     resHtml = `
@@ -5900,7 +5954,8 @@ function ixRbRender(){
       </div>
       ${warns.length?`<div class="rb-warn"><b>Check before exporting</b><ul>${warns.map(w=>`<li>${w}</li>`).join('')}</ul></div>`:''}
       <div class="rb-sec">Price groups → sheet names</div>
-      <div class="rb-locs">${res.codes.map(c=>`<label class="rb-loc ${IX_RB_OFF[c]?'off':''}"><input type="checkbox" data-rboff="${c}" ${IX_RB_OFF[c]?'':'checked'} title="Include this sheet"><span class="cd">${c}</span><input type="text" data-rbname="${c}" value="${ixEsc(ixRbName(c))}" title="Sheet name — must match the Price Group Name in your Distributor Master"><span class="n">${ixRbCounts(res,c)} items</span></label>`).join('')}</div>
+      ${ixRbPgHtml(res)}
+      <div class="rb-locs">${res.codes.filter(c=>ixRbInFile(c)).map(c=>`<label class="rb-loc ${ixRbActive(c)?'':'off'}"><input type="checkbox" data-rboff="${c}" ${ixRbActive(c)?'checked':''} title="Include this sheet"><span class="cd">${c}</span><input type="text" data-rbname="${c}" value="${ixEsc(ixRbName(c))}" title="Sheet name — must match the Price Group Name in your Distributor Master"><span class="n">${ixRbCounts(res,c)} items</span></label>`).join('')}</div>
       ${ixRbUomHtml(res)}
       ${ixRbPreviewHtml(res)}
       <div class="rb-act">
@@ -5917,6 +5972,7 @@ function ixRbRender(){
   host.querySelectorAll('[data-rbname]').forEach(i=>i.onchange=()=>{ IX_RB_NAMES[i.dataset.rbname]=i.value.trim(); ixRbSaveCfg(); ixRbRender(); });
   host.querySelectorAll('[data-rboff]').forEach(i=>i.onchange=()=>{ IX_RB_OFF[i.dataset.rboff]=!i.checked; ixRbSaveCfg(); ixRbRender(); });
   host.querySelectorAll('input[name=rbuom]').forEach(i=>i.onchange=()=>{ IX_RB_UOM=i.value; try{localStorage.setItem('ix_rb_uom',IX_RB_UOM);}catch(e){} ixRbRender(); });
+  const pgi=host.querySelector('#ixRbPgInput'); if(pgi) pgi.onchange=async e=>{ const f=e.target.files[0]; e.target.value=''; if(!f) return; try{ IX_RB_PGFILE = await ixRbReadPgFile(f); try{localStorage.setItem('ix_rb_pgfile',JSON.stringify(IX_RB_PGFILE));}catch(e2){} toast('Price Group file loaded — '+Object.keys(IX_RB_PGFILE.names).length+' price groups','ok'); }catch(err){ toast('Could not read that file: '+err.message,'err'); } ixRbRender(); };
   const ui=host.querySelector('#ixRbUomInput'); if(ui) ui.onchange=async e=>{ const f=e.target.files[0]; e.target.value=''; if(!f) return; await ixHandleUomUpload(f); if(IX_STATE.uomFileInfo&&IX_STATE.uomFileInfo.fileName===f.name){ ixRefreshRunButton(); } ixRbRender(); };
   const sel=host.querySelector('#ixRbSel'); if(sel) sel.onchange=()=>{ IX_BUILD.sel=sel.value; ixRbRender(); };
   const dl=host.querySelector('#ixRbDl');
