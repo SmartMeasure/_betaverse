@@ -409,8 +409,8 @@ main{
 .rb-tbl th{position:sticky;top:0;background:var(--panel-3);color:var(--ink);font-weight:700;z-index:1;}
 .rb-tbl th:first-child,.rb-tbl td:first-child{text-align:left;position:sticky;left:0;background:var(--panel-2);max-width:260px;overflow:hidden;text-overflow:ellipsis;}
 .rb-tbl th:first-child{background:var(--panel-3);z-index:2;}
-.rb-tbl td.up{color:var(--danger);background:rgba(255,77,116,.10);font-weight:700;}
-.rb-tbl td.dn{color:var(--success);background:rgba(51,240,180,.10);font-weight:700;}
+.rb-tbl td.up{color:#12a36a;background:rgba(18,163,106,.12);font-weight:700;}
+.rb-tbl td.dn{color:#e0364f;background:rgba(224,54,79,.12);font-weight:700;}
 .rb-tbl td.nw{color:var(--warn);background:var(--warn-soft);font-weight:700;}
 .rb-tbl td.z{color:var(--ink-faint);}
 .rb-pc{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
@@ -423,6 +423,50 @@ main{
 .rb-uomdrop{flex:1 1 240px;}
 .rb-chk{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink);cursor:pointer;}
 .rb-chk.dis{opacity:.5;cursor:not-allowed;}
+
+/* ---------- Rate Change Report ---------- */
+.rc{border:1px solid var(--edge-soft);border-radius:14px;background:var(--panel-2);overflow:hidden;}
+.rc-h{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--edge-soft);}
+.rc-h .tt{flex:1 1 200px;min-width:0;}
+.rc-h .tt b{display:block;font-size:14px;color:var(--ink);}
+.rc-h .tt span{font-size:11.5px;color:var(--ink-soft);}
+.rc-seg{display:inline-flex;border:1px solid var(--edge);border-radius:10px;overflow:hidden;background:var(--panel);}
+.rc-seg button{border:0;background:transparent;color:var(--ink-soft);font:inherit;font-size:12px;font-weight:600;padding:8px 14px;cursor:pointer;transition:background .2s,color .2s;}
+.rc-seg button.on{background:var(--ink);color:var(--panel);}
+.rc-h select{padding:8px 10px;border-radius:9px;border:1px solid var(--edge);background:var(--panel);color:var(--ink);font:inherit;font-size:12.5px;}
+.rc-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;padding:14px 16px 4px;}
+.rc-k{position:relative;overflow:hidden;padding:12px 14px;border-radius:12px;border:1px solid var(--edge-soft);background:var(--panel);}
+.rc-k::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c,var(--edge));}
+.rc-k b{display:block;font-size:24px;line-height:1.1;color:var(--c,var(--ink));font-variant-numeric:tabular-nums;letter-spacing:-.01em;}
+.rc-k span{display:block;font-size:11px;color:var(--ink-faint);margin-top:3px;}
+.rc-k small{display:block;font-size:11.5px;color:var(--ink-soft);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.rc-k.up{--c:#12a36a;}.rc-k.dn{--c:#e0364f;}.rc-k.nw{--c:#d99a1c;}
+.rc-days{display:flex;gap:10px;overflow-x:auto;padding:12px 16px;scrollbar-width:thin;}
+.rc-day{flex:0 0 150px;text-align:left;border:1px solid var(--edge-soft);border-radius:12px;background:var(--panel);padding:10px 12px;cursor:pointer;font:inherit;color:var(--ink);transition:transform .18s,border-color .18s,box-shadow .18s;}
+.rc-day:hover{transform:translateY(-2px);border-color:var(--edge);}
+.rc-day.on{border-color:var(--ink);box-shadow:0 6px 18px rgba(0,0,0,.12);}
+.rc-day .d{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;}
+.rc-day .m{display:flex;justify-content:space-between;font-size:11.5px;margin:6px 0 7px;font-variant-numeric:tabular-nums;}
+.rc-day .m .u{color:#12a36a;font-weight:700;}.rc-day .m .w{color:#e0364f;font-weight:700;}
+.rc-bar{display:flex;height:6px;border-radius:6px;overflow:hidden;background:var(--panel-3);}
+.rc-bar i{display:block;height:100%;width:0;transition:width .7s cubic-bezier(.2,.8,.2,1);}
+.rc-bar i.u{background:#12a36a;}.rc-bar i.w{background:#e0364f;}.rc-bar i.n{background:#d99a1c;}
+.rc-list{margin:0 16px 14px;max-height:440px;overflow:auto;border:1px solid var(--edge-soft);border-radius:10px;background:var(--panel);padding:0 4px 4px;}
+.rc-row{display:grid;grid-template-columns:minmax(0,1fr) 92px 92px 118px;gap:10px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--edge-soft);font-size:12px;font-variant-numeric:tabular-nums;opacity:0;transform:translateY(6px);animation:rcIn .35s ease forwards;}
+.rc-row .p{min-width:0;}.rc-row .p b{display:block;color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rc-row .p small{color:var(--ink-faint);font-size:11px;}
+.rc-row .o{text-align:right;color:var(--ink-faint);}.rc-row .n{text-align:right;color:var(--ink);font-weight:600;}
+.rc-chip{display:inline-flex;justify-content:center;align-items:center;gap:4px;padding:4px 9px;border-radius:20px;font-size:11.5px;font-weight:700;justify-self:end;}
+.rc-chip.up{color:#0b7a4d;background:rgba(18,163,106,.14);}
+.rc-chip.dn{color:#c2253d;background:rgba(224,54,79,.13);}
+.rc-chip.nw{color:#9a6a0a;background:rgba(217,154,28,.16);}
+.rc-chip.wd{color:var(--ink-soft);background:var(--panel-3);}
+.rc-more{padding:10px 4px 0;font-size:11.5px;color:var(--ink-soft);}
+.rc-empty{padding:22px;text-align:center;color:var(--ink-soft);font-size:12.5px;}
+@keyframes rcIn{to{opacity:1;transform:none;}}
+@media (prefers-reduced-motion:reduce){.rc-row{animation:none;opacity:1;transform:none;}.rc-bar i{transition:none;}}
+@media (max-width:640px){.rc-row{grid-template-columns:minmax(0,1fr) 84px 104px;}.rc-row .o{display:none;}}
+
 .rb-act{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
 .rb-act .hint{flex:1 1 220px;font-size:12px;color:var(--ink-soft);}
 @media (max-width:640px){.rb-file{grid-template-columns:minmax(0,1fr) 104px auto;}.rb-file .ct{display:none;}.rb-act .btn{flex:1 1 100%;}}
@@ -5676,7 +5720,7 @@ async function renderIntelX(){
 /* ======================= INTELX · Rate File Builder =======================
    CURRENT PRICE LIST (.xlsx, one per rate-change date)  ->  "Distributor Rate File for upload"
    One sheet per price group, one "Rate/kg" column per rate-change date. Runs fully on this device. */
-const IX_BUILD = { lists: [], sel: '' };
+const IX_BUILD = { lists: [], sel: '', cmode:'d', cloc:'', cday:null };
 const IX_RB_DEFAULT_NAMES = { '01':'KOLKATA','02':'WB','40':'ABP','03':'NB','04':'JHARKHAND','05':'ODISHA','06':'Bihar','07':'VNS','39':'CHHATTISGARH','08':'ASSAM','36':'ANDAMAN','37':'AGRA','38':'DELHI' };
 const IX_RB_ORDER = ['01','02','40','03','04','05','06','07','39','08','36','37','38'];
 let IX_RB_NAMES = {}, IX_RB_OFF = {}, IX_RB_UOM = 'list';
@@ -5884,6 +5928,115 @@ function ixRbWarnings(res){
   return w;
 }
 
+
+/* ---------- Rate Change Report: what went up / down, date-wise and location-wise ---------- */
+function ixRbChanges(res, retailer){
+  const out=[];
+  const act = res.codes.filter(c=>ixRbActive(c));
+  act.forEach(cd=>{
+    res.prod.forEach((p,code)=>{
+      const arr=res.grids[cd][code]; if(!arr||!arr.some(v=>v>0)) return;
+      const f = retailer ? (p.comm!=null?p.comm:1)*(p.gst!=null?p.gst:1) : 1;
+      const val = v=> v>0 ? Math.round(v*f*100)/100 : 0;
+      for(let j=1;j<arr.length;j++){
+        const a=val(arr[j-1]), b=val(arr[j]); if(a===b) continue;
+        const diff = Math.round((b-a)*100)/100;
+        out.push({ j, date:res.dates[j], cd, loc:ixRbName(cd), code, name:p.name, sku:p.size, old:a, nw:b, diff, pct:(a>0&&b>0)?Math.round((b-a)/a*10000)/100:null,
+          type: a===0 ? 'new' : (b===0 ? 'wd' : (b>a?'up':'dn')) });
+      }
+    });
+  });
+  return out;
+}
+function ixRbCountUp(root){
+  root.querySelectorAll('[data-cu]').forEach(el=>{
+    const to=Number(el.dataset.cu), dec=Number(el.dataset.dec||0), pre=el.dataset.pre||'';
+    if(window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches){ el.textContent=pre+to.toLocaleString('en-IN',{minimumFractionDigits:dec,maximumFractionDigits:dec}); return; }
+    const t0=performance.now(), dur=650;
+    const step=t=>{ const k=Math.min(1,(t-t0)/dur), e=1-Math.pow(1-k,3); el.textContent=pre+(to*e).toLocaleString('en-IN',{minimumFractionDigits:dec,maximumFractionDigits:dec}); if(k<1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  });
+  requestAnimationFrame(()=>requestAnimationFrame(()=>root.querySelectorAll('.rc-bar i[data-w]').forEach(i=>{ i.style.width=i.dataset.w+'%'; })));
+}
+function ixRbChangeHtml(res){
+  if(res.dates.length<2) return `<div class="rc"><div class="rc-h"><div class="tt"><b>Rate Change Report</b><span>Add at least two price lists (two rate-change dates) to see what increased and decreased.</span></div></div></div>`;
+  const ret = IX_BUILD.cmode==='r';
+  const all = ixRbChanges(res, ret);
+  const act = res.codes.filter(c=>ixRbActive(c));
+  const loc = act.includes(IX_BUILD.cloc) ? IX_BUILD.cloc : '';
+  const rows = all.filter(r=>!loc || r.cd===loc);
+  const byDay = res.dates.map((d,j)=>{ const x=rows.filter(r=>r.j===j); return { j, d, up:x.filter(r=>r.type==='up').length, dn:x.filter(r=>r.type==='dn').length, nw:x.filter(r=>r.type==='new').length, wd:x.filter(r=>r.type==='wd').length }; }).slice(1);
+  let sel = byDay.find(x=>x.j===IX_BUILD.cday); if(!sel) sel = byDay.slice().reverse().find(x=>x.up+x.dn+x.nw+x.wd>0) || byDay[byDay.length-1];
+  const ups = rows.filter(r=>r.type==='up'), dns = rows.filter(r=>r.type==='dn');
+  const maxUp = ups.slice().sort((a,b)=>b.diff-a.diff)[0], maxDn = dns.slice().sort((a,b)=>a.diff-b.diff)[0];
+  const dayRows = rows.filter(r=>r.j===sel.j).sort((a,b)=>({up:0,dn:1,new:2,wd:3}[a.type]-{up:0,dn:1,new:2,wd:3}[b.type]) || Math.abs(b.diff)-Math.abs(a.diff));
+  const mx = Math.max(1,...byDay.map(x=>x.up+x.dn+x.nw));
+  const chip = r=> r.type==='new' ? `<span class="rc-chip nw">NEW ₹${ixFmtMoney(r.nw)}</span>` : r.type==='wd' ? `<span class="rc-chip wd">Withdrawn</span>` : `<span class="rc-chip ${r.type}">${r.type==='up'?'▲ +':'▼ −'}₹${ixFmtMoney(Math.abs(r.diff))}</span>`;
+  const shown = dayRows.slice(0,80);
+  return `<div class="rc" id="ixRc">
+    <div class="rc-h">
+      <div class="tt"><b>Rate Change Report</b><span>What went up and down on each rate-change date, per kg · increase in green, decrease in red</span></div>
+      <div class="rc-seg"><button data-rcmode="d" class="${ret?'':'on'}">Distributor</button><button data-rcmode="r" class="${ret?'on':''}">Retailer</button></div>
+      <select id="ixRcLoc"><option value="">All locations</option>${act.map(c=>`<option value="${c}" ${c===loc?'selected':''}>${ixEsc(ixRbName(c))}</option>`).join('')}</select>
+    </div>
+    <div class="rc-kpis">
+      <div class="rc-k up"><b data-cu="${ups.length}">0</b><span>Rates increased</span><small>${maxUp?'Max +₹'+ixFmtMoney(maxUp.diff)+' · '+ixEsc(maxUp.name):'—'}</small></div>
+      <div class="rc-k dn"><b data-cu="${dns.length}">0</b><span>Rates decreased</span><small>${maxDn?'Max −₹'+ixFmtMoney(Math.abs(maxDn.diff))+' · '+ixEsc(maxDn.name):'—'}</small></div>
+      <div class="rc-k nw"><b data-cu="${rows.filter(r=>r.type==='new').length}">0</b><span>New launches (0 → rate)</span></div>
+      <div class="rc-k"><b data-cu="${new Set(rows.map(r=>r.code)).size}">0</b><span>Products with any change</span></div>
+    </div>
+    <div class="rc-days">${byDay.map(x=>{ const t=Math.max(1,x.up+x.dn+x.nw); return `<button class="rc-day ${x.j===sel.j?'on':''}" data-rcday="${x.j}"><div class="d">${ixFmtDMY(x.d)}</div><div class="m"><span class="u">▲ ${x.up}</span><span class="w">▼ ${x.dn}</span></div><div class="rc-bar" style="width:${Math.max(18,Math.round((x.up+x.dn+x.nw)/mx*100))}%"><i class="u" data-w="${x.up/t*100}"></i><i class="w" data-w="${x.dn/t*100}"></i><i class="n" data-w="${x.nw/t*100}"></i></div></button>`; }).join('')}</div>
+    <div class="rc-list">
+      ${shown.length ? shown.map((r,i)=>`<div class="rc-row" style="animation-delay:${Math.min(i,14)*28}ms"><div class="p"><b title="${ixEsc(r.name)}">${ixEsc(r.name)}</b><small>${r.code}${loc?'':' · '+ixEsc(r.loc)}</small></div><div class="o">${r.old?ixFmtMoney(r.old):'0.00'}</div><div class="n">${ixFmtMoney(r.nw)}</div>${chip(r)}</div>`).join('') + (dayRows.length>shown.length?`<div class="rc-more">Showing ${shown.length} of ${dayRows.length} changes on ${ixFmtDMY(res.dates[sel.j])} — the Excel report has all of them.</div>`:'') : `<div class="rc-empty">No rate changed on ${ixFmtDMY(res.dates[sel.j])}${loc?' for '+ixEsc(ixRbName(loc)):''}.</div>`}
+    </div></div>`;
+}
+
+async function ixRbChangeWorkbook(res){
+  const wb = new ExcelJS.Workbook(); wb.creator='Rate Audit'; wb.created=new Date();
+  const GREEN={argb:'FFD7F0E2'}, RED={argb:'FFFADDE1'}, AMB={argb:'FFFBEFD0'}, GT={argb:'FF0B7A4D'}, RT={argb:'FFC2253D'}, AT={argb:'FF9A6A0A'};
+  const thin={style:'thin',color:{argb:'FFD0D5DD'}};
+  const sm = wb.addWorksheet('Summary', {views:[{showGridLines:false}]});
+  sm.getCell('A1').value='Rate Change Report'; sm.getCell('A1').font={name:'Calibri',size:16,bold:true};
+  sm.getCell('A2').value=`Rate-change dates: ${res.dates.map(ixFmtDMY).join(', ')} · per kg · Increase = green, Decrease = red`; sm.getCell('A2').font={size:10,color:{argb:'FF667085'}};
+  const kinds=[['Distributor',false],['Retailer',true]];
+  let row=4;
+  kinds.forEach(([label,ret])=>{
+    const ch=ixRbChanges(res,ret);
+    sm.getCell(row,1).value=label+' rate'; sm.getCell(row,1).font={size:12,bold:true}; row++;
+    ['Date','Location','Increased','Decreased','New launch','Withdrawn','Total ₹ up (per kg, all products)','Total ₹ down'].forEach((h,i)=>{ const c=sm.getCell(row,i+1); c.value=h; c.font={bold:true,color:{argb:'FFFFFFFF'}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1E2438'}}; c.alignment={horizontal:i<2?'left':'center',wrapText:true}; }); row++;
+    res.dates.slice(1).forEach((d,k)=>{ const j=k+1;
+      res.codes.filter(c=>ixRbActive(c)).forEach(cd=>{
+        const x=ch.filter(r=>r.j===j&&r.cd===cd); if(!x.length) return;
+        const n=t=>x.filter(r=>r.type===t).length; const sum=t=>Math.round(x.filter(r=>r.type===t).reduce((a,r)=>a+r.diff,0)*100)/100;
+        const vals=[ixFmtDMY(d), ixRbName(cd), n('up'), n('dn'), n('new'), n('wd'), sum('up'), sum('dn')];
+        vals.forEach((v,i)=>{ const c=sm.getCell(row,i+1); c.value=v; c.border={bottom:thin}; if(i>=2) c.alignment={horizontal:'center'}; if(i>=6) c.numFmt='0.00'; });
+        sm.getCell(row,3).font={color:GT,bold:true}; sm.getCell(row,7).font={color:GT,bold:true}; sm.getCell(row,4).font={color:RT,bold:true}; sm.getCell(row,8).font={color:RT,bold:true};
+        row++;
+      });
+    });
+    row+=2;
+  });
+  [14,22,12,12,12,12,20,16].forEach((w,i)=>sm.getColumn(i+1).width=w);
+  kinds.forEach(([label,ret])=>{
+    const ws = wb.addWorksheet(label+' Changes', {views:[{state:'frozen',ySplit:1}]});
+    const heads=['Rate change date','Location','Product code','Product name','SKU','Old rate/kg','New rate/kg','Change ₹/kg','Change %','Type'];
+    ws.addRow(heads); const hr=ws.getRow(1); hr.height=22;
+    hr.eachCell(c=>{ c.font={bold:true,color:{argb:'FFFFFFFF'}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1E2438'}}; c.alignment={horizontal:'center',vertical:'middle'}; });
+    const ch = ixRbChanges(res,ret).sort((a,b)=>a.j-b.j || IX_RB_ORDER.indexOf(a.cd)-IX_RB_ORDER.indexOf(b.cd) || ({up:0,dn:1,new:2,wd:3}[a.type]-{up:0,dn:1,new:2,wd:3}[b.type]) || Math.abs(b.diff)-Math.abs(a.diff));
+    ch.forEach(r=>{
+      const x=ws.addRow([ixFmtDMY(r.date), r.loc, Number(r.code), r.name, r.sku, r.old, r.nw, r.type==='new'||r.type==='wd'?null:r.diff, r.pct==null?null:r.pct/100, r.type==='up'?'Increase':r.type==='dn'?'Decrease':r.type==='new'?'New launch':'Withdrawn']);
+      const fill = r.type==='up'?GREEN:r.type==='dn'?RED:AMB, tx = r.type==='up'?GT:r.type==='dn'?RT:AT;
+      [8,9,10].forEach(i=>{ const c=x.getCell(i); c.fill={type:'pattern',pattern:'solid',fgColor:fill}; c.font={bold:true,color:tx}; c.alignment={horizontal:'center'}; });
+      x.getCell(7).font={bold:true};
+      [6,7].forEach(i=>x.getCell(i).numFmt='0.00'); x.getCell(8).numFmt='+0.00;-0.00;0.00'; x.getCell(9).numFmt='+0.0%;-0.0%;0.0%';
+      x.eachCell(c=>{ c.border={bottom:thin}; });
+    });
+    [16,20,13,46,12,13,13,13,11,13].forEach((w,i)=>ws.getColumn(i+1).width=w);
+    ws.autoFilter={from:{row:1,column:1},to:{row:1,column:heads.length}};
+  });
+  return wb;
+}
+
 function ixRbPreviewHtml(res){
   const avail = res.codes.filter(c=>ixRbActive(c));
   const cd = avail.includes(IX_BUILD.sel) ? IX_BUILD.sel : (avail[0]||'');
@@ -5897,7 +6050,7 @@ function ixRbPreviewHtml(res){
   return `<div class="rb-prev-h"><div class="rb-sec" style="margin:0;">Preview</div>
     <select id="ixRbSel">${res.codes.filter(c=>ixRbActive(c)).map(c=>`<option value="${c}" ${c===cd?'selected':''}>${ixEsc(ixRbName(c))} (${c})</option>`).join('')}</select>
     <span class="small-muted" style="font-size:11.5px;">${changed.length} of ${rows.length} products changed price · showing changed first</span>
-    <div class="rb-legend"><span><i style="background:rgba(255,77,116,.5)"></i>Increase</span><span><i style="background:rgba(51,240,180,.5)"></i>Decrease</span><span><i style="background:rgba(255,194,78,.6)"></i>First rate</span></div></div>
+    <div class="rb-legend"><span><i style="background:rgba(18,163,106,.6)"></i>Increase</span><span><i style="background:rgba(224,54,79,.6)"></i>Decrease</span><span><i style="background:rgba(255,194,78,.6)"></i>First rate</span></div></div>
     <div class="rb-tbl"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
 
@@ -5957,10 +6110,12 @@ function ixRbRender(){
       ${ixRbPgHtml(res)}
       <div class="rb-locs">${res.codes.filter(c=>ixRbInFile(c)).map(c=>`<label class="rb-loc ${ixRbActive(c)?'':'off'}"><input type="checkbox" data-rboff="${c}" ${ixRbActive(c)?'checked':''} title="Include this sheet"><span class="cd">${c}</span><input type="text" data-rbname="${c}" value="${ixEsc(ixRbName(c))}" title="Sheet name — must match the Price Group Name in your Distributor Master"><span class="n">${ixRbCounts(res,c)} items</span></label>`).join('')}</div>
       ${ixRbUomHtml(res)}
+      ${ixRbChangeHtml(res)}
       ${ixRbPreviewHtml(res)}
       <div class="rb-act">
         <button class="btn accent" id="ixRbDl">⬇ Distributor Rate File (.xlsx)</button>
         <button class="btn accent" id="ixRbDlR" title="Distributor rate + commission + GST, per kg">⬇ Retailer Rate File (.xlsx)</button>
+        <button class="btn accent" id="ixRbDlC" title="Date-wise increases and decreases">⬇ Rate Change Report (.xlsx)</button>
         <button class="btn secondary" id="ixRbUse">Use directly as Step 1 rate data</button>
         <span class="hint">Distributor file = your manual-file layout (Rate/kg per rate-change date; not-yet-launched rates stay 0). Retailer file = same layout with Rate/kg = distributor rate × COMM × GST of each product.</span>
       </div>`;
@@ -5986,6 +6141,17 @@ function ixRbRender(){
         toast((ret?'Retailer':'Distributor')+' Rate File downloaded','ok');
       }catch(e){ console.error(e); toast('Could not build the file: '+e.message,'err'); } dl.disabled=false; };
   });
+  const dlc=host.querySelector('#ixRbDlC');
+  if(dlc) dlc.onclick=async()=>{ dlc.disabled=true; try{
+      const wb=await ixRbChangeWorkbook(res); const buf=await wb.xlsx.writeBuffer();
+      const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+      const mon=res.dates[0]; a.download=`Rate_Change_Report_${ixPad2(mon.getMonth()+1)}-${mon.getFullYear()}.xlsx`; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1500);
+      toast('Rate Change Report downloaded','ok');
+    }catch(e){ console.error(e); toast('Could not build the report: '+e.message,'err'); } dlc.disabled=false; };
+  host.querySelectorAll('[data-rcmode]').forEach(b=>b.onclick=()=>{ IX_BUILD.cmode=b.dataset.rcmode; ixRbRender(); });
+  host.querySelectorAll('[data-rcday]').forEach(b=>b.onclick=()=>{ IX_BUILD.cday=Number(b.dataset.rcday); ixRbRender(); });
+  const rl=host.querySelector('#ixRcLoc'); if(rl) rl.onchange=()=>{ IX_BUILD.cloc=rl.value; ixRbRender(); };
+  const rcRoot=host.querySelector('#ixRc'); if(rcRoot) ixRbCountUp(rcRoot);
   const use=host.querySelector('#ixRbUse');
   if(use) use.onclick=async()=>{
     use.disabled=true; try{
