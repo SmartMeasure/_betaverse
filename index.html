@@ -361,6 +361,70 @@ main{
 .ix-actions .ix-hint{flex:1 1 220px;min-width:0;font-size:12px;color:var(--ink-soft);}
 @media (max-width:600px){.ix-actions .btn{flex:1 1 100%;}}
 
+/* ---------- INTELX · Rate File Builder ---------- */
+.rb{margin-bottom:18px;border:1px solid var(--edge-soft);border-radius:14px;background:linear-gradient(160deg,var(--panel-2),var(--panel));overflow:hidden;}
+.rb>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:14px 18px;user-select:none;}
+.rb>summary::-webkit-details-marker{display:none;}
+.rb-ic{flex:0 0 36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;background:var(--panel-3);border:1px solid var(--edge);}
+.rb-ttl{min-width:0;flex:1;}
+.rb-ttl b{display:block;font-size:14.5px;color:var(--ink);line-height:1.25;}
+.rb-ttl span{display:block;font-size:12px;color:var(--ink-soft);margin-top:2px;}
+.rb-chev{flex:0 0 auto;color:var(--ink-faint);transition:transform .2s;font-size:12px;}
+.rb[open] .rb-chev{transform:rotate(180deg);}
+.rb-badge{flex:0 0 auto;font-size:10.5px;font-weight:700;letter-spacing:.04em;border:1px solid var(--edge);border-radius:20px;padding:3px 9px;color:var(--ink-faint);white-space:nowrap;}
+.rb-badge.on{color:var(--success);border-color:rgba(51,240,180,.35);background:var(--success-soft);}
+.rb-body{padding:4px 18px 18px;border-top:1px solid var(--edge-soft);display:flex;flex-direction:column;gap:14px;}
+.rb-lead{font-size:12.5px;line-height:1.55;color:var(--ink-soft);margin-top:12px;}
+.rb-lead b{color:var(--ink);}
+.rb-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;}
+.rb-kpi{padding:10px 12px;border:1px solid var(--edge-soft);border-radius:10px;background:var(--panel-2);}
+.rb-kpi b{display:block;font-size:20px;color:var(--ink);line-height:1.1;font-variant-numeric:tabular-nums;}
+.rb-kpi span{font-size:11px;color:var(--ink-faint);}
+.rb-sec{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);margin:2px 0 -4px;}
+.rb-files{border:1px solid var(--edge-soft);border-radius:10px;background:var(--panel-2);overflow:hidden;}
+.rb-file{display:grid;grid-template-columns:minmax(0,1fr) 120px auto auto;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--edge-soft);font-size:12px;}
+.rb-file:last-child{border-bottom:0;}
+.rb-file .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);}
+.rb-file .nm small{display:block;color:var(--ink-faint);font-size:11px;}
+.rb-file input{width:100%;padding:6px 8px;border-radius:8px;border:1px solid var(--edge);background:var(--panel);color:var(--ink);font:inherit;font-size:12px;text-align:center;font-variant-numeric:tabular-nums;}
+.rb-file input.bad{border-color:var(--danger);}
+.rb-file .ct{color:var(--ink-soft);white-space:nowrap;font-variant-numeric:tabular-nums;}
+.rb-x{border:0;background:transparent;color:var(--ink-faint);cursor:pointer;font-size:15px;padding:2px 6px;border-radius:6px;}
+.rb-x:hover{color:var(--danger);background:var(--panel-3);}
+.rb-locs{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;}
+.rb-loc{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--edge-soft);border-radius:10px;background:var(--panel-2);font-size:12px;}
+.rb-loc.off{opacity:.55;}
+.rb-loc .cd{flex:0 0 30px;text-align:center;font-weight:700;color:var(--ink);background:var(--panel-3);border-radius:6px;padding:3px 0;font-variant-numeric:tabular-nums;}
+.rb-loc input[type=text]{min-width:0;flex:1;padding:5px 7px;border-radius:7px;border:1px solid var(--edge);background:var(--panel);color:var(--ink);font:inherit;font-size:12px;}
+.rb-loc .n{color:var(--ink-faint);font-size:11px;white-space:nowrap;}
+.rb-warn{padding:10px 12px;border-radius:10px;background:var(--warn-soft);color:var(--warn);font-size:12px;line-height:1.5;border:1px solid rgba(255,194,78,.3);}
+.rb-warn ul{margin:4px 0 0 16px;padding:0;}
+.rb-prev-h{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.rb-prev-h select{padding:7px 10px;border-radius:8px;border:1px solid var(--edge);background:var(--panel);color:var(--ink);font:inherit;font-size:12.5px;}
+.rb-legend{font-size:11px;color:var(--ink-faint);display:flex;gap:12px;flex-wrap:wrap;margin-left:auto;}
+.rb-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px;}
+.rb-tbl{max-height:340px;overflow:auto;border:1px solid var(--edge-soft);border-radius:10px;}
+.rb-tbl table{width:100%;border-collapse:collapse;font-size:11.5px;font-variant-numeric:tabular-nums;}
+.rb-tbl th,.rb-tbl td{padding:6px 9px;border-bottom:1px solid var(--edge-soft);white-space:nowrap;text-align:right;}
+.rb-tbl th{position:sticky;top:0;background:var(--panel-3);color:var(--ink);font-weight:700;z-index:1;}
+.rb-tbl th:first-child,.rb-tbl td:first-child{text-align:left;position:sticky;left:0;background:var(--panel-2);max-width:260px;overflow:hidden;text-overflow:ellipsis;}
+.rb-tbl th:first-child{background:var(--panel-3);z-index:2;}
+.rb-tbl td.up{color:var(--danger);background:rgba(255,77,116,.10);font-weight:700;}
+.rb-tbl td.dn{color:var(--success);background:rgba(51,240,180,.10);font-weight:700;}
+.rb-tbl td.nw{color:var(--warn);background:var(--warn-soft);font-weight:700;}
+.rb-tbl td.z{color:var(--ink-faint);}
+.rb-pc{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+.rb-seg{display:inline-flex;border:1px solid var(--edge);border-radius:10px;overflow:hidden;background:var(--panel-2);}
+.rb-seg label{padding:8px 12px;font-size:12px;cursor:pointer;color:var(--ink-soft);border-right:1px solid var(--edge-soft);}
+.rb-seg label:last-child{border-right:0;}
+.rb-seg label.on{background:var(--ink);color:var(--panel);font-weight:700;}
+.rb-seg label.dis{opacity:.5;cursor:not-allowed;}
+.rb-seg input{position:absolute;opacity:0;pointer-events:none;}
+.rb-uomdrop{flex:1 1 240px;}
+.rb-act{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+.rb-act .hint{flex:1 1 220px;font-size:12px;color:var(--ink-soft);}
+@media (max-width:640px){.rb-file{grid-template-columns:minmax(0,1fr) 104px auto;}.rb-file .ct{display:none;}.rb-act .btn{flex:1 1 100%;}}
+
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
 @media (max-width:900px){.grid-4{grid-template-columns:repeat(2,1fr);}.grid-2{grid-template-columns:1fr;}}
 
@@ -573,7 +637,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v85-supabase';
+const APP_VERSION = 'v86-supabase';
 /* Supabase connection is configured inside the BACKEND block just below (SUPABASE_URL_DEFAULT / SUPABASE_ANON_KEY_DEFAULT). */
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -5575,6 +5639,8 @@ async function renderIntelX(){
       </div>
     </div>
 
+    ${ixRbSectionHtml()}
+
     <div class="ix-actions">
       <button class="btn accent" id="ixRunBtn" ${(hasRates&&hasPg&&hasSales)?'':'disabled'}>▶ Run Check</button>
       <button class="btn secondary" id="ixClearBtn">Clear all local INTELX data</button>
@@ -5588,6 +5654,7 @@ async function renderIntelX(){
     const n=view.querySelector('.ix-drop-n[data-for="'+inp.id+'"]'); const f=inp.files||[];
     if(n) n.textContent = f.length>1 ? f.length+' files' : (f[0]?f[0].name:'No file chosen');
   }));
+  ixRbWire();
   $('#ixRateInput').addEventListener('change', e=> ixHandleRateUpload(e.target.files));
   $('#ixPgInput').addEventListener('change', e=> ixHandlePgUpload(e.target.files[0]));
   $('#ixSalesInput').addEventListener('change', e=> ixHandleSalesUpload(e.target.files[0]));
@@ -5601,6 +5668,289 @@ async function renderIntelX(){
   });
 
   if(hasResults) renderIxResults();
+}
+
+
+/* ======================= INTELX · Rate File Builder =======================
+   CURRENT PRICE LIST (.xlsx, one per rate-change date)  ->  "Distributor Rate File for upload"
+   One sheet per price group, one "Rate/kg" column per rate-change date. Runs fully on this device. */
+const IX_BUILD = { lists: [], sel: '' };
+const IX_RB_DEFAULT_NAMES = { '01':'KOLKATA','02':'WB','40':'ABP','03':'NB','04':'JHARKHAND','05':'ODISHA','06':'Bihar','07':'VNS','39':'SATISHGARH','08':'ASSAM','36':'ANDAMAN','37':'AGRA','38':'DELHI' };
+const IX_RB_ORDER = ['01','02','40','03','04','05','06','07','39','08','36','37','38'];
+let IX_RB_NAMES = {}, IX_RB_OFF = {}, IX_RB_UOM = 'list';
+try{ IX_RB_UOM = localStorage.getItem('ix_rb_uom')==='uom' ? 'uom' : 'list'; }catch(e){}
+try{ IX_RB_NAMES = JSON.parse(localStorage.getItem('ix_rb_names')||'{}')||{}; IX_RB_OFF = JSON.parse(localStorage.getItem('ix_rb_off')||'{}')||{}; }catch(e){}
+function ixRbSaveCfg(){ try{ localStorage.setItem('ix_rb_names', JSON.stringify(IX_RB_NAMES)); localStorage.setItem('ix_rb_off', JSON.stringify(IX_RB_OFF)); }catch(e){} }
+function ixRbName(cd){ return (IX_RB_NAMES[cd]||IX_RB_DEFAULT_NAMES[cd]||('PG '+cd)).trim(); }
+function ixRbDot(d){ return ixPad2(d.getDate())+'.'+ixPad2(d.getMonth()+1)+'.'+d.getFullYear(); }
+
+function ixRbDetectDate(fileName, sheetName, headerTexts){
+  const pick = s=>{
+    const m = String(s||'').match(/(\d{1,2})[-.](\d{1,2})[-.](\d{4}|\d{2})(?!\d)/);
+    return m ? ixParseDMY(m[1]+'-'+m[2]+'-'+m[3]) : null;
+  };
+  let d = pick((String(fileName||'').match(/w\.?e\.?f\.?[\s_-]*([\d.\-]+)/i)||[])[1]) || pick(fileName);
+  if(!d) d = pick(sheetName);
+  if(!d){ for(const h of headerTexts||[]){ d = pick(h); if(d) break; } }
+  return (d && !isNaN(d)) ? d : null;
+}
+
+async function ixRbParsePriceList(file){
+  const wb = await ixReadWorkbook(await file.arrayBuffer());
+  for(const sn of wb.SheetNames){
+    const ws = wb.Sheets[sn]; if(!ws || !ws['!ref']) continue;
+    const grid = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null, blankrows:true});
+    const txt = v=> v==null ? '' : String(v).trim();
+    // PG-code row: has 2-digit codes such as 01, 02, 40 side by side
+    let pgRow=-1;
+    for(let r=0; r<Math.min(grid.length,40) && pgRow<0; r++){
+      const row = grid[r]||[]; const set = new Set(row.map(txt));
+      if(set.has('01') && set.has('02') && set.has('03')) pgRow=r;
+    }
+    if(pgRow<0) continue;
+    // header row holding "Code"
+    let hdr=-1, codeCol=-1, nameCol=0, sizeCol=-1;
+    for(let r=pgRow; r<Math.min(grid.length,pgRow+10) && hdr<0; r++){
+      (grid[r]||[]).forEach((v,c)=>{ if(hdr<0 && /^code$/i.test(txt(v))){ hdr=r; codeCol=c; } });
+    }
+    if(hdr<0) continue;
+    (grid[hdr]||[]).forEach((v,c)=>{ const t=txt(v).toLowerCase(); if(/^items?\s+in\s+sap/.test(t)) nameCol=c; if(/^sub\s*item/.test(t)) sizeCol=c; });
+    let kgCol=4; (grid[hdr]||[]).forEach((v,c)=>{ if(/^size$/i.test(txt(v))) kgCol=c; });
+    // Unit column marks the end of the price-group block
+    let unitCol=-1;
+    for(let r=pgRow; r<=hdr && unitCol<0; r++) (grid[r]||[]).forEach((v,c)=>{ if(unitCol<0 && /^unit$/i.test(txt(v))) unitCol=c; });
+    if(unitCol<0) unitCol=(grid[pgRow]||[]).length;
+    const pgCols = {};    // code -> column of the CURRENT DD rate
+    (grid[pgRow]||[]).forEach((v,c)=>{ const t=txt(v); if(c<unitCol && /^\d{1,2}$/.test(t)){ const cd=t.padStart(2,'0'); if(!(cd in pgCols)) pgCols[cd]=c; } });
+    const headerTexts = []; for(let r=pgRow+1;r<=hdr;r++) (grid[r]||[]).forEach(v=>{ if(typeof v==='string' && /\d{1,2}[.\-]\d{1,2}[.\-]\d{2,4}/.test(v)) headerTexts.push(v); });
+    const pct = s=>{ const m=String(s||'').match(/(\d+(?:\.\d+)?)\s*%/); return m ? 1+Number(m[1])/100 : null; };
+    const items = new Map(); let dup=0;
+    for(let r=hdr+1; r<grid.length; r++){
+      const row = grid[r]||[]; const cv=row[codeCol];
+      if(typeof cv!=='number' && !/^\d{5,}$/.test(txt(cv))) continue;
+      const unit = txt(row[unitCol]).toUpperCase();
+      if(unit!=='KG' && unit!=='PCS') continue;             // lower tables (MRP check, e-mails) and the TOTAL line have no valid Unit
+      const code = String(Math.round(Number(cv)));
+      if(items.has(code)){ dup++; break; }                  // the table is repeated further down — stop at the first repeat
+      const rates = {};
+      const nm0 = txt(row[nameCol]); const kg = Number(row[kgCol]);
+      const perPc = (unit==='PCS' || /pcs?\s*rate|rate\s*\/\s*pcs/i.test(nm0)) && kg>0;      // priced per piece -> convert to Rate/kg like the manual file
+      const raw = {};
+      Object.keys(pgCols).forEach(cd=>{ const v=row[pgCols[cd]]; raw[cd] = (typeof v==='number' && v>0) ? v : 0; rates[cd] = raw[cd] ? Math.round((perPc ? raw[cd]/kg : raw[cd])*100)/100 : 0; });
+      items.set(code, { code, perPc, kg: perPc?kg:null, raw, name: txt(row[nameCol]), size: sizeCol>=0?txt(row[sizeCol]):'', gst: pct(row[unitCol+1]), comm: pct(row[unitCol+2]), rates });
+    }
+    if(!items.size) continue;
+    return { fileName:file.name, sheetName:sn, date: ixRbDetectDate(file.name, sn, headerTexts), items, pgCodes:Object.keys(pgCols) };
+  }
+  return null;
+}
+
+async function ixRbAddFiles(files){
+  const st = document.getElementById('ixRbMsg'); const bad=[];
+  for(let i=0;i<files.length;i++){
+    const f=files[i]; if(st) st.textContent = `Reading ${f.name} (${i+1}/${files.length})…`;
+    try{
+      const pl = await ixRbParsePriceList(f);
+      if(!pl){ bad.push(f.name); continue; }
+      IX_BUILD.lists = IX_BUILD.lists.filter(x=>x.fileName!==f.name);
+      IX_BUILD.lists.push(pl);
+    }catch(e){ console.error(e); bad.push(f.name); }
+  }
+  if(bad.length) toast('Not a recognised CURRENT PRICE LIST: '+bad.join(', '), 'err');
+  ixRbRender();
+}
+
+// Core: one table per price group — product rows × rate-change dates (carry-forward, 0 before first rate)
+function ixRbCompute(){
+  const lists = IX_BUILD.lists.filter(l=>l.date).sort((a,b)=>a.date-b.date);
+  const byDate = new Map();               // same date twice -> the later upload wins
+  lists.forEach(l=>byDate.set(l.date.getTime(), l));
+  const L = [...byDate.values()].sort((a,b)=>a.date-b.date);
+  const dates = L.map(l=>l.date);
+  const prod = new Map();                 // code -> {name,size,gst,comm}
+  L.forEach(l=>l.items.forEach((it,code)=>{ const p=prod.get(code); if(!p) prod.set(code,{code,name:it.name,size:it.size,gst:it.gst,comm:it.comm}); else { p.name=it.name||p.name; p.size=it.size||p.size; if(it.gst!=null)p.gst=it.gst; if(it.comm!=null)p.comm=it.comm; } }));
+  const cds = new Set(); L.forEach(l=>l.pgCodes.forEach(c=>cds.add(c)));
+  const codes = IX_RB_ORDER.filter(c=>cds.has(c)).concat([...cds].filter(c=>!IX_RB_ORDER.includes(c)).sort());
+  const grids = {};                       // pg -> {code -> [rate per date]}
+  const notes = { dropped:0, newItems:0, missingInSome:0 };
+  codes.forEach(cd=>{
+    const g = {};
+    prod.forEach((p,code)=>{
+      let last=0; const arr=[];
+      L.forEach(l=>{
+        const it = l.items.get(code);
+        if(it && l.pgCodes.includes(cd)){                           // listed in this file: take what it says (blank = 0)
+          const u = (IX_RB_UOM==='uom' && it.perPc && IX_STATE.uomMap && IX_STATE.uomMap[code]) ? IX_STATE.uomMap[code].kgPerPc : null;
+          last = u ? Math.round(((it.raw[cd]||0)/u)*100)/100 : (it.rates[cd]||0);
+        }
+        arr.push(last);
+      });
+      g[code]=arr;
+    });
+    grids[cd]=g;
+  });
+  prod.forEach((p,code)=>{ const present=L.filter(l=>l.items.has(code)).length; if(present<L.length) notes.missingInSome++; });
+  return { L, dates, prod, codes, grids, notes };
+}
+
+function ixRbCounts(res, cd){
+  const g=res.grids[cd]; let n=0; Object.keys(g).forEach(k=>{ if(g[k].some(v=>v>0)) n++; }); return n;
+}
+
+async function ixRbBuildWorkbook(res){
+  const mon = res.dates.length ? res.dates[0] : new Date();
+  const MONTHS=['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+  const wb = new ExcelJS.Workbook(); wb.creator='Rate Audit'; wb.created=new Date();
+  const used = new Set();
+  res.codes.filter(cd=>!IX_RB_OFF[cd]).forEach(cd=>{
+    let nm = ixRbName(cd).replace(/[\\\/\?\*\[\]:]/g,'').slice(0,28)||('PG '+cd); let k=nm, i=2; while(used.has(k.toLowerCase())) k = nm.slice(0,25)+' '+(i++); used.add(k.toLowerCase());
+    const ws = wb.addWorksheet(k, {views:[{state:'frozen', xSplit:5, ySplit:2}]});
+    const nd = res.dates.length;
+    ws.getCell(1,1).value = `${ixRbName(cd)} (${cd}) ${MONTHS[mon.getMonth()]}'${String(mon.getFullYear()).slice(2)}`;
+    ws.getCell(1,1).font = {name:'Tahoma', size:10, bold:true}; ws.getCell(1,1).alignment={horizontal:'left'};
+    ws.getCell(1,5).value = 'Rate change date'; ws.getCell(1,5).font={name:'Tahoma',size:10,bold:true}; ws.getCell(1,5).alignment={horizontal:'center'};
+    ['PRODUCT NAME','SKU','GST','COMM','PRODUCT CODE'].forEach((h,i)=>{ const c=ws.getCell(2,i+1); c.value=h; c.font={name:'Tahoma',size:10,bold:true}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF66FF99'}}; c.alignment={horizontal:'center'}; c.border={top:{style:'thin'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}}; });
+    res.dates.forEach((d,j)=>{
+      const h=ws.getCell(1,6+j); h.value=ixRbDot(d); h.numFmt='@'; h.font={name:'Tahoma',size:10,bold:true}; h.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFC000'}}; h.alignment={horizontal:'center'}; h.border={top:{style:'thin'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}};
+      const s=ws.getCell(2,6+j); s.value='Rate/kg'; s.font={name:'Tahoma',size:10,bold:true}; s.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF66FF99'}}; s.alignment={horizontal:'center'}; s.border={top:{style:'thin'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}};
+      ws.getColumn(6+j).width = 12;
+    });
+    let r=3;
+    res.prod.forEach((p,code)=>{
+      const arr=res.grids[cd][code]; if(!arr.some(v=>v>0)) return;           // product not priced anywhere in this price group
+      ws.getCell(r,1).value=p.name; ws.getCell(r,1).font={name:'Tahoma',size:10,bold:true};
+      ws.getCell(r,2).value=p.size; ws.getCell(r,3).value=p.gst!=null?Math.round((p.gst-1)*10000)/10000:0; ws.getCell(r,4).value=p.comm!=null?Math.round((p.comm-1)*10000)/10000:0;   // shown as 5% / 6%
+      ws.getCell(r,3).numFmt='0%'; ws.getCell(r,4).numFmt='0%';
+      ws.getCell(r,5).value=Number(code);
+      arr.forEach((v,j)=>{ const c=ws.getCell(r,6+j); c.value=v; c.numFmt='0.00'; });
+      r++;
+    });
+    ws.getColumn(1).width=43; ws.getColumn(2).width=19; ws.getColumn(3).width=6; ws.getColumn(4).width=7; ws.getColumn(5).width=15;
+  });
+  return wb;
+}
+
+function ixRbWarnings(res){
+  const w=[];
+  const miss = IX_BUILD.lists.filter(l=>!l.date).map(l=>l.fileName);
+  if(miss.length) w.push(`Date not found for ${miss.map(ixEsc).join(', ')} — type it in the date box (DD-MM-YYYY); until then these files are left out.`);
+  const dup = IX_BUILD.lists.filter(l=>l.date); const seen={}; dup.forEach(l=>{ const k=l.date.getTime(); (seen[k]=seen[k]||[]).push(l.fileName); });
+  Object.keys(seen).forEach(k=>{ if(seen[k].length>1) w.push(`Two files carry the same date ${ixFmtDMY(new Date(Number(k)))} — only the last one added is used.`); });
+  if(res.notes.missingInSome) w.push(`${res.notes.missingInSome} product(s) are not listed in every price list — their last known rate is carried forward.`);
+  const ms = res.dates.map(d=>d.getMonth()+'-'+d.getFullYear()); if(new Set(ms).size>1) w.push('The files span more than one month — all dates are placed side by side in the same sheet.');
+  return w;
+}
+
+function ixRbPreviewHtml(res){
+  const cd = res.codes.includes(IX_BUILD.sel) ? IX_BUILD.sel : (res.codes[0]||'');
+  IX_BUILD.sel = cd;
+  const g = res.grids[cd]||{}; const rows=[]; res.prod.forEach((p,code)=>{ if((g[code]||[]).some(v=>v>0)) rows.push([p,code,g[code]]); });
+  const changed = rows.filter(([p,c,a])=>a.some((v,i)=>i>0 && v!==a[i-1])); const show = changed.concat(rows.filter(x=>!changed.includes(x))).slice(0,60);
+  const head = `<tr><th>Product</th><th>Code</th>${res.dates.map(d=>`<th>${ixRbDot(d)}</th>`).join('')}</tr>`;
+  const body = show.map(([p,code,a])=>`<tr><td title="${ixEsc(p.name)}">${ixEsc(p.name)}</td><td>${code}</td>${a.map((v,i)=>{
+    let cl=''; if(!v) cl='z'; else if(i>0){ if(a[i-1]===0) cl='nw'; else if(v>a[i-1]) cl='up'; else if(v<a[i-1]) cl='dn'; }
+    return `<td class="${cl}">${v?ixFmtMoney(v):'0'}</td>`; }).join('')}</tr>`).join('');
+  return `<div class="rb-prev-h"><div class="rb-sec" style="margin:0;">Preview</div>
+    <select id="ixRbSel">${res.codes.map(c=>`<option value="${c}" ${c===cd?'selected':''}>${ixEsc(ixRbName(c))} (${c})</option>`).join('')}</select>
+    <span class="small-muted" style="font-size:11.5px;">${changed.length} of ${rows.length} products changed price · showing changed first</span>
+    <div class="rb-legend"><span><i style="background:rgba(255,77,116,.5)"></i>Increase</span><span><i style="background:rgba(51,240,180,.5)"></i>Decrease</span><span><i style="background:rgba(255,194,78,.6)"></i>First rate</span></div></div>
+    <div class="rb-tbl"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+}
+
+function ixRbUomHtml(res){
+  const uom = IX_STATE.uomMap||{}; const hasU = Object.keys(uom).length>0;
+  const pc = new Map(); res.L.forEach(l=>l.items.forEach((it,c)=>{ if(it.perPc) pc.set(c,it); }));
+  const diff = [...pc.values()].filter(it=>uom[it.code] && uom[it.code].kgPerPc && Math.abs(uom[it.code].kgPerPc-it.kg)>1e-9);
+  const miss = [...pc.values()].filter(it=>!(uom[it.code] && uom[it.code].kgPerPc));
+  return `<div class="rb-sec">Per-piece (PC) rates → Rate/kg</div>
+    <div class="rb-pc">
+      <div class="rb-seg" role="radiogroup">
+        <label class="${IX_RB_UOM==='list'?'on':''}"><input type="radio" name="rbuom" value="list" ${IX_RB_UOM==='list'?'checked':''}> Pack size from price list</label>
+        <label class="${IX_RB_UOM==='uom'?'on':''} ${hasU?'':'dis'}"><input type="radio" name="rbuom" value="uom" ${IX_RB_UOM==='uom'?'checked':''} ${hasU?'':'disabled'}> UOM Conversion file (1 PC = ? KG)</label>
+      </div>
+      <label class="ix-drop rb-uomdrop"><input type="file" id="ixRbUomInput" accept=".xlsx,.xls,.csv"><span class="ix-drop-ic">📂</span><span class="ix-drop-t">${hasU?'Replace UOM file':'Add UOM file'}</span><span class="ix-drop-n">${hasU?ixFmtInt(Object.keys(uom).length)+' products loaded':'Not loaded'}</span></label>
+    </div>
+    <div class="small-muted" style="font-size:11.5px;line-height:1.5;">${pc.size} per-piece item${pc.size===1?'':'s'} found (${[...pc.keys()].slice(0,6).join(', ')}${pc.size>6?'…':''}). Rate/kg = piece rate ÷ kg per piece.
+      ${hasU ? (diff.length ? ` <b style="color:var(--warn)">${diff.length} item(s) have a different kg in the UOM file than in the price list</b> (${diff.slice(0,4).map(it=>it.code+': '+it.kg+' → '+uom[it.code].kgPerPc).join(', ')}) — the selected source is used.` : ' Both sources agree for these items.') : ' Load the same UOM file you use in Step 3 to switch the source.'}
+      ${hasU && miss.length ? ` ${miss.length} item(s) not in the UOM file fall back to the price list size.` : ''}</div>`;
+}
+
+function ixRbRender(){
+  const host = document.getElementById('ixRbBody'); if(!host) return;
+  const has = IX_BUILD.lists.length>0;
+  const res = ixRbCompute();
+  const badge = document.getElementById('ixRbBadge'); if(badge){ badge.textContent = has ? `${res.dates.length} price list${res.dates.length===1?'':'s'}` : 'Not started'; badge.classList.toggle('on', has); }
+  const filesHtml = has ? `<div class="rb-files">${IX_BUILD.lists.slice().sort((a,b)=>(a.date||0)-(b.date||0)).map(l=>`<div class="rb-file">
+      <div class="nm" title="${ixEsc(l.fileName)}">${ixEsc(l.fileName)}<small>${l.items.size} products · ${l.pgCodes.length} price groups</small></div>
+      <input data-rbdate="${ixEsc(l.fileName)}" class="${l.date?'':'bad'}" value="${l.date?ixFmtDMY(l.date):''}" placeholder="DD-MM-YYYY" title="Rate change date (w.e.f.)">
+      <span class="ct">${l.date?'w.e.f.':'date needed'}</span>
+      <button class="rb-x" data-rbdel="${ixEsc(l.fileName)}" title="Remove">✕</button></div>`).join('')}</div>` : '';
+  let resHtml='';
+  if(has && res.dates.length){
+    const act = res.codes.filter(c=>!IX_RB_OFF[c]);
+    const prodTotal = new Set(); act.forEach(c=>Object.keys(res.grids[c]).forEach(k=>{ if(res.grids[c][k].some(v=>v>0)) prodTotal.add(k); }));
+    const warns = ixRbWarnings(res);
+    resHtml = `
+      <div class="rb-kpis">
+        <div class="rb-kpi"><b>${res.dates.length}</b><span>Rate-change dates</span></div>
+        <div class="rb-kpi"><b>${act.length}</b><span>Sheets to export</span></div>
+        <div class="rb-kpi"><b>${ixFmtInt(prodTotal.size)}</b><span>Products priced</span></div>
+        <div class="rb-kpi"><b>${ixFmtDMY(res.dates[0])}</b><span>First date</span></div>
+        <div class="rb-kpi"><b>${ixFmtDMY(res.dates[res.dates.length-1])}</b><span>Latest date</span></div>
+      </div>
+      ${warns.length?`<div class="rb-warn"><b>Check before exporting</b><ul>${warns.map(w=>`<li>${w}</li>`).join('')}</ul></div>`:''}
+      <div class="rb-sec">Price groups → sheet names</div>
+      <div class="rb-locs">${res.codes.map(c=>`<label class="rb-loc ${IX_RB_OFF[c]?'off':''}"><input type="checkbox" data-rboff="${c}" ${IX_RB_OFF[c]?'':'checked'} title="Include this sheet"><span class="cd">${c}</span><input type="text" data-rbname="${c}" value="${ixEsc(ixRbName(c))}" title="Sheet name — must match the Price Group Name in your Distributor Master"><span class="n">${ixRbCounts(res,c)} items</span></label>`).join('')}</div>
+      ${ixRbUomHtml(res)}
+      ${ixRbPreviewHtml(res)}
+      <div class="rb-act">
+        <button class="btn accent" id="ixRbDl">⬇ Download Distributor Rate File (.xlsx)</button>
+        <button class="btn secondary" id="ixRbUse">Use directly as Step 1 rate data</button>
+        <span class="hint">Same layout as your manual file: one sheet per price group, one “Rate/kg” column per rate-change date. Rates not yet launched stay 0.</span>
+      </div>`;
+  }
+  host.querySelector('#ixRbList').innerHTML = filesHtml;
+  host.querySelector('#ixRbResult').innerHTML = resHtml;
+  const msg = host.querySelector('#ixRbMsg'); if(msg) msg.textContent = has ? '' : 'No price lists added yet.';
+  host.querySelectorAll('[data-rbdel]').forEach(b=>b.onclick=()=>{ IX_BUILD.lists=IX_BUILD.lists.filter(x=>x.fileName!==b.dataset.rbdel); ixRbRender(); });
+  host.querySelectorAll('[data-rbdate]').forEach(i=>i.onchange=()=>{ const l=IX_BUILD.lists.find(x=>x.fileName===i.dataset.rbdate); const d=ixParseDMY(i.value.replace(/\s/g,'')); if(l){ l.date = (d&&!isNaN(d))?d:null; } ixRbRender(); });
+  host.querySelectorAll('[data-rbname]').forEach(i=>i.onchange=()=>{ IX_RB_NAMES[i.dataset.rbname]=i.value.trim(); ixRbSaveCfg(); ixRbRender(); });
+  host.querySelectorAll('[data-rboff]').forEach(i=>i.onchange=()=>{ IX_RB_OFF[i.dataset.rboff]=!i.checked; ixRbSaveCfg(); ixRbRender(); });
+  host.querySelectorAll('input[name=rbuom]').forEach(i=>i.onchange=()=>{ IX_RB_UOM=i.value; try{localStorage.setItem('ix_rb_uom',IX_RB_UOM);}catch(e){} ixRbRender(); });
+  const ui=host.querySelector('#ixRbUomInput'); if(ui) ui.onchange=async e=>{ const f=e.target.files[0]; e.target.value=''; if(!f) return; await ixHandleUomUpload(f); if(IX_STATE.uomFileInfo&&IX_STATE.uomFileInfo.fileName===f.name){ ixRefreshRunButton(); } ixRbRender(); };
+  const sel=host.querySelector('#ixRbSel'); if(sel) sel.onchange=()=>{ IX_BUILD.sel=sel.value; ixRbRender(); };
+  const dl=host.querySelector('#ixRbDl');
+  if(dl) dl.onclick=async()=>{
+    dl.disabled=true; try{
+      const wb=await ixRbBuildWorkbook(res); const buf=await wb.xlsx.writeBuffer();
+      const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+      const mon=res.dates[0]; a.download=`Distributor_Rate_File_for_upload_${ixPad2(mon.getMonth()+1)}-${mon.getFullYear()}.xlsx`; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1500);
+      toast('Distributor Rate File downloaded','ok');
+    }catch(e){ console.error(e); toast('Could not build the file: '+e.message,'err'); } dl.disabled=false; };
+  const use=host.querySelector('#ixRbUse');
+  if(use) use.onclick=async()=>{
+    use.disabled=true; try{
+      const wb=await ixRbBuildWorkbook(res); const buf=await wb.xlsx.writeBuffer();
+      const f=new File([buf],`Built_Distributor_Rate_File_${ixFmtDMY(res.dates[0])}.xlsx`,{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      await ixHandleRateUpload([f]);
+    }catch(e){ console.error(e); toast('Could not load the built file: '+e.message,'err'); } use.disabled=false; };
+}
+
+function ixRbSectionHtml(){
+  return `<details class="rb" id="ixRb">
+    <summary><span class="rb-ic">🧮</span><span class="rb-ttl"><b>Rate File Builder</b><span>Turn CURRENT PRICE LIST files into the Distributor Rate File — automatically</span></span><span class="rb-badge" id="ixRbBadge">Not started</span><span class="rb-chev">▼</span></summary>
+    <div class="rb-body" id="ixRbBody">
+      <div class="rb-lead">Add every <b>CURRENT PRICE LIST</b> of the month (one file per rate-change date). The builder reads the <b>CURRENT DD RATE</b> column of each price group (01, 02, 40, 03 …), puts each date side by side and carries unchanged rates forward — ready to download as the <b>Distributor Rate File for upload</b>, or to use directly in Step 1.</div>
+      <label class="ix-drop"><input type="file" id="ixRbInput" accept=".xlsx,.xls" multiple><span class="ix-drop-ic">📂</span><span class="ix-drop-t">Add price lists</span><span class="ix-drop-n" id="ixRbMsg">No price lists added yet.</span></label>
+      <div id="ixRbList"></div>
+      <div id="ixRbResult"></div>
+    </div></details>`;
+}
+function ixRbWire(){
+  const inp=document.getElementById('ixRbInput'); if(!inp) return;
+  inp.addEventListener('change', async e=>{ const fs=[...e.target.files]; e.target.value=''; if(fs.length) await ixRbAddFiles(fs); });
+  if(IX_BUILD.lists.length){ const d=document.getElementById('ixRb'); if(d) d.open=true; }
+  ixRbRender();
 }
 
 function ixRateFilesSummaryHtml(){
