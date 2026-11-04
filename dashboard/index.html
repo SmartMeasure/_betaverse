@@ -176,7 +176,13 @@ td.num{font-family:var(--font-mono);text-align:right;}
 .sub-dl-btn:disabled{background:var(--panel-3);color:var(--ink-faint);border-color:var(--edge);cursor:not-allowed;}
 .sub-export .btn{padding:10px 18px;}
 @media (max-width:900px){.sub-filters{grid-template-columns:1fr 1fr;}.sub-search{grid-column:1 / -1;}.sub-actions{flex-direction:column;align-items:stretch;}}
-@media (max-width:560px){.topbar .status-chip{flex-wrap:wrap;}.sub-filters{grid-template-columns:1fr;}.sub-dl-row .field{flex:1;min-width:140px;}.sub-dl-btn,.sub-export .btn{width:100%;justify-content:center;}}
+/* Verifier / Auditor invoice download */
+.rd-dl{margin-left:6px;padding:8px 10px;border:1px solid var(--edge);border-radius:12px;background:var(--panel);}
+.rd-dl-t{font-size:12px;font-weight:700;color:var(--ink);margin-bottom:6px;}
+.rd-dl-t span{font-weight:400;color:var(--ink-faint);margin-left:6px;}
+.rd-dl-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.rd-dl-row select{padding:8px 10px;border-radius:8px;border:1px solid var(--edge);background:var(--panel);color:var(--ink);font:inherit;font-size:12.5px;}
+@media (max-width:560px){.rd-dl,.rd-dl-row select,.rd-dl-row .btn{width:100%;}.topbar .status-chip{flex-wrap:wrap;}.sub-filters{grid-template-columns:1fr;}.sub-dl-row .field{flex:1;min-width:140px;}.sub-dl-btn,.sub-export .btn{width:100%;justify-content:center;}}
 /* ===== Analytics (v29) ===== */
 .an-hero{--o:#FF4D73;--n:#6C95FF;--u:#F0A93E;--m:#2FD08D;display:grid;grid-template-columns:minmax(0,1.25fr) auto minmax(0,1.5fr);gap:28px 36px;align-items:center;background:#12131A;color:#fff;border-radius:16px;padding:28px 32px;margin-bottom:16px;position:relative;overflow:hidden;}
 .an-hero::before{content:'';position:absolute;inset:0;background:radial-gradient(520px 220px at 12% 0%,rgba(255,77,115,.20),transparent 70%);pointer-events:none;}
@@ -292,7 +298,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v39';
+const APP_VERSION = 'v40';
 /* ==================== SUPABASE BACKEND ====================
    Same action names the app has always used (login / submit / mydata / syncdata …) — each one is
    now a single fast call to a Postgres function (rl_*) on Supabase. Photos go straight to Supabase
@@ -2244,7 +2250,12 @@ async function renderMyVerified(){
       ${dateRangeBarHtml('mv', window.__mvFrom, window.__mvTo, window.__mvDateBasis)}
       ${quickRangeHtml('mv')}
       <button class="btn accent" id="mvExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
-      <button class="btn secondary" id="mvExportPhotos" disabled>📷 Download All Photos (ZIP)</button>
+      <div class="rd-dl"><div class="rd-dl-t">Download invoices <span>ZIP · follows the date range above</span></div>
+        <div class="rd-dl-row">
+          <select id="mvPhotoType" title="Which invoices to download"><option value="all">All invoices</option><option value="over">Overcharge</option><option value="negligible">Negligible overcharge</option><option value="under">Undercharge</option><option value="match">Match</option></select>
+          <select id="mvPhotoFolder" title="Folder structure inside the ZIP"><option value="db">By distributor</option><option value="person">By auditor</option></select>
+          <button class="btn secondary" id="mvExportPhotos" disabled>⬇ Download invoices (ZIP)</button>
+        </div></div>
     </div>
     <div id="mvContent">${ultimateLoaderHtml('mvLoader')}</div>
   `;
@@ -2389,6 +2400,7 @@ function paintRoleView(cfg, rows, isStale){
     wrap.innerHTML = rdTableHtml(f, st, cfg);
     $all('.rd-db-row', wrap).forEach(tr=>tr.addEventListener('click', ()=>{ st.view=''; st.db = tr.dataset.db; apply(); }));
     $all('.micro-bar-row', el).forEach(r=>r.classList.toggle('active', r.dataset.product===st.product));
+    rdUpdatePhotoButton(cfg, st, rows);
   };
   $all('.stat-card.clickable', el).forEach(card=>card.addEventListener('click', ()=>{
     const f = JSON.parse(card.getAttribute('data-filt'));
@@ -2398,8 +2410,53 @@ function paintRoleView(cfg, rows, isStale){
   }));
   $all('.micro-bar-row', el).forEach(row=>row.addEventListener('click', ()=>{ st.product = (st.product===row.dataset.product) ? '' : row.dataset.product; apply(); }));
   $(cfg.exportBtn).onclick = ()=>exportProExcel(window[cfg.filtKey]||rows, cfg.exportName, cfg.sheetName);
-  $(cfg.photoBtn).onclick = ()=>exportBillPhotosZip(window[cfg.filtKey]||rows, $(cfg.photoBtn));
   apply();
+}
+/* Verifier / Auditor "Download invoices": same idea as the Admin download — follows the date range (the data is already fetched for it),
+   the card / distributor / product filters, and an invoice type (All / Overcharge / Negligible / Undercharge / Match). */
+function rdUpdatePhotoButton(cfg, st, rows){
+  const p = cfg.p, btn = $(cfg.photoBtn), typeSel = $('#'+p+'PhotoType'), folderSel = $('#'+p+'PhotoFolder'); if(!btn || !typeSel || !folderSel) return;
+  window.__rdPhoto = window.__rdPhoto || {}; const ps = window.__rdPhoto[p] = window.__rdPhoto[p] || {};
+  const stNow = st.status||'';
+  if(ps.sync !== stNow){ ps.sync = stNow; ps.type = stNow || 'all'; }          // follows the Status card you click, until you pick another type here
+  typeSel.value = ps.type || 'all'; folderSel.value = ps.folder || 'db';
+  if(!typeSel.__w){
+    typeSel.__w = true;
+    typeSel.addEventListener('change', ()=>{ ps.type = typeSel.value; rdUpdatePhotoButton(cfg, st, rows); });
+    folderSel.addEventListener('change', ()=>{ ps.folder = folderSel.value; rdUpdatePhotoButton(cfg, st, rows); });
+  }
+  const type = typeSel.value, mode = folderSel.value;
+  const LBL = {over:'Overcharge', under:'Undercharge', negligible:'Negligible', match:'Match'};
+  const RANK = {over:4, under:3, negligible:2, match:1};
+  const pre = st.view==='dbs' ? rows : rdFilter(rows, Object.assign({}, st, {status:'', clean:false, unique:false}));
+  const worst = {}; pre.forEach(r=>{ if(!worst[r.BillUID] || (RANK[r.Status]||0) > (RANK[worst[r.BillUID]]||0)) worst[r.BillUID] = r.Status; });
+  const seen = new Set(), bills = []; let noPhoto = 0;
+  pre.forEach(r=>{
+    if(type!=='all' && r.Status!==type) return;
+    if(seen.has(r.BillUID)) return; seen.add(r.BillUID);
+    if(!r.BillCopyURL){ noPhoto++; return; }
+    bills.push(r);
+  });
+  const cl = x => String(x||'').replace(/[\\/:*?"<>|]/g,'-').replace(/\s+/g,'_').trim() || 'unknown';
+  const personKey = p==='mv' ? 'AuditorName' : 'VerifiedBy', personDef = p==='mv' ? 'Unknown_Auditor' : 'Unverified';
+  const prepared = bills.map(r=>{
+    const stLbl = LBL[(type==='all' ? worst[r.BillUID] : type)] || 'Other';
+    const sub = type==='all' ? '/'+stLbl : '';
+    const id = String(r.BillUID).replace('bill_','');
+    const per = cl(r[personKey]||personDef), dbf = cl(`${r.DBCode}_${r.DBName}`);
+    return Object.assign({}, r, mode==='person'
+      ? { _folder: per+sub, _base: cl(`${per}_${r.DBCode}_${r.DBName}_${stLbl}_${r.BillDate||''}_${id}`) }
+      : { _folder: dbf+sub,  _base: cl(`${dbf}_${per}_${stLbl}_${r.BillDate||''}_${id}`) });
+  });
+  const from = window['__'+p+'From'], to = window['__'+p+'To'];
+  const range = (from||to) ? `${isoToDMYSafe(from)||'…'} to ${isoToDMYSafe(to)||'…'}` : 'All time';
+  const typeLbl = type==='all' ? 'All invoices' : (type==='negligible' ? 'Negligible overcharge' : LBL[type]);
+  btn.disabled = !prepared.length;
+  btn.innerHTML = `⬇ Download ${esc(typeLbl.toLowerCase())} (${fmtInt(prepared.length)})`;
+  btn.title = `ZIP · ${typeLbl} · ${range}${noPhoto?` · ${noPhoto} invoice(s) have no copy attached`:''}`;
+  btn.onclick = ()=>exportBillPhotosZip(prepared, btn, {prepared:true, byAuditor:true,
+    zipName: `Invoices_${cl(typeLbl)}_${cl(range)}.zip`,
+    summary: `${typeLbl}, ${range}${noPhoto?` — ${noPhoto} invoice(s) had no copy attached`:''}`});
 }
 function paintMyVerified(rows, isStale){
   paintRoleView({ p:'mv', content:'#mvContent', exportBtn:'#mvExport', photoBtn:'#mvExportPhotos', allKey:'__mvAllRows', filtKey:'__mvFilteredRows',
@@ -2423,7 +2480,12 @@ async function renderMyData(){
       ${dateRangeBarHtml('my', window.__myFrom, window.__myTo, window.__myDateBasis)}
       ${quickRangeHtml('my')}
       <button class="btn accent" id="myExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
-      <button class="btn secondary" id="myExportPhotos" disabled>📷 Download All Photos (ZIP)</button>
+      <div class="rd-dl"><div class="rd-dl-t">Download invoices <span>ZIP · follows the date range above</span></div>
+        <div class="rd-dl-row">
+          <select id="myPhotoType" title="Which invoices to download"><option value="all">All invoices</option><option value="over">Overcharge</option><option value="negligible">Negligible overcharge</option><option value="under">Undercharge</option><option value="match">Match</option></select>
+          <select id="myPhotoFolder" title="Folder structure inside the ZIP"><option value="db">By distributor</option><option value="person">By verifier</option></select>
+          <button class="btn secondary" id="myExportPhotos" disabled>⬇ Download invoices (ZIP)</button>
+        </div></div>
     </div>
     <div id="myContent">${ultimateLoaderHtml('myLoader')}</div>
   `;
