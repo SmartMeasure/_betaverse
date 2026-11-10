@@ -683,7 +683,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v86-supabase';
+const APP_VERSION = 'v87-supabase';
 /* Supabase connection is configured inside the BACKEND block just below (SUPABASE_URL_DEFAULT / SUPABASE_ANON_KEY_DEFAULT). */
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -913,12 +913,17 @@ async function supaUploadBillCopy(session, billUid, fileName, mimeType, base64Da
   if(photoAppUrl()){
     try{ dr = await driveUploadBillCopy(session, billUid, fileName, mimeType, base64Data, folderName); if(!dr.ok){ drErr = dr.error; dr = null; } }catch(e){ drErr = String(e.message||e); dr = null; }
   }
-  if(!sb && !dr) return { ok:false, error: drErr || sbErr || 'Upload failed' };
+  if(!sb && !dr){
+    const why = [];                                    // say exactly WHICH step failed and why — the banner shows this
+    why.push('Supabase storage: ' + (sbErr || 'failed'));
+    if(photoAppUrl()) why.push('Google Drive: ' + (drErr || 'failed')); else why.push('Google Drive: not configured');
+    return { ok:false, error: why.join(' | ') };
+  }
   const url  = dr ? dr.url : sb.url;                 // permanent link (Drive) — Supabase link only if Drive failed
   const dl   = sb ? sb.url : dr.url;                 // safety-net copy
   const path = dr ? dr.fileId : sb.path;
   const at = await supaRpc('rl_attach_copy', { p_code:session.code, p_pin:session.pin, p_bill_uid:billUid, p_url:url, p_dl_url:dl, p_path:path }, 3);
-  if(!at.ok) return { ok:false, error: at.error || 'Could not link the photo to the bill' };
+  if(!at.ok) return { ok:false, error: 'Photo uploaded but could not be linked to the bill (' + (at.error || 'no reply from server') + ')' };
   return { ok:true, url };
 }
 
@@ -985,15 +990,17 @@ async function retryPendingPhotos(silent){
   const list = getPendingPhotos();
   if(!list.length) return;
   const remaining = [];
-  let sent = 0;
+  let sent = 0, lastErr = '';
   for(const item of list){
     try{
       const res = await uploadAndAttachOnePhoto_(session, item.billUid, item.fileName, item.mimeType, item.base64Data, item.folderName);
-      if(res.ok) sent++; else remaining.push(item);
-    }catch(e){ remaining.push(item); }
+      if(res.ok) sent++; else { item.lastError = res.error || 'Upload failed'; lastErr = item.lastError; remaining.push(item); }
+    }catch(e){ item.lastError = 'Could not reach the server (' + String(e.message||e) + ')'; lastErr = item.lastError; remaining.push(item); }
   }
   setPendingPhotos(remaining);
   if(sent && !silent) toast(`${sent} pending bill photo(s) uploaded and linked`, 'ok');
+  if(remaining.length){ STATE.syncStatus = { state:'error', message:'Photo upload problem — ' + lastErr }; if(!silent) toast('Photo upload still failing: ' + lastErr, 'err'); }
+  else if(STATE.syncStatus && /^Photo upload problem/.test(STATE.syncStatus.message||'')) STATE.syncStatus = { state:'idle', message:'' };
   renderSyncBanner();
 }
 
@@ -1522,7 +1529,8 @@ function renderSyncBanner(){
   if(!backendConfigured()){ el.innerHTML=''; return; }
   const pending = getPendingSubmissions().length;
   const pendingPhotos = getPendingPhotos().length;
-  const s = STATE.syncStatus;
+  let s = STATE.syncStatus;
+  if(pendingPhotos>0 && !s.message){ const le=(getPendingPhotos().find(x=>x.lastError)||{}).lastError; if(le) s = { state:'error', message:'Photo upload problem — '+le }; }
   if(pending<=0 && pendingPhotos<=0 && s.state!=='error'){ el.innerHTML=''; return; }
   const isErr = s.state==='error';
   const parts = [];
@@ -4292,6 +4300,7 @@ async function saveBill(){
         const res = await uploadAndAttachOnePhoto_(session1, billUid, bf.savedName, mimeType, base64Data, bf.folderName);
         if(res.ok){ toast('Bill photo uploaded and linked', 'ok'); return; }
         queuePendingPhoto(billUid, bf.savedName, mimeType, base64Data, bf.folderName);
+        STATE.syncStatus = { state:'error', message:'Photo upload problem — ' + res.error };
         toast(`Bill photo couldn't be uploaded (${res.error}) — queued to retry automatically`, 'err');
         renderSyncBanner();
       } catch(e){
