@@ -186,6 +186,22 @@ td.num{font-family:var(--font-mono);text-align:right;}
 .rd-dl-t span{font-weight:400;color:var(--ink-faint);margin-left:6px;}
 .rd-dl-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
 .rd-dl-row select{padding:8px 10px;border-radius:8px;border:1px solid var(--edge);background:var(--panel);color:var(--ink);font:inherit;font-size:12.5px;}
+
+/* ---- Auditor / Verifier dashboard toolbar ---- */
+.rd-toolbar{background:var(--panel);border:1px solid var(--edge);border-radius:14px;padding:14px 16px;margin:0 0 20px;display:flex;flex-direction:column;gap:12px;}
+.rd-trow{display:flex;align-items:flex-end;justify-content:space-between;gap:14px 18px;flex-wrap:wrap;}
+.rd-filters .filterbar{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin:0;padding:0;border:0;background:none;box-shadow:none;}
+.rd-filters .filterbar .btn{order:9;padding:8px 14px;}
+.rd-filters .filterbar select{min-width:230px;}
+.rd-filters .quick-range{align-self:flex-end;padding-bottom:2px;}
+.rd-actions{padding-top:12px;border-top:1px solid var(--edge);align-items:center;}
+.rd-dl2{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.rd-dl2-t{font-size:12.5px;font-weight:700;color:var(--ink);margin-right:4px;}
+.rd-dl2-t em{font-style:normal;font-weight:400;color:var(--ink-faint);margin-left:6px;}
+.rd-dl2 select{padding:8px 10px;border-radius:8px;border:1px solid var(--edge);background:var(--panel);color:var(--ink);font:inherit;font-size:12.5px;}
+.rd-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-left:auto;}
+.rd-tools .small-muted{font-size:11.5px;white-space:nowrap;}
+@media (max-width:760px){.rd-trow{align-items:stretch}.rd-dl2,.rd-tools{width:100%;margin-left:0}.rd-dl2 select,.rd-dl2 .btn,.rd-tools .btn{flex:1 1 100%}}
 @media (max-width:560px){.rd-dl,.rd-dl-row select,.rd-dl-row .btn{width:100%;}.topbar .status-chip{flex-wrap:wrap;}.sub-filters{grid-template-columns:1fr;}.sub-dl-row .field{flex:1;min-width:140px;}.sub-dl-btn,.sub-export .btn{width:100%;justify-content:center;}}
 /* ===== Analytics (v29) ===== */
 .an-hero{--o:#FF4D73;--n:#6C95FF;--u:#F0A93E;--m:#2FD08D;display:grid;grid-template-columns:minmax(0,1.25fr) auto minmax(0,1.5fr);gap:28px 36px;align-items:center;background:#12131A;color:#fff;border-radius:16px;padding:28px 32px;margin-bottom:16px;position:relative;overflow:hidden;}
@@ -302,7 +318,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v41';
+const APP_VERSION = 'v42';
 /* ==================== SUPABASE BACKEND ====================
    Same action names the app has always used (login / submit / mydata / syncdata …) — each one is
    now a single fast call to a Postgres function (rl_*) on Supabase. Photos go straight to Supabase
@@ -490,12 +506,12 @@ const SESSION_KEY = 'rateLedger_session';
 function getSession(){ try{ const s = JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); if(s && typeof idleExpired_==='function' && idleExpired_()){ localStorage.removeItem(SESSION_KEY); return null; } return s; }catch(e){ return null; } }
 function setSession(s){ try{ localStorage.setItem(SESSION_KEY, JSON.stringify(s)); idleTouch_(); }catch(e){} }
 /* ---- Idle sign-out: after 60 minutes without any click / key press the saved login is erased ---- */
-const IDLE_KEY = 'rl_dash_last_active', IDLE_MS = 3600000;
+const IDLE_KEY = 'rl_dash_last_active', IDLE_MS = 43200000;   // 12 hours, same as the Rate Check form — a refresh must never sign you out
 function idleTouch_(){ try{ localStorage.setItem(IDLE_KEY, String(Date.now())); }catch(e){} }
 function idleExpired_(){ try{ const t = Number(localStorage.getItem(IDLE_KEY)||0); return t>0 && (Date.now()-t) > IDLE_MS; }catch(e){ return false; } }
 (function(){
   let last = 0;
-  ['click','keydown','touchstart'].forEach(ev=>document.addEventListener(ev, ()=>{ const n=Date.now(); if(n-last>15000){ last=n; idleTouch_(); } }, {passive:true, capture:true}));
+  ['click','keydown','touchstart','mousemove','scroll'].forEach(ev=>document.addEventListener(ev, ()=>{ const n=Date.now(); if(n-last>15000){ last=n; idleTouch_(); } }, {passive:true, capture:true}));
   setInterval(()=>{ if(getSession() && idleExpired_()){ clearSession(); try{ if(typeof adminStoreWipe==='function') adminStoreWipe(); }catch(e){} location.reload(); } }, 60000);
 })();
 
@@ -2262,23 +2278,65 @@ async function addUserHandler(){
 }
 
 /* ==================== BILLS I VERIFIED (Verifier) ==================== */
+
+/* Toolbar shared by Auditor "My Data" and Verifier "Bills I Verified": one card, two clean rows. */
+function rdToolbarHtml(pf, personLabel, fromVal, toVal, basisVal){
+  return `<section class="rd-toolbar">
+    <div class="rd-trow rd-filters">
+      ${dateRangeBarHtml(pf, fromVal, toVal, basisVal)}
+      ${quickRangeHtml(pf)}
+    </div>
+    <div class="rd-trow rd-actions">
+      <div class="rd-dl2">
+        <span class="rd-dl2-t" title="ZIP of invoice photos — follows the date range above">Download invoices</span>
+        <select id="${pf}PhotoType" title="Which invoices to download"><option value="all">All invoices</option><option value="over">Overcharge</option><option value="negligible">Negligible overcharge</option><option value="under">Undercharge</option><option value="match">Match</option></select>
+        <select id="${pf}PhotoFolder" title="Folder structure inside the ZIP"><option value="db">By distributor</option><option value="person">By ${personLabel}</option></select>
+        <button class="btn secondary" id="${pf}ExportPhotos" disabled>⬇ Download (ZIP)</button>
+      </div>
+      <div class="rd-tools">
+        <span class="small-muted" id="${pf}Upd"></span>
+        <button class="btn secondary" id="${pf}Refresh" title="Fetch the latest data now">↻ Refresh</button>
+        <button class="btn accent" id="${pf}Export" disabled>⬇ Export (Pro format)</button>
+      </div>
+    </div>
+  </section>`;
+}
+
+/* ---- Refresh button + automatic refresh (Auditor "My Data" / Verifier "Bills I Verified") ----
+   Re-fetches in the background and repaints in place — the tile/filter you picked stays selected. */
+const RD_REFRESH = {
+  mv:{ action:'myverifieddata', tab:'myverified', paint:rows=>paintMyVerified(rows,false), from:()=>window.__mvFrom, to:()=>window.__mvTo, basis:()=>window.__mvDateBasis },
+  my:{ action:'mydata',         tab:'mydata',     paint:rows=>paintMyData(rows,false),     from:()=>window.__myFrom, to:()=>window.__myTo, basis:()=>window.__myDateBasis }
+};
+let __rdBusy = false;
+async function rdRefresh(k, manual){
+  const c = RD_REFRESH[k]; const s = getSession();
+  if(!c || !s || __rdBusy) return;
+  if(document.querySelector('.tab-btn.active')?.dataset.tab !== c.tab) return;
+  __rdBusy = true;
+  const btn = $('#'+k+'Refresh'); if(btn){ btn.disabled = true; btn.textContent = 'Refreshing…'; }
+  try{
+    const fresh = await backendGet({ action:c.action, code:s.code, pin:s.pin, fromDate:c.from()||'', toDate:c.to()||'', dateBasis:c.basis()||'submission' });
+    if(fresh && fresh.ok){
+      c.paint(fresh.rows||[]);
+      const u = $('#'+k+'Upd'); if(u) u.textContent = 'Updated ' + istTime12(new Date()) + ' IST';
+    } else if(manual) toast((fresh&&fresh.error)||'Could not refresh', 'err');
+  }catch(e){ if(manual) toast('Could not refresh — check your internet connection', 'err'); }
+  finally{ __rdBusy = false; const b2 = $('#'+k+'Refresh'); if(b2){ b2.disabled = false; b2.textContent = '↻ Refresh'; } }
+}
+function rdWireRefresh(k){
+  const b = $('#'+k+'Refresh'); if(b) b.addEventListener('click', ()=>rdRefresh(k,true));
+}
+setInterval(()=>{ if(document.hidden) return; ['mv','my'].forEach(k=>rdRefresh(k,false)); }, 60000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) ['mv','my'].forEach(k=>rdRefresh(k,false)); });
+
 async function renderMyVerified(){
   const body = $('#tabBody');
   window.__rd.mv = {};
   if(window.__mvDateBasis===undefined) window.__mvDateBasis = 'submission';
   if(window.__mvFrom===undefined && window.__mvTo===undefined){ window.__mvFrom = istWeekStartISO(); window.__mvTo = istDateISO(); }
   body.innerHTML = `
-    <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-bottom:4px;">
-      ${dateRangeBarHtml('mv', window.__mvFrom, window.__mvTo, window.__mvDateBasis)}
-      ${quickRangeHtml('mv')}
-      <button class="btn accent" id="mvExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
-      <div class="rd-dl"><div class="rd-dl-t">Download invoices <span>ZIP · follows the date range above</span></div>
-        <div class="rd-dl-row">
-          <select id="mvPhotoType" title="Which invoices to download"><option value="all">All invoices</option><option value="over">Overcharge</option><option value="negligible">Negligible overcharge</option><option value="under">Undercharge</option><option value="match">Match</option></select>
-          <select id="mvPhotoFolder" title="Folder structure inside the ZIP"><option value="db">By distributor</option><option value="person">By auditor</option></select>
-          <button class="btn secondary" id="mvExportPhotos" disabled>⬇ Download invoices (ZIP)</button>
-        </div></div>
-    </div>
+    ${rdToolbarHtml('mv', 'auditor', window.__mvFrom, window.__mvTo, window.__mvDateBasis)}
     <div id="mvContent">${ultimateLoaderHtml('mvLoader')}</div>
   `;
   wireDateRangeBar('mv', ()=>{
@@ -2289,6 +2347,7 @@ async function renderMyVerified(){
     window.__mvFrom = from; window.__mvTo = to;
     renderMyVerified();
   });
+  rdWireRefresh('mv');
   const s = getSession();
   const params = { action:'myverifieddata', code:s.code, pin:s.pin, fromDate: window.__mvFrom||'', toDate: window.__mvTo||'', dateBasis: window.__mvDateBasis||'submission' };
   const stop = startUltimateLoader('mvLoader');
@@ -2481,11 +2540,13 @@ function rdUpdatePhotoButton(cfg, st, rows){
     summary: `${typeLbl}, ${range}${noPhoto?` — ${noPhoto} invoice(s) had no copy attached`:''}`});
 }
 function paintMyVerified(rows, isStale){
+  if(!isStale){ const u=$('#mvUpd'); if(u) u.textContent='Updated '+istTime12(new Date())+' IST'; }
   paintRoleView({ p:'mv', content:'#mvContent', exportBtn:'#mvExport', photoBtn:'#mvExportPhotos', allKey:'__mvAllRows', filtKey:'__mvFilteredRows',
     exportName:'Bills_I_Verified', sheetName:'Bills I Verified', linesLabel:'Lines Verified', scope:'verified against your name',
     personCol:'Collected By', personKey:'CollectedBy', emptyMsg:'No bills verified against your name in this period yet.' }, rows, isStale);
 }
 function paintMyData(rows, isStale){
+  if(!isStale){ const u=$('#myUpd'); if(u) u.textContent='Updated '+istTime12(new Date())+' IST'; }
   paintRoleView({ p:'my', content:'#myContent', exportBtn:'#myExport', photoBtn:'#myExportPhotos', allKey:'__myAllRows', filtKey:'__myFilteredRows',
     exportName:'My_Data', sheetName:'My Data', linesLabel:'Lines Submitted', scope:'you submitted',
     personCol:'Verified By', personKey:'VerifiedBy', emptyMsg:'No submissions in this period yet.' }, rows, isStale);
@@ -2498,17 +2559,7 @@ async function renderMyData(){
   if(window.__myDateBasis===undefined) window.__myDateBasis = 'submission';
   if(window.__myFrom===undefined && window.__myTo===undefined){ window.__myFrom = istWeekStartISO(); window.__myTo = istDateISO(); }
   body.innerHTML = `
-    <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-bottom:4px;">
-      ${dateRangeBarHtml('my', window.__myFrom, window.__myTo, window.__myDateBasis)}
-      ${quickRangeHtml('my')}
-      <button class="btn accent" id="myExport" style="margin-left:auto;" disabled>⬇ Export (Pro format)</button>
-      <div class="rd-dl"><div class="rd-dl-t">Download invoices <span>ZIP · follows the date range above</span></div>
-        <div class="rd-dl-row">
-          <select id="myPhotoType" title="Which invoices to download"><option value="all">All invoices</option><option value="over">Overcharge</option><option value="negligible">Negligible overcharge</option><option value="under">Undercharge</option><option value="match">Match</option></select>
-          <select id="myPhotoFolder" title="Folder structure inside the ZIP"><option value="db">By distributor</option><option value="person">By verifier</option></select>
-          <button class="btn secondary" id="myExportPhotos" disabled>⬇ Download invoices (ZIP)</button>
-        </div></div>
-    </div>
+    ${rdToolbarHtml('my', 'verifier', window.__myFrom, window.__myTo, window.__myDateBasis)}
     <div id="myContent">${ultimateLoaderHtml('myLoader')}</div>
   `;
   wireDateRangeBar('my', ()=>{
@@ -2519,6 +2570,7 @@ async function renderMyData(){
     window.__myFrom = from; window.__myTo = to;
     renderMyData();
   });
+  rdWireRefresh('my');
   const s = getSession();
   const params = { action:'mydata', code:s.code, pin:s.pin, fromDate: window.__myFrom||'', toDate: window.__myTo||'', dateBasis: window.__myDateBasis||'submission' };
   const stop = startUltimateLoader('myLoader');
@@ -2898,6 +2950,7 @@ async function renderDeletedLog(){
 /* ==================== BOOT ==================== */
 function boot(){
   const s = getSession();
+  if(s) idleTouch_();   // opening / refreshing the page counts as activity
   if(!s){ renderLogin(); return; }
   renderShell();
   refreshSessionRole(s);
