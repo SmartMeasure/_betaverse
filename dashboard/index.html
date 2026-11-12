@@ -298,7 +298,7 @@ td.num{font-family:var(--font-mono);text-align:right;}
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — matches the same badge pattern in Rate Ledger, so a
 // screenshot of either app always confirms which version is actually open.
-const APP_VERSION = 'v40';
+const APP_VERSION = 'v41';
 /* ==================== SUPABASE BACKEND ====================
    Same action names the app has always used (login / submit / mydata / syncdata …) — each one is
    now a single fast call to a Postgres function (rl_*) on Supabase. Photos go straight to Supabase
@@ -894,7 +894,10 @@ async function adminSyncRun(opts){
     // Captured ONCE: the server pages through "rows newer than this", so if
     // this moved with each page (lastTs advances as rows are merged) page 2
     // would be an offset into a DIFFERENT, shorter list and rows would be skipped.
-    const sinceAtStart = AdminStore.lastTs||'';
+    // Start 30 minutes BEFORE the newest stored row (rows are de-duplicated by key, so re-reading
+    // a few is harmless) — a bill that committed late can never fall in a gap.
+    let sinceAtStart = AdminStore.lastTs||'';
+    if(sinceAtStart){ const t = new Date(sinceAtStart); if(!isNaN(t.getTime())) sinceAtStart = new Date(t.getTime() - 30*60*1000).toISOString(); }
     for(;;){
       const res = await backendGet({ action:'syncdata', code:s.code, pin:s.pin, sinceISO: sinceAtStart, offset:String(offset) });
       if(!res.ok) throw new Error(res.error||'Could not sync');
@@ -921,6 +924,20 @@ async function adminSyncRun(opts){
     AdminStore.lastSyncedAt = Date.now();
     AdminStore.progress = null;
     await asPersist(putRows);
+    // INTEGRITY CHECK: ask the server how many rows it holds in total and compare with this
+    // browser's copy. Any difference (missed rows OR rows deleted on the server) triggers one
+    // automatic full re-download, so the Dashboard can never silently show fewer rows.
+    try{
+      const chk = await backendGet({ action:'syncdata', code:s.code, pin:s.pin, sinceISO:'', offset:'1000000000' });
+      if(chk && chk.ok){
+        AdminStore.serverTotal = chk.total;
+        if(chk.total !== AdminStore.rows.length && !opts._checked){
+          AdminStore.syncing = false;
+          const again = await adminSyncRun({ full:true, _checked:true });
+          return { changed: changed + (again.changed||0) };
+        }
+      }
+    }catch(e){}
   } catch(e){
     AdminStore.error = e.message || 'Sync failed';
     AdminStore.progress = null;
@@ -998,7 +1015,7 @@ function updateAdminSyncChip(){
   const dot = st.error ? 'var(--danger)' : (st.syncing ? 'var(--warn)' : 'var(--success)');
   const label = st.syncing ? 'Syncing…' : (st.error ? 'Sync failed — showing saved data' : `Synced ${adminAgoText()}`);
   el.innerHTML = `<span class="status-dot" style="background:${dot};"></span>
-    <span>${esc(label)} · ${fmtInt(st.rows.length)} rows stored</span>
+    <span>${esc(label)} · ${fmtInt(st.rows.length)} rows stored${st.serverTotal!=null ? ' · server '+fmtInt(st.serverTotal) : ''}</span>
     <button class="btn small" id="adminSyncNow" ${st.syncing?'disabled':''} title="Fetch only what's new since the last sync">↻ Sync</button>
     <button class="btn small" id="adminFullRefresh" ${st.syncing?'disabled':''} title="Throw away the stored copy and download everything again — use after deleting/editing rows directly in the Sheet">Full refresh</button>`;
   $('#adminSyncNow').addEventListener('click', ()=>adminSync());
