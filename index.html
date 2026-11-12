@@ -683,7 +683,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v87-supabase';
+const APP_VERSION = 'v88-supabase';
 /* Supabase connection is configured inside the BACKEND block just below (SUPABASE_URL_DEFAULT / SUPABASE_ANON_KEY_DEFAULT). */
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -1153,12 +1153,20 @@ function queuePendingPhoto(billUid, fileName, mimeType, base64Data, folderName){
 async function uploadAndAttachOnePhoto_(session, billUid, fileName, mimeType, base64Data, folderName){
   return supaUploadBillCopy(session, billUid, fileName, mimeType, base64Data, folderName);
 }
+let __photoRetryBusy = false;
 async function retryPendingPhotos(silent){
   if(!backendConfigured()) return;
   const session = getSession();
   if(!session) return;
+  if(__photoRetryBusy) return;           // never run two photo retries at once (slow network = long attempt)
   const list = getPendingPhotos();
   if(!list.length) return;
+  __photoRetryBusy = true;
+  STATE.photoBusy = true; renderSyncBanner();
+  try{ await retryPendingPhotosInner_(silent, session, list); }
+  finally{ __photoRetryBusy = false; STATE.photoBusy = false; renderSyncBanner(); }
+}
+async function retryPendingPhotosInner_(silent, session, list){
   const remaining = [];
   let sent = 0, lastErr = '';
   for(const item of list){
@@ -1715,7 +1723,7 @@ function renderSyncBanner(){
     <div class="sync-banner ${isErr?'err':'warn'}">
       <div>
         <strong>${parts.length ? parts.join(' · ')+'.' : 'Sync issue.'}</strong>
-        ${s.message ? `<span class="sync-banner-msg">${esc(s.message)}</span>` : ''}
+        ${STATE.photoBusy ? `<span class="sync-banner-msg">Uploading photo now — slow network can take up to a few minutes…</span>` : (s.message ? `<span class="sync-banner-msg">${esc(s.message)}</span>` : (pendingPhotos>0 ? `<span class="sync-banner-msg">Waiting to retry automatically — press Retry now to see the exact reason.</span>` : ''))}
       </div>
       <button class="btn small" id="syncCheckBtn">Check with server</button>
       <button class="btn small" id="syncRetryBtn">Retry now</button>
