@@ -36,6 +36,10 @@ body{font-family:var(--font-body);color:var(--ink);background:var(--panel-2);min
 h1,h2,h3{font-family:var(--font-display);font-weight:600;margin:0;color:var(--ink);}
 #app{max-width:1320px;margin:0 auto;padding:0 24px 60px;}
 .topbar{padding:26px 0 18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;}
+.topbar-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;margin-left:auto;}
+.topbar-actions .status-chip{white-space:nowrap;}
+.topbar-actions .btn.small{padding:4px 10px;}
+@media (max-width:900px){.topbar{align-items:flex-start;}.topbar-actions{width:100%;justify-content:flex-start;margin-left:0;}}
 .brand{display:flex;align-items:center;gap:12px;}
 .brand-mark{width:42px;height:42px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:16px;background:var(--panel-3);border:1px solid var(--edge);}
 .brand-text h1{font-size:20px;}
@@ -1014,8 +1018,9 @@ function updateAdminSyncChip(){
   const st = AdminStore;
   const dot = st.error ? 'var(--danger)' : (st.syncing ? 'var(--warn)' : 'var(--success)');
   const label = st.syncing ? 'Syncing…' : (st.error ? 'Sync failed — showing saved data' : `Synced ${adminAgoText()}`);
+  el.title = 'Rows stored on this device / rows on the server — both numbers should match.';
   el.innerHTML = `<span class="status-dot" style="background:${dot};"></span>
-    <span>${esc(label)} · ${fmtInt(st.rows.length)} rows stored${st.serverTotal!=null ? ' · server '+fmtInt(st.serverTotal) : ''}</span>
+    <span>${esc(label)} · ${fmtInt(st.rows.length)}${st.serverTotal!=null ? ' / '+fmtInt(st.serverTotal) : ''} rows</span>
     <button class="btn small" id="adminSyncNow" ${st.syncing?'disabled':''} title="Fetch only what's new since the last sync">↻ Sync</button>
     <button class="btn small" id="adminFullRefresh" ${st.syncing?'disabled':''} title="Throw away the stored copy and download everything again — use after deleting/editing rows directly in the Sheet">Full refresh</button>`;
   $('#adminSyncNow').addEventListener('click', ()=>adminSync());
@@ -1103,7 +1108,7 @@ function renderShell(){
         <div class="brand-mark">RA</div>
         <div class="brand-text"><h1>Rate Audit <span class="version-badge" title="Build version — check this matches what support/chat referenced">${APP_VERSION}</span></h1><p>Validate invoice rates against company rates</p></div>
       </div>
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div class="topbar-actions">
         ${s.role==='Admin' ? '<div class="status-chip" id="adminSyncChip" style="gap:8px;font-size:12px;"></div><div class="status-chip" id="usageChip" style="gap:8px;font-size:12px;display:none;"></div>' : ''}
         <div class="status-chip"><span class="status-dot"></span>${esc(s.name)} (${esc(s.superAdmin ? 'Super Admin' : s.role)})</div>
         <div id="bellWrap" class="bell-wrap"><button type="button" class="bell-btn" id="bellBtn" aria-label="Notifications"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="bell-badge" style="display:none;">0</span></button><div id="bellPanel" class="bell-panel"></div></div>
