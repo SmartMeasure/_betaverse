@@ -837,6 +837,7 @@ async function supaDispatch(a){
     case 'verifiers':      return supaRpc('rl_verifiers', {}, 1);
     case 'submit':         return supaRpc('rl_submit', { p_code:a.code, p_pin:a.pin, p_rows:(a.rows||[]).map(supaMapRow) }, 3);
     case 'attachbillcopyurl': return supaRpc('rl_attach_copy', { p_code:a.code, p_pin:a.pin, p_bill_uid:a.billUid, p_url:a.url, p_dl_url:a.downloadUrl||a.url, p_path:a.path||null }, 3);
+    case 'checkbills':     return supaRpc('rl_check_bills', { p_code:a.code, p_pin:a.pin, p_uids:a.uids||[] }, 2);
     case 'mydata':         return supaRpc('rl_my_data', { p_code:a.code, p_pin:a.pin, p_from:nz(a.fromDate), p_to:nz(a.toDate), p_basis:a.dateBasis||'bill' }, 1);
     case 'myverifieddata': return supaRpc('rl_my_verified_data', { p_code:a.code, p_pin:a.pin, p_from:nz(a.fromDate), p_to:nz(a.toDate), p_basis:a.dateBasis||'bill' }, 1);
     case 'alldata':        return supaRpc('rl_all_data', { p_code:a.code, p_pin:a.pin, p_from:nz(a.fromDate), p_to:nz(a.toDate), p_auditor:nz(a.auditorCode), p_basis:a.dateBasis||'bill' }, 1);
@@ -936,29 +937,198 @@ function getPendingSubmissions(){ try{ return JSON.parse(localStorage.getItem(PE
 function setPendingSubmissions(list){ try{ localStorage.setItem(PENDING_KEY, JSON.stringify(list)); }catch(e){} }
 function queuePendingSubmission(rows){
   const list = getPendingSubmissions();
-  list.push({ rows, queuedAt: new Date().toISOString() });
+  const id = 'sub_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+  list.push({ id, rows, queuedAt: new Date().toISOString() });
   setPendingSubmissions(list);
+  return id;
 }
+function dropPendingSubmission(id){ setPendingSubmissions(getPendingSubmissions().filter(x=>x.id!==id)); }
+function setPendingRows(id, rows){
+  const list = getPendingSubmissions();
+  const it = list.find(x=>x.id===id); if(!it) return;
+  it.rows = rows; setPendingSubmissions(list);
+}
+const rowKey_ = r => (r.billUid||r.BillUID||'') + '|' + (r.productCode||r.ProductCode||'');
+
+/* Ask the server which of these lines it REALLY holds. A "success" reply from
+   submit is never trusted on its own — a bill counts as saved only when it is
+   read back from the database. */
+async function serverHasRows_(session, rows){
+  const uids = [...new Set(rows.map(r=>r.billUid||r.BillUID).filter(Boolean))];
+  let have;
+  const res = await backendPost({ action:'checkbills', code:session.code, pin:session.pin, uids });
+  if(res && res.ok && Array.isArray(res.keys)) have = new Set(res.keys);
+  else {
+    // checking function not installed yet (or failed) — fall back to reading the auditor's own data
+    const r2 = await backendPost({ action:'mydata', code:session.code, pin:session.pin, fromDate:'', toDate:'', dateBasis:'submission' });
+    if(!r2 || !r2.ok) throw new Error((r2&&r2.error)||'Could not verify with the server');
+    have = new Set((r2.rows||[]).map(r=> r.BillUID+'|'+r.ProductCode));
+  }
+  return rows.filter(r=> !have.has(rowKey_(r)));   // rows NOT on the server
+}
+
+/* Send + verify one queued item. Returns {missing:[rows], error:''} */
+async function sendAndVerify_(session, rows){
+  const sub = await backendPost({ action:'submit', code:session.code, pin:session.pin, rows });
+  if(!sub || !sub.ok) return { missing: rows, error: (sub&&sub.error)||'Unknown error from the server.' };
+  const missing = await serverHasRows_(session, rows);
+  const why = sub.deletedSkipped ? ` ${sub.deletedSkipped} line(s) belong to a bill an Admin removed earlier — ask your Admin.` : '';
+  return { missing, error: missing.length ? `${missing.length} of ${rows.length} line(s) were not stored by the server.${why}` : '' };
+}
+
+
+/* Fire-and-forget FAST save: called the instant the bill lines are built (before
+   photo stamping), so the server write starts immediately and the auditor never waits. */
+function startServerSave_(newRecords){
+  if(!backendConfigured()) return;
+  const session = getSession();
+  if(!session) return;
+  idbPutAll('bills', newRecords);                       // durable on-device copy first
+  const outboxId = queuePendingSubmission(newRecords);  // write-ahead outbox
+  renderSyncBanner();
+  sendAndVerify_(session, newRecords)
+    .then(r=>{
+      if(!r.missing.length){
+        dropPendingSubmission(outboxId);
+        toast(`Bill saved and confirmed on the server (${newRecords.length} line(s))`, 'ok');
+        STATE.syncStatus = { state:'idle', message:'' };
+      } else {
+        setPendingRows(outboxId, r.missing);
+        toast(`NOT saved on the server yet: ${r.error} Your data is safe on this device and keeps retrying.`, 'err');
+        STATE.syncStatus = { state:'error', message: r.error + ' Your data is safe on this device and keeps retrying.' };
+      }
+      renderStatusStrip(); renderSyncBanner();
+    })
+    .catch(()=>{
+      toast('NOT saved on the server yet (no connection). Your data is safe on this device and keeps retrying.', 'err');
+      STATE.syncStatus = { state:'error', message:'Could not reach the server (check your internet connection). Your data is safe on this device and keeps retrying.' };
+      renderStatusStrip(); renderSyncBanner();
+    });
+}
+
+/* Copy of every bill OUTSIDE the browser (connected folder), so clearing
+   cookies / site data can never lose an audit. */
+const BACKUP_SUBFOLDER = 'Bill Backup';
+async function backupBillToFolder_(billUid, records, bf){
+  const root = STATE.connectedFolder;
+  if(!root) return false;
+  try{
+    // Bill Backup / DD-MM-YYYY (IST) / hh-mm-ss AM|PM (IST, 12-hour) — created automatically
+    const now = new Date();
+    const dayDir = await (await root.getDirectoryHandle(BACKUP_SUBFOLDER,{create:true})).getDirectoryHandle(istDateDMY(now),{create:true});
+    const dir = await dayDir.getDirectoryHandle(istTime12(now).replace(/:/g,'-'),{create:true});
+    let photoFile = '';
+    if(bf && bf.dataUrl){
+      const blob = await (await fetch(bf.dataUrl)).blob();
+      photoFile = (bf.savedName || billUid) ;
+      const fh = await dir.getFileHandle(photoFile,{create:true});
+      const w = await fh.createWritable(); await w.write(blob); await w.close();
+    }
+    const meta = { billUid, savedAt:new Date().toISOString(), photoFile, mimeType:(bf&&bf.kind==='image')?'image/jpeg':'application/pdf', folderName:(bf&&bf.folderName)||'', records };
+    const jh = await dir.getFileHandle('bill_'+billUid+'.json',{create:true});
+    const jw = await jh.createWritable(); await jw.write(JSON.stringify(meta)); await jw.close();
+    return true;
+  }catch(e){ return false; }
+}
+function blobToBase64_(blob){ return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=()=>rej(fr.error); fr.readAsDataURL(blob); }); }
+async function restoreBillsFromBackup(){
+  const root = STATE.connectedFolder;
+  if(!root){ toast('Connect your folder first', 'err'); return; }
+  let bills = 0, photos = 0;
+  try{
+    const base = await root.getDirectoryHandle(BACKUP_SUBFOLDER,{create:false});
+    const walk = async (dh)=>{
+      for await (const [fn, fh] of dh.entries()){
+        if(fh.kind==='directory'){ await walk(fh); continue; }
+        if(!/^bill_.*\.json$/.test(fn)) continue;
+        try{
+          const meta = JSON.parse(await (await fh.getFile()).text());
+          if(!meta.records || !meta.records.length) continue;
+          queuePendingSubmission(meta.records); bills++;
+          if(meta.photoFile){
+            try{
+              const pf = await (await dh.getFileHandle(meta.photoFile)).getFile();
+              queuePendingPhoto(meta.billUid, meta.photoFile, meta.mimeType||pf.type||'image/jpeg', await blobToBase64_(pf), meta.folderName||''); photos++;
+            }catch(e){}
+          }
+        }catch(e){}
+      }
+    };
+    await walk(base);
+  }catch(e){ toast('No "' + BACKUP_SUBFOLDER + '" folder found in the connected folder yet', 'err'); return; }
+  renderSyncBanner();
+  toast(`Restored ${bills} bill(s) and ${photos} photo(s) from backup — sending to the server…`, 'ok');
+  await retryPendingSubmissions(true); await retryPendingPhotos(true);
+  const rc = await reconcileWithServer(false);
+  renderSyncBanner();
+}
+
+let __subRetryBusy = false;
 async function retryPendingSubmissions(silent){
   if(!backendConfigured()) return;
   const session = getSession();
   if(!session) return;
+  if(__subRetryBusy) return;
   const list = getPendingSubmissions();
   if(!list.length) return;
-  const remaining = [];
-  let sent = 0;
-  let lastError = '';
-  for(const item of list){
-    try{
-      const res = await backendPost({ action:'submit', code:session.code, pin:session.pin, rows:item.rows });
-      if(res.ok) sent += item.rows.length; else { remaining.push(item); lastError = res.error || 'Unknown error from the server.'; }
-    }catch(e){ remaining.push(item); lastError = 'Could not reach the server (check your internet connection).'; }
-  }
-  setPendingSubmissions(remaining);
-  if(sent && !silent) toast(`${sent} pending line(s) submitted to the server`, 'ok');
-  STATE.syncStatus = remaining.length ? { state:'error', message:lastError } : { state:'idle', message:'' };
+  __subRetryBusy = true;
+  let confirmed = 0, lastError = '';
+  try{
+    for(const item of list){
+      try{
+        const r = await sendAndVerify_(session, item.rows);
+        const done = item.rows.length - r.missing.length;
+        confirmed += done;
+        if(!r.missing.length) dropPendingSubmission(item.id);
+        else { setPendingRows(item.id, r.missing); lastError = r.error; }
+      }catch(e){ lastError = 'Could not reach the server (check your internet connection).'; }
+    }
+  } finally { __subRetryBusy = false; }
+  const remaining = getPendingSubmissions();
+  if(confirmed && !silent) toast(`${confirmed} pending line(s) saved and confirmed on the server`, 'ok');
+  STATE.syncStatus = remaining.length ? { state:'error', message:(lastError||'Not saved yet') + ' Your data is safe on this device and will keep retrying.' } : { state:'idle', message:'' };
   renderStatusStrip();
   renderSyncBanner();
+}
+// Keep retrying on its own: every 30 s while anything is waiting, and the moment the network returns.
+setInterval(()=>{ try{ if(getPendingSubmissions().length) retryPendingSubmissions(true); if(getPendingPhotos().length) retryPendingPhotos(true); }catch(e){} }, 30000);
+window.addEventListener('online', ()=>{ try{ retryPendingSubmissions(true); retryPendingPhotos(true); }catch(e){} });
+window.addEventListener('beforeunload', e=>{
+  try{ if(getPendingSubmissions().length){ e.preventDefault(); e.returnValue='Some bills are not saved on the server yet. Stay on this page until they are.'; return e.returnValue; } }catch(x){}
+});
+
+/* ---------------- Check with server (reconcile) ----------------
+   Compares every bill saved on THIS device with what the server really holds
+   for this login, and re-sends anything missing (the server ignores
+   duplicates, so re-sending is always safe). Lines the server refuses (e.g.
+   a bill an Admin deleted) are reported, never hidden. */
+async function reconcileWithServer(silent){
+  if(!backendConfigured()) return null;
+  const session = getSession();
+  if(!session) return null;
+  try{
+    const local = (await idbGetAll('bills')) || [];
+    const mine = local.filter(r=> r && r.billUid);
+    const res = await backendPost({ action:'mydata', code:session.code, pin:session.pin, fromDate:'', toDate:'', dateBasis:'submission' });
+    if(!res || !res.ok){ if(!silent) toast('Could not read the server list: ' + ((res&&res.error)||'no reply'), 'err'); return null; }
+    const onServer = new Set((res.rows||[]).map(r=> r.BillUID + '|' + r.ProductCode));
+    const missing = mine.filter(r=> !onServer.has(rowKey_(r)));
+    const localBills = new Set(mine.map(r=>r.billUid)).size;
+    const serverBills = new Set((res.rows||[]).map(r=>r.BillUID)).size;
+    let resent = 0, refused = 0;
+    if(missing.length){
+      for(let i=0;i<missing.length;i+=100){
+        const chunk = missing.slice(i,i+100);
+        const r2 = await backendPost({ action:'submit', code:session.code, pin:session.pin, rows:chunk });
+        if(r2 && r2.ok){ resent += r2.submitted||0; refused += chunk.length-(r2.submitted||0); }
+        else { toast('Re-send failed: ' + ((r2&&r2.error)||'no reply'), 'err'); break; }
+      }
+    }
+    const msg = `This device: ${localBills} bill(s). Server (your login): ${serverBills} bill(s). ` +
+      (missing.length ? `Re-sent ${resent} missing line(s)` + (refused ? `; ${refused} refused by the server (removed earlier or duplicate).` : '.') : 'Nothing missing.');
+    if(!silent || missing.length) toast(msg, missing.length && refused ? 'err' : 'ok');
+    return { localBills, serverBills, missing: missing.length, resent, refused, msg };
+  }catch(e){ if(!silent) toast('Check failed: ' + (e.message||e), 'err'); return null; }
 }
 
 /* ---------------- Pending bill-copy uploads (same idea as above) ----------
@@ -1531,7 +1701,12 @@ function renderSyncBanner(){
   const pendingPhotos = getPendingPhotos().length;
   let s = STATE.syncStatus;
   if(pendingPhotos>0 && !s.message){ const le=(getPendingPhotos().find(x=>x.lastError)||{}).lastError; if(le) s = { state:'error', message:'Photo upload problem — '+le }; }
-  if(pending<=0 && pendingPhotos<=0 && s.state!=='error'){ el.innerHTML=''; return; }
+  if(pending<=0 && pendingPhotos<=0 && s.state!=='error'){
+    el.innerHTML = `<div style="text-align:right;margin:4px 0"><button class="btn small" id="syncCheckBtn">Check with server</button></div>`;
+    const cb = $('#syncCheckBtn');
+    if(cb) cb.addEventListener('click', async ()=>{ cb.disabled=true; cb.textContent='Checking…'; await reconcileWithServer(false); cb.disabled=false; cb.textContent='Check with server'; });
+    return;
+  }
   const isErr = s.state==='error';
   const parts = [];
   if(pending>0) parts.push(`${pending} bill line(s) not yet on the server`);
@@ -1542,8 +1717,11 @@ function renderSyncBanner(){
         <strong>${parts.length ? parts.join(' · ')+'.' : 'Sync issue.'}</strong>
         ${s.message ? `<span class="sync-banner-msg">${esc(s.message)}</span>` : ''}
       </div>
+      <button class="btn small" id="syncCheckBtn">Check with server</button>
       <button class="btn small" id="syncRetryBtn">Retry now</button>
     </div>`;
+  const cb2 = $('#syncCheckBtn');
+  if(cb2) cb2.addEventListener('click', async ()=>{ cb2.disabled=true; cb2.textContent='Checking…'; await reconcileWithServer(false); renderSyncBanner(); });
   const btn = $('#syncRetryBtn');
   if(btn) btn.addEventListener('click', async ()=>{
     btn.disabled = true; btn.textContent = 'Retrying…';
@@ -1743,8 +1921,9 @@ function localFolderCardHtml(){
       <div style="font-size:22px;">📁</div>
       <div style="flex:1;">
         <div style="font-weight:700;">Connected: "${esc(STATE.connectedFolder.name)}"</div>
-        <div class="small-muted">Exports save straight into "${REPORTS_SUBFOLDER}/&lt;date&gt;/" · Uploads can be quick-picked from "${UPLOADS_SUBFOLDER}"</div>
+        <div class="small-muted">Every saved bill is also copied to "${BACKUP_SUBFOLDER}/DD-MM-YYYY/hh-mm-ss AM|PM/" here (created automatically) — safe even if browser cookies/cache are cleared · Exports go to "${REPORTS_SUBFOLDER}"</div>
       </div>
+      <button class="btn small" id="restoreBackupBtn">Restore bills from backup</button>
       <button class="btn small" id="reconnectFolderBtn">Change folder</button>
     </div>`;
   }
@@ -1761,13 +1940,15 @@ function localFolderCardHtml(){
   return `<div class="card" style="margin:14px 0;display:flex;align-items:center;gap:14px;">
     <div style="font-size:22px;">📁</div>
     <div style="flex:1;">
-      <div style="font-weight:700;">Connect a local folder</div>
-      <div class="small-muted">One folder on this device with "${REPORTS_SUBFOLDER}" and "${UPLOADS_SUBFOLDER}" subfolders — exports save straight in, uploads can be picked without hunting for the file.</div>
+      <div style="font-weight:700;">Connect a local folder (recommended) — pick a folder on your D: drive, not C:</div>
+      <div class="small-muted">Keeps a backup copy of every saved bill outside the browser, so clearing cookies or cache never loses an audit. One folder on this device with "${REPORTS_SUBFOLDER}" and "${UPLOADS_SUBFOLDER}" subfolders — exports save straight in, uploads can be picked without hunting for the file.</div>
     </div>
     <button class="btn small accent" id="reconnectFolderBtn">Connect folder</button>
   </div>`;
 }
 function wireLocalFolderCard(){
+  const rb = $('#restoreBackupBtn');
+  if(rb) rb.addEventListener('click', async ()=>{ rb.disabled=true; rb.textContent='Restoring…'; await restoreBillsFromBackup(); rb.disabled=false; rb.textContent='Restore bills from backup'; });
   const btn = $('#reconnectFolderBtn');
   if(!btn) return;
   btn.addEventListener('click', async ()=>{
@@ -4226,6 +4407,8 @@ async function saveBill(){
     STATE.bills.push(record);
     newRecords.push(record);
   });
+  idbPutAll('bills', newRecords);  // on-device copy, always
+  startServerSave_(newRecords);   // server write starts NOW — never waits for photo stamping
   // Stamp the bill photo NOW, once the whole bill (every product line, its
   // final status) is known — not at attach time — so the footer's overcharge
   // detail is always complete and accurate, whatever order fields were filled.
@@ -4255,34 +4438,10 @@ async function saveBill(){
   // Persist locally right away — this is what makes a refresh no longer
   // lose the bills/photos just saved, and is what "export" reads from
   // instead of holding everything only in memory.
-  idbPutAll('bills', newRecords);
   if(STATE.billFiles[billUid]) idbPutAll('billFiles', [{ billUid, ...STATE.billFiles[billUid] }]);
+  backupBillToFolder_(billUid, newRecords, STATE.billFiles[billUid]);
 
-  if(backendConfigured()){
-    const session = getSession();
-    if(session){
-      backendPost({ action:'submit', code:session.code, pin:session.pin, rows:newRecords })
-        .then(res=>{
-          if(res.ok){
-            toast(`Saved locally and submitted ${res.submitted} line(s) to the server`, 'ok');
-            STATE.syncStatus = { state:'idle', message:'' };
-          } else {
-            queuePendingSubmission(newRecords);
-            toast(`Saved locally — Server submit failed (${res.error||'unknown error'}), queued to retry`, 'err');
-            STATE.syncStatus = { state:'error', message: res.error || 'Unknown error from the server.' };
-            renderStatusStrip();
-          }
-          renderSyncBanner();
-        })
-        .catch(()=>{
-          queuePendingSubmission(newRecords);
-          toast('Saved locally — no connection, queued to submit later', 'err');
-          STATE.syncStatus = { state:'error', message:'Could not reach the server (check your internet connection).' };
-          renderStatusStrip();
-          renderSyncBanner();
-        });
-    }
-  } else {
+  if(!backendConfigured()){
     toast(`Saved bill with ${validLines.length} product line(s)`, 'ok');
   }
 
@@ -4937,6 +5096,7 @@ async function boot(){
     renderLoginGate();
     return;
   }
+  try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(e){}
   const restoredCount = await restoreLocalBillsFromIDB();
   await tryRestoreLocalFolder();
   renderShell();
@@ -4946,7 +5106,7 @@ async function boot(){
     backendGet({action:'verifiers'}).then(res=>{
       if(res.ok){ STATE.verifiersList = res.verifiers; if(STATE.billForm) renderRateCheck(); }
     }).catch(()=>{});
-    retryPendingSubmissions(true);
+    retryPendingSubmissions(true).then(()=>reconcileWithServer(true));
     retryPendingPhotos(true);
   }
 }
