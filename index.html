@@ -683,7 +683,7 @@ footer.appfoot{text-align:center;color:var(--ink-faint);font-size:11px;margin-to
 // Bump this on every delivered file so the running app itself shows which
 // build is loaded — filenames alone get confused when several downloads
 // pile up with similar names, so this header badge is the source of truth.
-const APP_VERSION = 'v88-supabase';
+const APP_VERSION = 'v89-supabase';
 /* Supabase connection is configured inside the BACKEND block just below (SUPABASE_URL_DEFAULT / SUPABASE_ANON_KEY_DEFAULT). */
 // Where the separate Dashboard.html lives, relative to this file (or an
 // absolute URL) — change this if Dashboard is hosted somewhere else.
@@ -1171,7 +1171,21 @@ async function retryPendingPhotosInner_(silent, session, list){
   let sent = 0, lastErr = '';
   for(const item of list){
     try{
-      const res = await uploadAndAttachOnePhoto_(session, item.billUid, item.fileName, item.mimeType, item.base64Data, item.folderName);
+      let res = await uploadAndAttachOnePhoto_(session, item.billUid, item.fileName, item.mimeType, item.base64Data, item.folderName);
+      if(!res.ok && /does not belong to you|not belong/i.test(res.error||'')){
+        // The server has no bill lines of this bill under this login => the bill itself never reached the
+        // server. Re-send its lines from this device first (safe: duplicates are ignored), then attach again.
+        try{
+          const local = ((await idbGetAll('bills'))||[]).filter(r=>r && r.billUid===item.billUid);
+          if(local.length){
+            const sv = await sendAndVerify_(session, local);
+            if(!sv.missing.length) res = await uploadAndAttachOnePhoto_(session, item.billUid, item.fileName, item.mimeType, item.base64Data, item.folderName);
+            else res = { ok:false, error:'The bill lines could not be saved on the server: ' + sv.error };
+          } else {
+            res = { ok:false, error:'This bill is not on the server for your login and no local copy of its lines was found on this device. It was probably saved by another login or before the last data clear — ask your Admin to check this bill.' };
+          }
+        }catch(e){ res = { ok:false, error:'Could not re-send the bill lines (' + String(e.message||e) + ')' }; }
+      }
       if(res.ok) sent++; else { item.lastError = res.error || 'Upload failed'; lastErr = item.lastError; remaining.push(item); }
     }catch(e){ item.lastError = 'Could not reach the server (' + String(e.message||e) + ')'; lastErr = item.lastError; remaining.push(item); }
   }
